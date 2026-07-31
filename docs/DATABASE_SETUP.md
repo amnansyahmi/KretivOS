@@ -8,21 +8,17 @@ Never commit a live database connection string to GitHub. Store it only in local
 
 If a connection string is shared in chat, email, a ticket, screenshot, or source code, rotate the database password in Neon before using it in production.
 
-## Environment variables
+For production, create a dedicated application role instead of using the database owner account for normal runtime traffic.
+
+## Environment variable
 
 Add the pooled Neon connection string as:
 
 ```env
-DATABASE_URL="postgresql://USER:PASSWORD@YOUR-ENDPOINT-pooler.REGION.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL="postgresql://APP_USER:APP_PASSWORD@YOUR-ENDPOINT-pooler.REGION.aws.neon.tech/neondb?sslmode=require"
 ```
 
-For the temporary internal access layer, also add:
-
-```env
-KRETIVOS_ACCESS_KEY="a-long-random-secret"
-```
-
-Add both variables to Vercel for Production, Preview, and Development, then redeploy.
+Add `DATABASE_URL` to Vercel for Production, Preview, and Development, then redeploy.
 
 ## Apply the schema
 
@@ -80,4 +76,4 @@ During migration, localStorage may be retained only as an offline cache. Postgre
 
 ## Connection choice
 
-Use the Neon pooled hostname for deployed application traffic. It is designed for serverless concurrency. Administrative tools and migration systems may use a direct, non-pooler connection when required.
+Use the Neon pooled hostname for deployed application traffic. Administrative tools and migration systems may use a direct, non-pooler connection when required.
