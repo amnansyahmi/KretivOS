@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { HRMSAttendanceReview } from "@/components/hrms-attendance-review";
-import { getHRSession } from "@/lib/hr-auth";
+import { getHRSession, publicSession } from "@/lib/hr-auth";
 
 export const metadata: Metadata = {
   title: "Attendance Review · HRMS",
@@ -13,5 +13,5 @@ export default async function AttendanceReviewPage() {
   const session = await getHRSession();
   if (!session) redirect("/hr/login");
   if (!['hr_admin', 'manager'].includes(session.role)) redirect("/hr?section=attendance");
-  return <HRMSAttendanceReview />;
+  return <HRMSAttendanceReview session={publicSession(session)} />;
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, Camera, ChevronRight, Clock3,
@@ -9,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DateInput } from "@/components/date-input";
+import { getPermittedHRMSNavigation, HRMSShell, type HRMSSession } from "@/components/hrms-shell";
 import { cn } from "@/lib/utils";
 
 type Employee = {
@@ -128,7 +128,7 @@ async function requestSnapshot() {
   return data as Snapshot;
 }
 
-export function HRMSAttendanceReview() {
+export function HRMSAttendanceReview({ session }: { session: HRMSSession }) {
   const [data, setData] = useState<Snapshot>(emptySnapshot);
   const [selected, setSelected] = useState<AttendanceRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -192,20 +192,18 @@ export function HRMSAttendanceReview() {
     review: data.attendance.filter(needsReview).length,
   }), [data.attendance]);
 
-  return <main className="min-h-screen bg-[#f5f2ea] pb-24 text-[#202820]">
-    <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f5f2ea]/95 backdrop-blur-xl">
-      <div className="mx-auto flex min-h-16 max-w-[1600px] items-center gap-3 px-4 md:min-h-24 md:px-8 md:py-5">
-        <Button asChild variant="outline" size="icon" className="bg-white"><Link href="/hr?section=attendance" aria-label="Back to HRMS attendance"><ArrowLeft className="h-4 w-4" /></Link></Button>
-        <div className="min-w-0 flex-1">
-          <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] md:block">Admin workspace</div>
-          <h1 className="truncate text-lg font-semibold tracking-tight md:mt-1 md:text-3xl">Attendance Review</h1>
-          <p className="mt-1 hidden text-sm text-muted-foreground md:block">Review clock-in and clock-out records together with their photo evidence and timestamp verification.</p>
-        </div>
-        <Button variant="outline" className="bg-white" onClick={load} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /><span className="hidden sm:inline">Refresh</span></Button>
-      </div>
-    </header>
-
-    <div className="mx-auto max-w-[1600px] space-y-5 px-4 py-5 md:px-8 md:py-7">
+  return <HRMSShell
+    activeId="attendance"
+    title="Attendance Review"
+    description="Photo evidence and timestamp verification"
+    navigation={getPermittedHRMSNavigation(session)}
+    session={session}
+    actions={<>
+      <Button asChild variant="outline" size="icon" className="bg-white sm:w-auto sm:px-4"><a href="/hr?section=attendance" aria-label="Back to attendance"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Attendance</span></a></Button>
+      <Button variant="outline" size="icon" className="bg-white sm:w-auto sm:px-4" onClick={load} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /><span className="hidden sm:inline">Refresh</span></Button>
+    </>}
+  >
+    <div className="space-y-5">
       <Card className="border-emerald-200 bg-emerald-50/80"><CardContent className="flex items-start gap-3 p-4 text-xs leading-5 text-emerald-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>Attendance evidence is private and available only to HR Admin or Manager. Replacing or removing a photo preserves the official attendance timestamp and writes an audit entry.</span></CardContent></Card>
 
       {error && <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
@@ -270,7 +268,7 @@ export function HRMSAttendanceReview() {
       employee={employeeMap.get(selected.employeeId)}
       onClose={() => setSelected(null)}
     />}
-  </main>;
+  </HRMSShell>;
 }
 
 function Stat({ label, value, note, icon: Icon }: { label: string; value: number; note: string; icon: any }) {

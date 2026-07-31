@@ -4,10 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isValidElement, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, BookOpenCheck, BriefcaseBusiness, CalendarCheck, Check, ChevronRight,
-  ClipboardList, Clock3, FileText, GraduationCap, HandCoins, LayoutDashboard, LogOut,
-  Pencil, Plus, ReceiptText, RefreshCw, Search, Settings2, ShieldCheck, Trash2,
-  UserCheck, UserPlus, Users, WalletCards, X
+  BookOpenCheck, CalendarCheck, Check, ChevronRight, Clock3, FileText, GraduationCap,
+  Pencil, Plus, RefreshCw, Search, Settings2, ShieldCheck, Trash2, UserPlus, WalletCards, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +13,14 @@ import { AIWritingButton } from "@/components/ai-writing-button";
 import { DateInput } from "@/components/date-input";
 import { HRPhotoAttendance } from "@/components/hr-photo-attendance";
 import { HRMSNotificationCenter } from "@/components/hrms-notification-center";
+import {
+  getPermittedHRMSNavigation,
+  HRMS_NAV_ITEMS,
+  HRMSShell,
+  type HRMSRole as Role,
+  type HRMSSession as Session,
+  type HRMSTab as Tab,
+} from "@/components/hrms-shell";
 import {
   HRAttendanceCorrections,
   HRClaims,
@@ -24,9 +30,6 @@ import {
 } from "@/components/hrms-extended-sections";
 import { cn } from "@/lib/utils";
 
-type Role = "hr_admin" | "manager" | "employee" | "finance";
-type Session = { userId: string; name: string; email: string; role: Role; expiresAt: string; authEnabled?: boolean };
-type Tab = "self" | "overview" | "people" | "attendance" | "leave" | "onboarding" | "lifecycle" | "goals" | "learning" | "claims" | "payslips" | "documents" | "settings";
 type Resource = "employees" | "leave" | "attendance" | "attendance_corrections" | "goals" | "learning" | "documents" | "claims" | "payroll" | "lifecycle";
 type Editor = { resource: Resource; record: any; isNew: boolean } | null;
 
@@ -60,35 +63,10 @@ const emptySnapshot: Snapshot = {
   settings: { departments: [], leaveTypes: [], workModes: [] }, version: 0, syncedAt: "",
 };
 
-const tabs: { id: Tab; label: string; description: string; icon: any }[] = [
-  { id: "self", label: "My HR", description: "Personal profile and requests", icon: UserCheck },
-  { id: "overview", label: "Dashboard", description: "People operations at a glance", icon: LayoutDashboard },
-  { id: "people", label: "People", description: "Employee directory and profiles", icon: Users },
-  { id: "attendance", label: "Attendance", description: "Photo clock-in and work records", icon: Clock3 },
-  { id: "leave", label: "Leave", description: "Requests, balances and approvals", icon: CalendarCheck },
-  { id: "onboarding", label: "Onboarding", description: "New joiner readiness", icon: ClipboardList },
-  { id: "lifecycle", label: "Lifecycle", description: "Probation, confirmation and exit", icon: UserCheck },
-  { id: "goals", label: "Performance", description: "Goals, progress and reviews", icon: BriefcaseBusiness },
-  { id: "learning", label: "Learning", description: "Training and certifications", icon: GraduationCap },
-  { id: "claims", label: "Claims", description: "Expenses and reimbursements", icon: HandCoins },
-  { id: "payslips", label: "Payroll", description: "Protected payslips and payroll", icon: ReceiptText },
-  { id: "documents", label: "HR Documents", description: "Policy and staff document register", icon: FileText },
-  { id: "settings", label: "Settings", description: "HR lists and attendance rules", icon: Settings2 },
-];
+const tabs = HRMS_NAV_ITEMS;
 
 function validTab(value?: string): Tab {
   return tabs.some((item) => item.id === value) ? value as Tab : "self";
-}
-
-function availableTabs(role: Role) {
-  if (role === "hr_admin") return tabs;
-  const ids: Record<Role, Tab[]> = {
-    hr_admin: tabs.map((item) => item.id),
-    manager: ["self", "overview", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
-    finance: ["self", "overview", "people", "claims", "payslips", "documents"],
-    employee: ["self", "attendance", "leave", "goals", "learning", "claims", "payslips", "documents"],
-  };
-  return tabs.filter((item) => ids[role].includes(item.id));
 }
 
 function today() {
@@ -115,7 +93,7 @@ async function requestJson(url: string, init?: RequestInit) {
 
 export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; session: Session }) {
   const router = useRouter();
-  const permittedTabs = session.authEnabled === false ? tabs.filter((item) => item.id !== "self") : availableTabs(session.role);
+  const permittedTabs = getPermittedHRMSNavigation(session);
   const [data, setData] = useState<Snapshot>(emptySnapshot);
   const [tab, setTab] = useState<Tab>(validTab(initialTab || (session.authEnabled === false ? "overview" : "self")));
   const [query, setQuery] = useState("");
@@ -240,11 +218,6 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     finally { setSaving(false); }
   }
 
-  async function logout() {
-    await fetch("/api/hr/auth/logout", { method: "POST" }).catch(() => undefined);
-    window.location.replace("/hr/login");
-  }
-
   async function toggleOnboarding(employee: any, itemId: string) {
     const onboarding = (employee.onboarding || []).map((item: any) => item.id === itemId ? { ...item, done: !item.done } : item);
     setSaving(true); setError("");
@@ -273,43 +246,22 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     documents: session.role === "hr_admin" ? "documents" : undefined,
   };
   const currentTab = tabs.find((item) => item.id === tab) || tabs[0];
-  const CurrentTabIcon = currentTab.icon;
 
   return (
-    <main className="min-h-screen bg-[#f5f2ea] pb-24 text-[#202820]">
-      <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f5f2ea]/95 backdrop-blur-xl">
-        <div className="mx-auto flex min-h-16 max-w-[1680px] items-center gap-3 px-4 md:min-h-24 md:px-8 md:py-5">
-          <Button asChild variant="outline" size="icon" className="shrink-0 bg-white" aria-label="Back to KretivOS Home"><Link href="/"><ArrowLeft className="h-4 w-4" /></Link></Button>
-          <div className="min-w-0 flex-1">
-            <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] md:block">Kretivco people operations</div>
-            <h1 className="truncate text-lg font-semibold tracking-tight md:mt-1 md:text-3xl">HRMS</h1>
-            <p className="mt-1 truncate text-[11px] text-muted-foreground md:text-sm">{currentTab.label} · {currentTab.description}</p>
-          </div>
-          <Button variant="outline" size="icon" className="bg-white" onClick={load} disabled={loading} aria-label="Refresh HRMS"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>
-          <HRMSNotificationCenter />
-          {actionResource[tab] && <Button onClick={() => openCreate(actionResource[tab]!)}><Plus className="h-4 w-4" /><span className="hidden sm:inline">Add record</span></Button>}
-          {tab === "overview" && session.role === "hr_admin" && <Button onClick={() => { changeTab("people"); openCreate("employees"); }}><UserPlus className="h-4 w-4" /><span className="hidden sm:inline">Add person</span></Button>}
-          <div className="hidden min-w-0 items-center gap-2 rounded-xl border bg-white px-3 py-2 xl:flex"><div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#202c25] text-[9px] font-semibold text-white">{initials(session.name)}</div><div className="min-w-0"><div className="max-w-32 truncate text-xs font-semibold">{session.name}</div><div className="text-[9px] capitalize text-muted-foreground">{session.authEnabled === false ? "Shared workspace" : session.role.replace("_", " ")}</div></div></div>
-          {session.authEnabled !== false && <Button variant="outline" size="icon" className="bg-white" onClick={logout} aria-label="Sign out"><LogOut className="h-4 w-4" /></Button>}
-        </div>
-      </header>
-
-      <div className="mx-auto grid max-w-[1680px] gap-6 px-4 py-5 md:px-8 md:py-7 lg:grid-cols-[250px_minmax(0,1fr)]">
-        <aside className="hidden self-start lg:sticky lg:top-32 lg:block">
-          <div className="rounded-2xl border border-black/8 bg-white/80 p-2 shadow-sm">
-            <div className="px-3 pb-2 pt-3 text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">HRMS modules</div>
-            <nav className="space-y-1" aria-label="HRMS navigation">
-              {permittedTabs.map(({ id, label, description, icon: Icon }) => <button key={id} onClick={() => changeTab(id)} className={cn("flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition", tab === id ? "bg-[#202c25] text-white" : "text-[#59635b] hover:bg-[#f3efe7]")}><Icon className="mt-0.5 h-4 w-4 shrink-0" /><span className="min-w-0"><span className="block text-sm font-medium">{label}</span><span className={cn("mt-0.5 block truncate text-[10px]", tab === id ? "text-white/50" : "text-muted-foreground")}>{description}</span></span></button>)}
-            </nav>
-            <Link href="/" className="mt-2 flex min-h-11 items-center gap-3 rounded-xl border-t px-3 pt-3 text-xs font-medium text-[#5d665f] hover:text-[#202c25]"><ArrowLeft className="h-4 w-4" />Back to KretivOS</Link>
-          </div>
-        </aside>
-
-        <section className="min-w-0">
-          <label className="mb-4 block rounded-2xl border border-black/8 bg-white p-3 shadow-sm lg:hidden">
-            <span className="mb-2 block text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">HRMS section</span>
-            <span className="relative block"><CurrentTabIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#ba5c42]" /><select value={tab} onChange={(event) => changeTab(event.target.value as Tab)} className="h-12 w-full appearance-none rounded-xl border bg-[#fbfaf7] pl-10 pr-10 text-sm font-semibold outline-none focus:border-[#ba5c42]">{permittedTabs.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><ChevronRight className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 rotate-90 text-muted-foreground" /></span>
-          </label>
+    <HRMSShell
+      activeId={tab}
+      title={currentTab.label}
+      description={currentTab.description}
+      navigation={permittedTabs}
+      session={session}
+      onNavigate={changeTab}
+      actions={<>
+        <Button variant="outline" size="icon" className="hidden bg-white sm:inline-flex" onClick={load} disabled={loading} aria-label="Refresh HRMS"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>
+        <HRMSNotificationCenter />
+        {actionResource[tab] && <Button size="icon" className="sm:w-auto sm:px-4" onClick={() => openCreate(actionResource[tab]!)} aria-label={`Add ${currentTab.label} record`}><Plus className="h-4 w-4" /><span className="hidden sm:inline">Add record</span></Button>}
+        {tab === "overview" && session.role === "hr_admin" && <Button size="icon" className="sm:w-auto sm:px-4" onClick={() => { changeTab("people"); openCreate("employees"); }} aria-label="Add person"><UserPlus className="h-4 w-4" /><span className="hidden sm:inline">Add person</span></Button>}
+      </>}
+    >
         {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
         {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
 
@@ -375,11 +327,8 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
             {tab === "settings" && <HRMSSettings settings={data.settings} saving={saving} onSave={saveSettings} />}
           </>
         )}
-        </section>
-      </div>
-
       {editor && <EditorDialog editor={editor} setEditor={setEditor} data={data} session={session} saving={saving} onSave={saveEditor} />}
-    </main>
+    </HRMSShell>
   );
 }
 
