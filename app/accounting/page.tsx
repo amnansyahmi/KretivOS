@@ -12,9 +12,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowLeft, BookOpen, Building2, Camera, Check, ChevronRight,
-  CircleDollarSign, FileText, Landmark, Loader2, Plus, Receipt, RefreshCw,
-  ScrollText, Trash2, TrendingDown, TrendingUp, Upload, X,
+  AlertTriangle, ArrowLeft, ArrowLeftRight, BookOpen, Building2, Camera, Check,
+  ChevronRight, CircleDollarSign, FileText, HandCoins, Landmark, ListTree, Loader2,
+  Lock, LockOpen, Plus, Receipt, RefreshCw, ScrollText, Trash2, TrendingDown,
+  TrendingUp, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,16 +23,19 @@ import { useToast } from "@/components/toast";
 import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-type Tab = "overview" | "capture" | "bills" | "vendors" | "payments" | "reports" | "journal";
+type Tab = "overview" | "capture" | "transactions" | "bills" | "vendors" | "payments" | "settlements" | "reports" | "journal" | "accounts";
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: CircleDollarSign },
   { id: "capture", label: "Capture", icon: Camera },
+  { id: "transactions", label: "Money in/out", icon: ArrowLeftRight },
   { id: "bills", label: "Bills", icon: Receipt },
   { id: "vendors", label: "Vendors", icon: Building2 },
   { id: "payments", label: "Payments", icon: Landmark },
+  { id: "settlements", label: "Settlements", icon: HandCoins },
   { id: "reports", label: "Reports", icon: TrendingUp },
   { id: "journal", label: "Journal", icon: BookOpen },
+  { id: "accounts", label: "Accounts", icon: ListTree },
 ];
 
 const money = (value: number, currency = "RM") =>
@@ -41,10 +45,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 type Snapshot = {
   accounts: any[]; vendors: any[]; bills: any[]; payments: any[]; periods: any[]; entries: any[];
+  transactions?: any[]; settlements?: any[];
   unpostedInvoices?: { count: number; value: number };
+  unreconciledCash?: { count: number; net: number };
 };
 
-const EMPTY: Snapshot = { accounts: [], vendors: [], bills: [], payments: [], periods: [], entries: [] };
+const EMPTY: Snapshot = {
+  accounts: [], vendors: [], bills: [], payments: [], periods: [], entries: [],
+  transactions: [], settlements: [],
+};
 
 export default function AccountingPage() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -68,6 +77,13 @@ export default function AccountingPage() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Deep links from the command palette and the redirected Finance tab open the
+  // tab they name rather than always landing on the overview.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (requested && TABS.some((item) => item.id === requested)) setTab(requested as Tab);
+  }, []);
 
   /** Shared writer: every mutation returns a fresh snapshot, so state stays true. */
   const submit = useCallback(async (body: any, successMessage: string) => {
@@ -150,6 +166,9 @@ export default function AccountingPage() {
 
       {tab === "overview" && <Overview data={data} totals={totals} loading={loading} onGo={setTab} />}
       {tab === "capture" && <CaptureQueue accounts={data.accounts} vendors={data.vendors} onPosted={load} submit={submit} />}
+      {tab === "transactions" && <Transactions data={data} loading={loading} submit={submit} />}
+      {tab === "settlements" && <Settlements data={data} loading={loading} submit={submit} />}
+      {tab === "accounts" && <Accounts data={data} submit={submit} />}
       {tab === "bills" && <Bills data={data} loading={loading} submit={submit} />}
       {tab === "vendors" && <Vendors data={data} loading={loading} submit={submit} />}
       {tab === "payments" && <Payments data={data} loading={loading} submit={submit} />}
@@ -939,5 +958,227 @@ function Row({ label, value, bold, highlight }: { label: string; value: string; 
   )}>
     <span className="min-w-0 truncate">{label}</span>
     <span className="shrink-0 tabular-nums">{value}</span>
+  </div>;
+}
+
+// ---------------------------------------------------------------------------
+// Money in / out, settlements and the chart of accounts
+// ---------------------------------------------------------------------------
+
+/**
+ * Direct cash movements — the old Finance tab, now posting to the ledger.
+ *
+ * The Finance tab recorded a type, a free-text category and an amount. It never
+ * asked which bank account moved, so its log could never be reconciled against a
+ * statement, and the category could not be rolled into a profit and loss. Both
+ * are now required, which is the whole difference between a cash list and
+ * accounting.
+ */
+function Transactions({ data, loading, submit }: any) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    direction: "out", date: today(), amount: "", bankAccountId: "", ledgerAccountId: "",
+    reference: "", memo: "", customerId: "",
+  });
+  const set = (patch: any) => setForm((current) => ({ ...current, ...patch }));
+  const rows = data.transactions ?? [];
+
+  // Money in is categorised against income, money out against expenses. Equity
+  // accounts are offered too, so owner drawings have somewhere honest to go.
+  const categories = data.accounts.filter((account: any) =>
+    account.type === (form.direction === "in" ? "income" : "expense") || account.type === "equity");
+
+  async function create() {
+    const result = await submit({ resource: "cash", operation: "create", data: { ...form, amount: Number(form.amount) } }, "Recorded and posted.");
+    if (result) { setOpen(false); set({ amount: "", reference: "", memo: "" }); }
+  }
+
+  return <div className="space-y-5">
+    <div className="flex justify-end"><Button onClick={() => setOpen(!open)}><Plus className="h-4 w-4" />Record money in or out</Button></div>
+
+    {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
+      <label className="text-xs font-medium">Direction
+        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, ledgerAccountId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+          <option value="out">Money out</option>
+          <option value="in">Money in</option>
+        </select>
+      </label>
+      <label className="text-xs font-medium">Date
+        <input type="date" value={form.date} onChange={(event) => set({ date: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Bank or cash account
+        <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+          <option value="">Select…</option>
+          {data.accounts.filter((a: any) => a.isBank).map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium">Category
+        <select value={form.ledgerAccountId} onChange={(event) => set({ ledgerAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+          <option value="">Select…</option>
+          {categories.map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium">Amount
+        <input type="number" step="0.01" value={form.amount} onChange={(event) => set({ amount: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Reference
+        <input value={form.reference} onChange={(event) => set({ reference: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium md:col-span-2">Description
+        <input value={form.memo} onChange={(event) => set({ memo: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <div className="md:col-span-2">
+        <Button onClick={create}>Post it</Button>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          For a supplier invoice use Bills, and for a customer invoice use Sales — those clear the amount owed.
+          This is for money that moves without a document: bank charges, interest, a cash sale, owner drawings.
+        </p>
+      </div>
+    </CardContent></Card>}
+
+    <div className="space-y-3">
+      {loading && <RowSkeleton rows={4} />}
+      {!loading && !rows.length && <Card className="bg-white/80"><CardContent className="p-12 text-center text-sm text-muted-foreground">Nothing recorded yet.</CardContent></Card>}
+      {rows.map((item: any) => <Card key={item.id} className="bg-white/80"><CardContent className="flex items-center gap-3 p-4">
+        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", item.type === "Expense" ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600")}>
+          {item.type === "Expense" ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{item.ledgerAccountName || item.category}</div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {item.date} · {item.customerName || item.bankAccountName || "Kretivco"}
+            {item.reference ? ` · ${item.reference}` : ""}
+          </div>
+        </div>
+        {!item.onLedger && <span title="Recorded before the ledger existed, so it is not in the reports" className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[10px] text-amber-700">Not on ledger</span>}
+        <div className={cn("shrink-0 font-semibold", item.type === "Expense" ? "text-red-600" : "text-emerald-700")}>
+          {item.type === "Expense" ? "−" : "+"}{money(item.amount)}
+        </div>
+      </CardContent></Card>)}
+    </div>
+  </div>;
+}
+
+/** Weekly settlements, which are Kretivco's own income under the client MoU. */
+function Settlements({ data, loading, submit }: any) {
+  const rows = data.settlements ?? [];
+  const unposted = rows.filter((item: any) => item.status === "Paid" && !item.onLedger);
+
+  return <div className="space-y-5">
+    {unposted.length > 0 && <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      <span className="flex-1">{unposted.length} paid settlement{unposted.length === 1 ? " is" : "s are"} not on the ledger, so that income is missing from the reports.</span>
+      <Button size="sm" className="shrink-0" onClick={() => submit({ resource: "settlement", operation: "backfill" }, "Settlements posted.")}>Post them</Button>
+    </div>}
+
+    <p className="text-xs text-muted-foreground">
+      Settlements are managed in the Business workspace. This view shows whether each one has reached the ledger.
+    </p>
+
+    <div className="grid gap-3 lg:grid-cols-2">
+      {loading && <RowSkeleton rows={4} />}
+      {!loading && !rows.length && <Card className="bg-white/80 lg:col-span-2"><CardContent className="p-12 text-center text-sm text-muted-foreground">No settlements yet.</CardContent></Card>}
+      {rows.map((item: any) => <Card key={item.id} className="bg-white/80"><CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate font-medium">{item.customerName}</div>
+            <div className="truncate text-[11px] text-muted-foreground">{item.periodStart} → {item.periodEnd} · {item.units.toLocaleString()} units</div>
+          </div>
+          <div className="shrink-0 text-right">
+            <div className="font-semibold">{money(item.total)}</div>
+            <div className="text-[10px] text-muted-foreground">{item.status}</div>
+          </div>
+        </div>
+        {item.status === "Paid" && !item.onLedger && <Button
+          size="sm" variant="outline" className="mt-3 bg-white"
+          onClick={() => submit({ resource: "settlement", operation: "post", data: { id: item.id } }, "Settlement posted.")}
+        >Post to ledger</Button>}
+      </CardContent></Card>)}
+    </div>
+  </div>;
+}
+
+/**
+ * The chart of accounts and period close.
+ *
+ * Both had working API routes with nothing calling them, so an operator could
+ * neither add an account nor close a month — the two things that separate a
+ * ledger you can file from one you merely write to.
+ */
+function Accounts({ data, submit }: any) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ code: "", name: "", type: "expense", subtype: "", isBank: false });
+  const set = (patch: any) => setForm((current) => ({ ...current, ...patch }));
+
+  const grouped = useMemo(() => {
+    const order = ["asset", "liability", "equity", "income", "expense"];
+    return order.map((type) => ({ type, accounts: data.accounts.filter((account: any) => account.type === type) }))
+      .filter((group) => group.accounts.length);
+  }, [data.accounts]);
+
+  async function create() {
+    const result = await submit({ resource: "account", operation: "create", data: form }, "Account added.");
+    if (result) { setOpen(false); setForm({ code: "", name: "", type: "expense", subtype: "", isBank: false }); }
+  }
+
+  return <div className="space-y-5">
+    <div className="flex justify-end"><Button onClick={() => setOpen(!open)}><Plus className="h-4 w-4" />Add an account</Button></div>
+
+    {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
+      <label className="text-xs font-medium">Code
+        <input value={form.code} onChange={(event) => set({ code: event.target.value })} placeholder="6600" className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Name
+        <input value={form.name} onChange={(event) => set({ name: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Type
+        <select value={form.type} onChange={(event) => set({ type: event.target.value, isBank: false })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+          {["asset", "liability", "equity", "income", "expense"].map((type) => <option key={type} value={type}>{type}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium">Grouping
+        <input value={form.subtype} onChange={(event) => set({ subtype: event.target.value })} placeholder="Operating" className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      {form.type === "asset" && <label className="flex items-center gap-2 text-xs font-medium">
+        <input type="checkbox" checked={form.isBank} onChange={(event) => set({ isBank: event.target.checked })} />
+        This is a bank or cash account
+      </label>}
+      <div className="md:col-span-2"><Button onClick={create}>Save account</Button></div>
+    </CardContent></Card>}
+
+    <Card className="bg-white/80">
+      <CardHeader>
+        <CardTitle>Accounting periods</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">Closing a month stops anything being posted into it after it has been reported or filed.</p>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        {data.periods.slice(0, 14).map((period: any) => <button
+          key={period.id}
+          onClick={() => submit(
+            { resource: "period", operation: period.status === "Closed" ? "open" : "close", data: { year: period.year, month: period.month } },
+            period.status === "Closed" ? "Period reopened." : "Period closed.",
+          )}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
+            period.status === "Closed" ? "border-[#202c25] bg-[#202c25] text-white" : "bg-white hover:bg-[#f7f4ed]",
+          )}
+        >
+          {period.status === "Closed" ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
+          {period.year}-{String(period.month).padStart(2, "0")}
+        </button>)}
+      </CardContent>
+    </Card>
+
+    {grouped.map((group) => <Card key={group.type} className="bg-white/80">
+      <CardHeader><CardTitle className="capitalize">{group.type}</CardTitle></CardHeader>
+      <CardContent className="divide-y">
+        {group.accounts.map((account: any) => <div key={account.id} className="flex items-center gap-3 py-2 text-sm">
+          <span className="w-14 shrink-0 tabular-nums text-muted-foreground">{account.code}</span>
+          <span className="min-w-0 flex-1 truncate">{account.name}</span>
+          {account.isBank && <span className="shrink-0 rounded-full bg-[#eeeae0] px-2 py-0.5 text-[10px]">bank</span>}
+          {account.systemKey && <span className="shrink-0 text-[10px] text-muted-foreground">{account.systemKey}</span>}
+        </div>)}
+      </CardContent>
+    </Card>)}
   </div>;
 }

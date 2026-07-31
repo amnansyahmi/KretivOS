@@ -252,16 +252,11 @@ async function executeAction(action: AutomationAction, event: AutomationEvent) {
   }
 
   if (action === "ensure_income_transaction") {
-    const sourceType = event.trigger === "invoice.paid" ? "sales_document" : "settlement";
-    const amount = event.trigger === "settlement.paid"
-      ? Number(value(payload, "units") || 0) * Number(value(payload, "feePerUnit", "fee_per_unit") || 0) + Number(value(payload, "adReimbursement", "ad_reimbursement") || 0) + Number(value(payload, "incentive") || 0)
-      : Number(value(payload, "value") || 0);
-    await sql`
-      insert into finance_transactions (id, customer_id, type, category, amount, transaction_date, status, reference, notes, source_type, source_id)
-      values (${`auto-income-${sourceType}-${entityId}`}, ${customerId}, 'Income', ${event.trigger === "invoice.paid" ? "Invoice" : "Settlement"}, ${amount}, ${date()}, 'Cleared', ${clean(value(payload, "reference")) || entityId}, 'Created by server automation.', ${sourceType}, ${entityId})
-      on conflict (id) do nothing
-    `;
-    return "Income transaction ensured.";
+    // Income is now recorded on the ledger by the invoice and settlement
+    // posting paths. This used to insert a `finance_transactions` row as well,
+    // which made the same money appear a third time — once here, once from the
+    // paid-document action, and once in the journal.
+    return "Income is recorded on the ledger by the source document.";
   }
 
   if (action === "create_invoice_receipt" || action === "create_settlement_receipt") {

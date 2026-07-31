@@ -14,7 +14,6 @@ Each of these owns real records and is reached from the sidebar as its own route
 | Customer Onboarding | `/business?tab=onboarding` |
 | CRM and Pipeline | `/business?tab=crm` |
 | Sales and Document Lifecycle | `/business?tab=sales` |
-| Finance and Cash Outlook | `/business?tab=finance` |
 | Weekly Tuesday Settlement | `/business?tab=settlements` |
 | Projects and Delivery | `/business?tab=projects` |
 | HR and Team | `/hr` |
@@ -24,7 +23,7 @@ Each of these owns real records and is reached from the sidebar as its own route
 | Automation Builder | `/automations` |
 | Approval Inbox | `/approvals` |
 | Documents and Reusable Templates | `/documents` |
-| Accounting | `/accounting` |
+| Accounting — money in, money out, bills, ledger, reports | `/accounting` |
 
 ### HRMS
 
@@ -291,6 +290,33 @@ one.
 Corrections post a reversing entry rather than deleting: a posted entry is a
 historical assertion, and erasing it defeats the audit trail.
 
+### One app, not two
+
+Finance and Accounting covered the same ground with two incompatible models, and
+the same money was recorded in both. Marking an invoice paid posted to the ledger
+*and* inserted a cash-log row; marking a settlement paid inserted a cash row and
+nothing else; an automation inserted a third. "How much did we earn" had two
+answers depending on which screen you opened.
+
+Everything now lives in `/accounting` and posts to one ledger:
+
+| Was | Now |
+| --- | --- |
+| `/business?tab=finance` | `/accounting?tab=transactions` — redirected |
+| Free-text category | An income or expense account |
+| No bank account | The account the money actually moved through |
+| A row in `finance_transactions` | A balanced journal entry, mirrored to the cash log for history |
+| Settlements paid to a cash row | Settlements posted to settlement income |
+
+`finance_transactions` is kept as readable history rather than a competing
+source of truth. A row carrying a `journal_entry_id` is on the ledger; one
+without predates it, and the Transactions list marks it **Not on ledger** so the
+difference is visible instead of silently skewing the reports. Backfill actions
+post what is missing.
+
+The AI operations snapshot reads income and expense from the ledger too, so the
+copilot and the reports cannot disagree.
+
 ### Both halves of the money flow
 
 A bill debits an expense and credits payables. An invoice debits receivables and
@@ -317,6 +343,29 @@ Marking an invoice paid from the Sales workspace posts both halves: the revenue,
 and the receipt that clears it into the default bank account. Recording the
 receipt in the Payments screen instead lets the operator choose the account, and
 the Sales action skips anything already allocated there.
+
+### What a complete accounting system still needs
+
+Present: chart of accounts with management, double-entry journal, bank and cash
+accounts, period close, vendors, bills, AP aging, payments with allocation,
+invoices with AR aging, direct cash movements, settlements, OCR capture, profit
+and loss, balance sheet, trial balance and per-client profitability.
+
+Not built yet, roughly in the order they will be missed:
+
+| Gap | Why it matters |
+| --- | --- |
+| Bank reconciliation | `bank_transactions` exists with import de-duplication, but there is no CSV import or matching screen, so nothing proves the ledger agrees with the bank |
+| Payroll posting | HR payroll never reaches the journal, so salaries and EPF/SOCSO/EIS liabilities are missing from the accounts entirely |
+| Credit notes | Neither customer nor vendor; bills reject negative lines, so a refund or discount has no path |
+| Opening balances | No way to enter what was owed and owing on the day the ledger started |
+| Account drill-down | The trial balance shows totals with no way to click into the entries behind them |
+| Year-end close | `retained_earnings` exists but nothing rolls the year's profit into it |
+| Recurring bills | Rent, subscriptions and ad platforms are re-keyed every month |
+| Customer statements | No "here is what you owe" document to send |
+| Multi-currency | `currency` and `exchange_rate` are on the tables, but nothing revalues or sources a rate |
+| SST return | Input and output tax accumulate correctly; the return itself is still manual |
+| Budgets, fixed-asset depreciation, audit-trail UI | `audit_logs` is written on every change and never displayed |
 
 ### Document capture (OCR)
 

@@ -4,6 +4,7 @@ import { getDatabase } from "@/lib/db";
 import { dispatchAutomationEvent } from "@/lib/automation-server";
 import { isIssuedInvoice } from "@/lib/accounting-entries";
 import { postSalesInvoice, settleInvoiceInFull } from "@/lib/invoice-posting";
+import { postSettlementPayment } from "@/lib/cash-posting";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -216,7 +217,12 @@ async function recogniseInvoiceRevenue(result: any) {
   // A "Paid" invoice needs both halves: the revenue on issue, and the receipt
   // that clears it. Posting only the first would leave receivables permanently
   // debited for money that has already arrived.
-  const receipt = text(record.status) === "Paid" ? await settleInvoiceInFull(id) : null;
+  // Do not clear receivables until the invoice itself is on the ledger. If its
+  // issue period is closed (or the accounting schema is not ready), posting a
+  // receipt alone would leave a credit in AR with no matching invoice debit.
+  const receipt = outcome.status === "failed" || text(record.status) !== "Paid"
+    ? null
+    : await settleInvoiceInFull(id);
 
   if (outcome.status === "failed") return { posted: false, error: outcome.reason };
   if (receipt?.status === "failed") return { posted: true, error: receipt.reason };
@@ -503,11 +509,9 @@ async function performAction(action: string, id: string) {
     const rows = await sql`update sales_documents set status = 'Paid' where id = ${id} returning *`;
     if (!rows[0]) throw new Error("Sales document was not found.");
     const doc: any = rows[0];
-    await sql`
-      insert into finance_transactions (customer_id, type, category, amount, transaction_date, status, reference, notes, source_type, source_id)
-      select ${doc.customer_id}, 'Income', ${doc.type}, ${Number(doc.value)}, current_date, 'Cleared', ${doc.reference}, ${`Created from paid ${doc.type}`}, 'sales_document', ${id}
-      where not exists (select 1 from finance_transactions where source_type = 'sales_document' and source_id = ${id})
-    `;
+    // No cash-log row: the invoice and its receipt both post to the ledger from
+    // recogniseInvoiceRevenue below, and duplicating them here is exactly what
+    // made income appear twice.
     return { document: document(doc) };
   }
 
@@ -526,12 +530,11 @@ async function performAction(action: string, id: string) {
     if (!rows[0]) throw new Error("Settlement was not found.");
     const item: any = rows[0];
     const total = Number(item.units) * Number(item.fee_per_unit) + Number(item.ad_reimbursement) + Number(item.incentive);
-    await sql`
-      insert into finance_transactions (customer_id, type, category, amount, transaction_date, status, reference, notes, source_type, source_id)
-      select ${item.customer_id}, 'Income', 'Settlement', ${total}, current_date, 'Cleared', ${`SET-${item.period_end}`}, 'Created from paid settlement', 'settlement', ${id}
-      where not exists (select 1 from finance_transactions where source_type = 'settlement' and source_id = ${id})
-    `;
-    return { settlement: settlement(item), total };
+    // Posts to the ledger rather than inserting a cash-log row. Writing both is
+    // what let the same income be counted twice, with the Finance tab and the
+    // accounting reports giving different answers.
+    const ledger = await postSettlementPayment(id);
+    return { settlement: settlement(item), total, ...(ledger.status === "failed" ? { ledgerError: ledger.reason } : {}) };
   }
 
   throw new Error(`Unsupported action: ${action}`);
