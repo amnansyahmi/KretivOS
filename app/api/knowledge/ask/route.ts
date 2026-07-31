@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       freshnessStatus: match.freshnessStatus,
       nextReviewAt: match.nextReviewAt,
       sourceUrl: match.sourceUrl,
+      sections: match.sections,
     }));
 
     if (!matches.length) {
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
 
     const context = matches
-      .map((match, index) => `[${index + 1}] ${match.title}${match.customerName ? ` · ${match.customerName}` : ""} · ${match.category}\nFreshness: ${match.freshnessStatus}${match.nextReviewAt ? ` · next review ${match.nextReviewAt}` : ""}\n${match.excerpt}`)
+      .map((match, index) => `[${index + 1}] ${match.title}${match.customerName ? ` · ${match.customerName}` : ""} · ${match.category}${match.sections.length ? `\nSection: ${match.sections.join("; ")}` : ""}\nFreshness: ${match.freshnessStatus}${match.nextReviewAt ? ` · next review ${match.nextReviewAt}` : ""}\n${match.excerpt}`)
       .join("\n\n");
 
     const result = await aiNonymauzChat({

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { builtInKnowledge } from "@/lib/knowledge";
 import { dispatchAutomationEvent } from "@/lib/automation-server";
+// Deleting an entry drops its chunks through the foreign key cascade in 0006.
+import { indexKnowledgeEntry, indexStaleEntries } from "@/lib/knowledge-chunks";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -148,6 +150,9 @@ async function syncBuiltInKnowledge() {
 
 async function listEntries() {
   await syncBuiltInKnowledge();
+  // Backfills the retrieval index for entries created before migration 0006, and
+  // for anything edited directly in the database. Bounded so listing stays fast.
+  await indexStaleEntries();
   const sql = getDatabase();
   const rows = await sql`
     select
@@ -214,6 +219,7 @@ export async function POST(request: NextRequest) {
       where k.id = ${id} and k.organization_id = ${ORGANIZATION_ID}
     `;
     const entry = mapEntry(resultRows[0] ?? rows[0]);
+    await indexKnowledgeEntry(id, content);
     await audit("create", id, entry);
     try {
       await dispatchAutomationEvent("knowledge.created", "knowledge", id, entry, "detected", "created");
@@ -270,6 +276,7 @@ export async function PATCH(request: NextRequest) {
       where k.id = ${id} and k.organization_id = ${ORGANIZATION_ID}
     `;
     const entry = mapEntry(resultRows[0]);
+    await indexKnowledgeEntry(id, content);
     await audit("update", id, entry);
     return NextResponse.json({ entry });
   } catch (error) {

@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, ArrowRight, BarChart3, Bell, Bot, Building2, CalendarDays, Check,
+  Activity, ArrowRight, BarChart3, Bot, Building2, CalendarDays, Check,
   ChevronRight, CircleDollarSign, Clapperboard, ClipboardCheck, Cloud, Code2,
   Contact, Database, FileCheck2, FileText, Film, FolderKanban, GitBranch,
   HandCoins, LayoutDashboard, Library, Megaphone, Menu, MessageSquareText,
@@ -14,6 +14,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AIWritingButton } from "@/components/ai-writing-button";
+import { KretivAIChat } from "@/components/kretiv-ai-chat";
+import { openCommandPalette } from "@/components/command-palette";
+import { NotificationBell } from "@/components/notification-bell";
+import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/components/toast";
 import { cn } from "@/lib/utils";
 
 /**
@@ -193,17 +198,22 @@ export default function Home() {
       <header className="sticky top-0 z-40 flex h-[76px] items-center gap-3 border-b border-black/5 bg-[#f4f1e8]/92 px-4 backdrop-blur-xl md:px-7">
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobile(true)} aria-label="Open navigation"><Menu className="h-5 w-5" /></Button>
         <Button variant="ghost" size="icon" className="hidden lg:inline-flex" onClick={() => setCollapsed(!collapsed)} aria-label="Toggle sidebar">{collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}</Button>
-        <Link href="/knowledge" className="hidden h-10 max-w-lg flex-1 items-center gap-2 rounded-lg border bg-white/70 px-3 text-left text-sm text-muted-foreground shadow-sm md:flex"><Search className="h-4 w-4" />Search the Kretivco knowledge library…</Link>
+        <button onClick={openCommandPalette} className="hidden h-10 max-w-lg flex-1 items-center gap-2 rounded-lg border bg-white/70 px-3 text-left text-sm text-muted-foreground shadow-sm transition hover:bg-white md:flex">
+          <Search className="h-4 w-4" />
+          <span className="flex-1 truncate">Search workspaces, customers, documents…</span>
+          <kbd className="rounded border bg-white px-1.5 py-0.5 text-[10px] font-medium">⌘K</kbd>
+        </button>
         <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="icon" className="bg-white md:hidden" onClick={openCommandPalette} aria-label="Search"><Search className="h-4 w-4" /></Button>
           {installPrompt && <Button variant="outline" className="hidden bg-white sm:inline-flex" onClick={install}><MonitorSmartphone className="h-4 w-4" />Install app</Button>}
-          <Button variant="outline" size="icon" className="bg-white" aria-label="Notifications"><Bell className="h-4 w-4" /></Button>
+          <NotificationBell />
           <Button onClick={() => setChat(true)}><Bot className="h-4 w-4" /><span className="hidden sm:inline">Ask Kretiv AI</span></Button>
         </div>
       </header>
       <div className="p-4 md:p-7 lg:p-8"><ViewRouter view={active} /></div>
     </main>
     {mobile && <div className="fixed inset-0 z-40 bg-black/45 lg:hidden" onClick={() => setMobile(false)} />}
-    {chat && <AIChat onClose={() => setChat(false)} module={active} />}
+    {chat && <KretivAIChat onClose={() => setChat(false)} module={active} />}
   </div>;
 }
 
@@ -235,6 +245,18 @@ function DataNotice({ loading, error, onRetry }: { loading: boolean; error: stri
   if (error) return <div className="mb-4 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"><span>{error}</span><Button variant="outline" size="sm" className="bg-white" onClick={onRetry}><RefreshCw className="h-3.5 w-3.5" />Retry</Button></div>;
   return null;
 }
+
+/**
+ * Formats a Date as YYYY-MM-DD in local time.
+ *
+ * `toISOString().slice(0, 10)` shifts to UTC, so in Malaysia (UTC+8) local
+ * midnight on Monday serialises as the preceding Sunday. That was harmless while
+ * the planner was a private localStorage blob keyed consistently against itself;
+ * it is not harmless now that the same string is a `date` column the whole team
+ * reads.
+ */
+const localDate = (value: Date) =>
+  `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 
 const daysUntil = (date: string) => {
   if (!date) return null;
@@ -304,10 +326,14 @@ function CommandCentre() {
     <DataNotice loading={loading} error={error} onRetry={reload} />
 
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <Stat label="Weighted pipeline" value={money(stats.pipeline)} note={`${stats.openCount} open opportunities`} icon={TrendingUp} />
-      <Stat label="Active client workspaces" value={String(stats.activeClients)} note={`${data.projects.length} projects tracked`} icon={Building2} />
-      <Stat label="Awaiting decision" value={String(stats.pendingApprovals)} note="Documents and settlements" icon={ClipboardCheck} />
-      <Stat label="Receivables" value={money(stats.receivables)} note="Sent, approved and overdue invoices" icon={Receipt} />
+      {loading
+        ? Array.from({ length: 4 }, (_, index) => <StatSkeleton key={index} />)
+        : <>
+          <Stat label="Weighted pipeline" value={money(stats.pipeline)} note={`${stats.openCount} open opportunities`} icon={TrendingUp} />
+          <Stat label="Active client workspaces" value={String(stats.activeClients)} note={`${data.projects.length} projects tracked`} icon={Building2} />
+          <Stat label="Awaiting decision" value={String(stats.pendingApprovals)} note="Documents and settlements" icon={ClipboardCheck} />
+          <Stat label="Receivables" value={money(stats.receivables)} note="Sent, approved and overdue invoices" icon={Receipt} />
+        </>}
     </div>
 
     <div className="mt-5 grid gap-5 xl:grid-cols-[1.42fr_.8fr]">
@@ -329,6 +355,7 @@ function CommandCentre() {
       </div></CardContent></Card>
 
       <Card className="bg-white/75"><CardHeader className="flex-row items-center justify-between"><div><CardTitle>Today’s queue</CardTitle><p className="mt-1 text-xs text-muted-foreground">Soonest deadlines across KretivOS</p></div><Link href="/business?tab=crm" className="text-xs font-medium">View all</Link></CardHeader><CardContent className="space-y-3">
+        {loading && <RowSkeleton rows={3} />}
         {queue.length === 0 && !loading && <p className="py-6 text-center text-sm text-muted-foreground">Nothing is waiting. Add an opportunity or document to populate this queue.</p>}
         {queue.map(item => { const due = dueLabel(item.date); return <div key={item.id} className="rounded-lg border bg-white p-3">
           <div className="flex items-center justify-between gap-2"><div className="truncate text-xs text-muted-foreground">{item.context}</div><Badge tone={due.tone}>{due.text}</Badge></div>
@@ -411,15 +438,67 @@ function useBriefing(data: BusinessSnapshot) {
   return { ...state, insights: state.insights.length ? state.insights : (state.loading ? [] : fallback) };
 }
 
+/**
+ * Shared scenario inputs. The sliders write through to Neon on release rather
+ * than on every pixel of drag, so one adjustment is one round trip and the
+ * numbers on screen stay live while it saves.
+ */
+function useProjectionScenario() {
+  const { error: toastError } = useToast();
+  const [scenario, setScenario] = useState({ companyPct: 10, members: 5, totalFees: 572000, totalIncentive: 150700 });
+  const [loading, setLoading] = useState(true);
+  const [shared, setShared] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/projection", { cache: "no-store" })
+      .then(response => response.json().then(payload => ({ ok: response.ok, payload })))
+      .then(({ ok, payload }) => {
+        if (cancelled) return;
+        if (!ok || !payload.scenario) { setShared(false); return; }
+        setScenario({
+          companyPct: payload.scenario.companyPct,
+          members: payload.scenario.members,
+          totalFees: payload.scenario.totalFees,
+          totalIncentive: payload.scenario.totalIncentive,
+        });
+      })
+      .catch(() => { if (!cancelled) setShared(false); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const commit = useCallback(async (next: { companyPct: number; members: number }) => {
+    if (!shared) return;
+    try {
+      const response = await fetch("/api/projection", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      if (!response.ok) throw new Error((await response.json()).error || "Unable to save the scenario.");
+    } catch (cause) {
+      toastError(cause instanceof Error ? cause.message : "Unable to save the scenario.");
+    }
+  }, [shared, toastError]);
+
+  return { scenario, setScenario, commit, loading, shared };
+}
+
 function FinancialProjection() {
-  const [companyPct, setCompanyPct] = usePersisted("ca-company-pct", 10);
-  const [members, setMembers] = usePersisted("ca-members", 5);
-  const totalFees = 572000, totalIncentive = 150700, grand = totalFees + totalIncentive;
+  const { scenario, setScenario, commit, loading, shared } = useProjectionScenario();
+  const { companyPct, members, totalFees, totalIncentive } = scenario;
+  const grand = totalFees + totalIncentive;
   const company = grand * companyPct / 100; const teamTotal = grand - company; const perPerson = teamTotal / members;
+  const set = (patch: Partial<typeof scenario>) => setScenario(current => ({ ...current, ...patch }));
+
   return <div>
     <PageHead eyebrow="Kretivco × Chef Ammar" title="Financial Projection" description="An editable 12-month scenario model. It is deliberately kept separate from actual sales and settlements, which live in the Finance and Settlement workspaces." action={<Button asChild variant="outline" className="bg-white"><Link href="/business?tab=settlements"><HandCoins className="h-4 w-4" />Open actual settlements</Link></Button>} />
+    {!loading && !shared && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      These inputs are not being shared with the team. Apply <code className="rounded bg-white/70 px-1">db/migrations/0007_shared_planner_projection.sql</code> to the Neon database.
+    </div>}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Stat label="12-month Kretivco income" value={money(grand)} note="Fees + performance incentive" /><Stat label="Company / year" value={money(company)} note={`${companyPct}% of total`} /><Stat label="Team / year" value={money(teamTotal)} note={`${100 - companyPct}% distributed`} /><Stat label="Per person / year" value={money(perPerson)} note={`${members} team members`} /></div>
-    <Card className="mt-5 bg-white/80"><CardContent className="grid gap-5 p-5 md:grid-cols-2"><label className="text-xs font-medium">Company share: {companyPct}%<input type="range" min="0" max="50" value={companyPct} onChange={e => setCompanyPct(Number(e.target.value))} className="mt-3 w-full accent-[#ba5c42]" /></label><label className="text-xs font-medium">Team members: {members}<input type="range" min="1" max="10" value={members} onChange={e => setMembers(Number(e.target.value))} className="mt-3 w-full accent-[#ba5c42]" /></label></CardContent></Card>
+    <Card className="mt-5 bg-white/80"><CardContent className="grid gap-5 p-5 md:grid-cols-2"><label className="text-xs font-medium">Company share: {companyPct}%<input type="range" min="0" max="50" value={companyPct} onChange={e => set({ companyPct: Number(e.target.value) })} onPointerUp={() => commit({ companyPct, members })} onKeyUp={() => commit({ companyPct, members })} className="mt-3 w-full accent-[#ba5c42]" /></label><label className="text-xs font-medium">Team members: {members}<input type="range" min="1" max="10" value={members} onChange={e => set({ members: Number(e.target.value) })} onPointerUp={() => commit({ companyPct, members })} onKeyUp={() => commit({ companyPct, members })} className="mt-3 w-full accent-[#ba5c42]" /></label></CardContent></Card>
     <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_.75fr]">
       <Card className="overflow-hidden bg-white/80"><CardHeader><CardTitle>Monthly projection</CardTitle></CardHeader><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-[#f7f4ed] text-muted-foreground"><tr><th className="px-4 py-3">Month</th><th className="px-4 py-3 text-right">Units / week</th><th className="px-4 py-3 text-right">Fee / month</th><th className="px-4 py-3 text-right">Incentive</th><th className="px-4 py-3 text-right">Company</th><th className="px-4 py-3 text-right">Per person</th></tr></thead><tbody>{projectionRows.map(r => { const total = r.monthly + r.incentive, co = total * companyPct / 100, pp = (total - co) / members; return <tr key={r.month} className="border-t"><td className="px-4 py-3 font-medium">{r.month}<div className="text-[9px] text-muted-foreground">{r.stage}</div></td><td className="px-4 py-3 text-right">{r.unitsWeek.toLocaleString()}</td><td className="px-4 py-3 text-right">{money(r.monthly)}</td><td className="px-4 py-3 text-right">{r.incentive ? money(r.incentive) : "—"}</td><td className="px-4 py-3 text-right">{money(co)}</td><td className="px-4 py-3 text-right font-semibold">{money(pp)}</td></tr>})}</tbody></table></div></Card>
       <Card className="bg-[#26342b] text-white"><CardHeader><CardTitle>Annual distribution</CardTitle></CardHeader><CardContent><div className="rounded-xl bg-white/5 p-4"><div className="text-xs text-white/45">Kretivco company allocation</div><div className="mt-2 text-3xl font-semibold">{money(company)}</div><div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-[#ef9a75]" style={{ width: `${companyPct}%` }} /></div></div><div className="mt-5 space-y-3">{team.slice(0, members).map((x, i) => <div key={i} className="flex items-center justify-between border-b border-white/10 pb-3 text-sm"><span className="text-white/65">{x || `Member ${i + 1}`}</span><span className="font-medium">{money(perPerson)}</span></div>)}</div><div className="mt-5 rounded-lg border border-white/10 p-3 text-xs leading-relaxed text-white/55">Scenario reference: management fees {money(totalFees)} + incentive {money(totalIncentive)}. Marketplace surplus is excluded and can be added as a separate actual-data line.</div></CardContent></Card>
@@ -602,32 +681,96 @@ function MarketingPlans() {
   </div>;
 }
 
+type PlannerSlot = { title: string; status: string };
+
 function ContentPlanner() {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const start = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d; }, []);
-  const [slots, setSlots] = usePersisted<Record<string, { title: string; status: string }>>("content-planner", {});
+  const [slots, setSlots] = useState<Record<string, PlannerSlot>>({});
+  const [shared, setShared] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const { error: toastError } = useToast();
+  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
+  const weekDates = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      return localDate(date);
+    }),
+    [start],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/planner?from=${weekDates[0]}&to=${weekDates[6]}`, { cache: "no-store" })
+      .then(response => response.json().then(payload => ({ ok: response.ok, payload })))
+      .then(({ ok, payload }) => {
+        if (cancelled) return;
+        if (!ok) { setShared(false); return; }
+        const next: Record<string, PlannerSlot> = {};
+        for (const entry of payload.entries || []) next[entry.date] = { title: entry.title, status: entry.status };
+        setSlots(next);
+      })
+      .catch(() => { if (!cancelled) setShared(false); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [weekDates]);
+
+  // Clear pending debounces on unmount so a save cannot fire into a dead view.
+  useEffect(() => {
+    const timers = saveTimers.current;
+    return () => { Object.values(timers).forEach(clearTimeout); };
+  }, []);
+
+  const persist = useCallback(async (date: string, slot: PlannerSlot | null) => {
+    if (!shared) return;
+    try {
+      const response = await fetch("/api/planner", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, title: slot?.title ?? "", status: slot?.status ?? "Planned" }),
+      });
+      if (!response.ok) throw new Error((await response.json()).error || "Unable to save the plan.");
+    } catch (cause) {
+      toastError(cause instanceof Error ? cause.message : "Unable to save the plan.");
+    }
+  }, [shared, toastError]);
+
+  // Typing updates the grid immediately; the write is debounced so a sentence
+  // is one request rather than one per keystroke.
   const update = (key: string, title: string) => {
-    const next = { ...slots };
-    if (title.trim()) next[key] = { title, status: next[key]?.status || "Planned" };
-    else delete next[key];
-    setSlots(next);
+    setSlots(current => {
+      const next = { ...current };
+      if (title.trim()) next[key] = { title, status: next[key]?.status || "Planned" };
+      else delete next[key];
+      clearTimeout(saveTimers.current[key]);
+      saveTimers.current[key] = setTimeout(() => void persist(key, next[key] ?? null), 600);
+      return next;
+    });
   };
 
   const cycle = (key: string) => {
     const order = ["Planned", "Review", "Approved"];
-    const current = slots[key];
-    if (!current) return;
-    setSlots({ ...slots, [key]: { ...current, status: order[(order.indexOf(current.status) + 1) % order.length] } });
+    setSlots(current => {
+      const slot = current[key];
+      if (!slot) return current;
+      const next = { ...slot, status: order[(order.indexOf(slot.status) + 1) % order.length] };
+      void persist(key, next);
+      return { ...current, [key]: next };
+    });
   };
 
   return <div>
-    <PageHead eyebrow="Publishing workflow" title="Content Planner" description="Plan the week, then move each piece from planned to review to approved. Entries are kept on this device until the content calendar is moved onto the shared record." />
+    <PageHead eyebrow="Publishing workflow" title="Content Planner" description="Plan the week, then move each piece from planned to review to approved. The calendar is shared with the whole team." />
+    {!loading && !shared && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      This plan is not being shared with the team. Apply <code className="rounded bg-white/70 px-1">db/migrations/0007_shared_planner_projection.sql</code> to the Neon database.
+    </div>}
     <Card className="overflow-hidden bg-white/80"><div className="grid min-w-[900px] grid-cols-7 divide-x">{days.map((day, index) => {
       const date = new Date(start); date.setDate(start.getDate() + index);
-      const key = date.toISOString().slice(0, 10);
+      const key = localDate(date);
       const slot = slots[key];
-      const isToday = key === new Date().toISOString().slice(0, 10);
+      const isToday = key === localDate(new Date());
       return <div key={key} className="min-h-[460px]">
         <div className={cn("border-b p-3 text-xs font-semibold", isToday ? "bg-[#26342b] text-white" : "bg-[#f7f4ed]")}>{day} {date.getDate()}</div>
         <div className="space-y-2 p-3">
@@ -930,68 +1073,4 @@ function Settings() {
       <div className="rounded-lg border bg-white p-4"><div className="flex items-center gap-2 text-sm font-semibold"><MonitorSmartphone className="h-4 w-4" />PWA and offline</div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">The app shell is cached for offline launch. Business records are always fetched live so shared data is never served stale.</p></div>
     </CardContent></Card>
   </div>;
-}
-
-type ChatTurn = {
-  from: "ai" | "user";
-  text: string;
-  sources?: { index: number; id: string; title: string; category: string; customerName: string }[];
-  grounded?: boolean;
-};
-
-function AIChat({ onClose, module }: { onClose: () => void; module: string }) {
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<ChatTurn[]>([{ from: "ai", text: "I can read the shared KretivOS record — pipeline, receivables, settlements, delivery and the knowledge library. Ask about the business and I will cite the entries I used." }]);
-
-  const send = async () => {
-    if (!message.trim() || loading) return;
-    const next: ChatTurn[] = [...messages, { from: "user", text: message }];
-    setMessages(next);
-    setMessage("");
-    setLoading(true);
-    try {
-      const response = await fetch("/api/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ module, messages: next.map(m => ({ role: m.from === "ai" ? "assistant" : "user", content: m.text })) }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "AI request failed");
-      setMessages(m => [...m, { from: "ai", text: data.content, sources: data.sources, grounded: data.grounded }]);
-    } catch (e) {
-      setMessages(m => [...m, { from: "ai", text: e instanceof Error ? e.message : "AI unavailable" }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return <div className="fixed inset-0 z-[70] flex justify-end bg-black/25"><div className="flex h-full w-full max-w-[460px] flex-col bg-[#f7f4ed] shadow-2xl">
-    <div className="flex h-[76px] items-center border-b px-5">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#202c25] text-white"><Bot className="h-5 w-5" /></div>
-      <div className="ml-3"><div className="font-semibold">Kretiv AI</div><div className="text-[10px] text-muted-foreground">{module} · reads live company records</div></div>
-      <Button variant="ghost" size="icon" className="ml-auto" onClick={onClose}><X className="h-4 w-4" /></Button>
-    </div>
-    <div className="flex-1 space-y-4 overflow-y-auto p-5">
-      {messages.map((m, i) => <div key={i} className={cn("max-w-[87%]", m.from === "user" ? "ml-auto" : "")}>
-        <div className={cn("whitespace-pre-wrap rounded-xl px-4 py-3 text-sm leading-relaxed", m.from === "user" ? "bg-[#202c25] text-white" : "border bg-white")}>{m.text}</div>
-        {m.from === "ai" && m.sources && m.sources.length > 0 && <div className="mt-2 space-y-1">
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Sources</div>
-          {m.sources.map(source => <Link key={source.index} href="/knowledge" className="flex items-start gap-2 rounded-lg border bg-white/70 px-2.5 py-1.5 text-[10px] hover:bg-white">
-            <span className="font-semibold text-[#ba5c42]">[{source.index}]</span>
-            <span className="min-w-0"><span className="block truncate font-medium">{source.title}</span><span className="text-muted-foreground">{[source.customerName, source.category].filter(Boolean).join(" · ")}</span></span>
-          </Link>)}
-        </div>}
-        {m.from === "ai" && m.grounded === false && i > 0 && <div className="mt-1.5 text-[10px] text-muted-foreground">Answered without live records — nothing in the library matched.</div>}
-      </div>)}
-      {loading && <div className="w-fit rounded-xl border bg-white px-4 py-3 text-sm text-muted-foreground">Reading company records…</div>}
-    </div>
-    <div className="border-t bg-white/60 p-4">
-      <div className="mb-3 flex gap-2 overflow-x-auto">{["What needs attention today?", "Which invoices are overdue?", "What does the Chef Ammar MoU say about payment?"].map(x => <button key={x} onClick={() => setMessage(x)} className="whitespace-nowrap rounded-full border bg-white px-3 py-1.5 text-[10px]">{x}</button>)}</div>
-      <div className="flex items-end gap-2 rounded-xl border bg-white p-2">
-        <textarea value={message} onChange={e => setMessage(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} className="min-h-10 flex-1 resize-none px-2 py-2 text-sm outline-none" placeholder="Ask about the business…" />
-        <Button size="icon" onClick={send} aria-label="Send"><Send className="h-4 w-4" /></Button>
-      </div>
-    </div>
-  </div></div>;
 }

@@ -69,7 +69,7 @@ the status chip. Each stage header shows how many of its activities are ready.
 - Approval Inbox — Sales, Settlement, HR, Automation, Brand DNA, Documents and overdue Knowledge reviews in one queue
 - Chef Ammar 12-Month Financial Projection — an editable scenario model, deliberately separate from actual sales
 - Marketing Plan Builder, Storyboard Studio, AI Prompt Lab — AI generation backed by `/api/*/generate`
-- Content Planner — weekly plan held in local storage
+- Content Planner — shared weekly plan stored in `planner_entries`
 - Technology — static system inventory plus a live database health check
 - Settings — opens the workspace that owns each setting
 
@@ -81,7 +81,8 @@ the status chip. Each stage header shows how many of its activities are ready.
 - Service worker with app-shell caching
 - Responsive mobile navigation
 - Safe-area compatible viewport
-- Local persistence for active view and financial scenario inputs; operational records remain shared in Neon
+- Local persistence for the active view and sidebar state only; the content plan,
+  the projection scenario and all operational records are shared in Neon
 - 192px and 512px maskable application icons
 
 ## Chef Ammar model included
@@ -114,7 +115,22 @@ The chatbot and every generator use the deployed `ai-nonymauz-cloud` service thr
 | `/api/funnels/content` | Grounded hooks, copy, CTA, visual direction and channel versions for funnel activities |
 | `/api/ai/status` | Live Render health, model, RAG and image capability status |
 | `/api/ai/studio` | Shared AI conversations, prompt templates, outputs, feedback and usage |
+| `/api/ai/threads` | Persistent header-copilot conversations, shared with AI Studio |
 | `/api/ai/image` | Pollinations Flux image generation through ai-nonymauz-cloud |
+| `/api/search` | Cross-workspace record search behind the ⌘K command palette |
+| `/api/notifications` | Shared automation reminders for the header bell |
+
+### Streaming
+
+`/api/ai` accepts `stream: true` and returns Server-Sent Events: a `meta` frame
+carrying the citation list before the first token, then `delta` frames, then
+`done` with the model and token usage. The header copilot uses it, so a deep-mode
+answer appears as it is written instead of after a minute of silence.
+
+If the deployment does not actually stream — a proxy in front of Render can
+buffer or strip SSE — `aiNonymauzChatStream` falls back to the buffered call and
+reports `streamed: false`. A failure *after* the first token keeps the text that
+already arrived rather than replaying a contradictory second answer.
 
 ### Kretiv AI Studio
 
@@ -148,24 +164,62 @@ and linked customer knowledge. It returns a hook, primary copy, CTA, visual dire
 production notes and channel-specific versions. Nothing is saved or published until the
 operator reviews the full batch and chooses **Save all content drafts**.
 
-Apply `db/migrations/0004_ai_studio.sql` to Neon before opening the shared history workspace.
+Apply `db/migrations/0004_ai_studio.sql` to Neon before opening the shared history
+workspace. The header copilot writes into the same tables, so a question asked
+from the header is resumable in AI Studio rather than living in a second history.
+
+### App shell
+
+- **⌘K command palette** — searches workspaces, customers, opportunities, sales
+  documents, projects and knowledge in one place, mounted in the root layout so
+  the shortcut works on every route. Destinations match locally and instantly;
+  records are fetched behind a debounce, so an unavailable database costs only
+  the record half of the results.
+- **Notification bell** — reads the shared reminders the automation engine and the
+  daily cron have been writing into `notifications` since they were added.
+  Personal HR notifications stay behind the HR session check and are not shown here.
+- **Toasts** — one dismissal-aware layer (`components/toast.tsx`) replacing the
+  per-page `notice`/`failure` strings.
 
 ### Grounding
 
 `lib/ai-context.ts` supplies AI features with real records instead of leaving them
 to guess. It provides two things:
 
-- **Knowledge retrieval** — ranked full-text search over `knowledge_entries` using
-  the GIN index defined in the first migration. Terms are OR-ed rather than AND-ed:
-  a natural-language question nearly always contains a word the document does not
-  use ("payment" against a document saying "payable"), and under AND that returns
-  nothing at all. `ts_rank` still orders by match quality, and an ILIKE keyword scan
-  covers anything the English dictionary stems awkwardly. Every result also carries
+- **Knowledge retrieval** — chunked hybrid search (see below). Every result carries
   its owner and review schedule; overdue or unscheduled sources are disclosed to the
   model so current strategy, pricing or policy is not silently treated as fresh.
 - **An operations snapshot** — pipeline, receivables, settlements, delivery and
   cleared cash rolled up from the shared tables, plus a list of concrete items
-  needing attention.
+  needing attention. The workspace the question was asked from decides which
+  figures lead: Finance leads on receivables and cash, Settlement on settlements.
+
+#### Chunked hybrid retrieval
+
+Entries are split into heading-aware chunks (`lib/knowledge-chunks.ts`) and stored
+in `knowledge_chunks`. Retrieval fuses three independent rankings by reciprocal
+rank, because each covers the others' blind spots:
+
+| Retriever | Covers |
+| --- | --- |
+| `to_tsvector('english', …)` | Stemmed English |
+| `to_tsvector('simple', …)` | Malay and proper nouns the English dictionary destroys |
+| `pg_trgm` word similarity | Typos and partial words, scored per term |
+
+This replaced whole-entry English-only ranking, which had two failures worth
+naming. A long MoU answers a question somewhere in its middle, and truncating the
+winning document to its first 1200 characters threw exactly that part away.
+And `'english'` does not stem Malay, so "bayaran" or "penghantaran" matched
+nothing and every Malay question fell through to a crude ILIKE scan.
+
+Short questions are widened with workspace vocabulary before searching — "is it
+paid?" carries no searchable signal alone, but inside Settlement it should still
+reach the settlement documents. Questions over eight words are left alone so the
+expansion cannot outweigh what was actually asked.
+
+Indexing runs on every knowledge write, and `indexStaleEntries()` backfills when
+the library is listed. Until `0006_knowledge_chunks.sql` is applied, retrieval
+falls back to the previous entry-level search.
 
 Retrieved extracts are numbered so the model cites them as `[1]`, `[2]`, and the
 numbers resolve back to real entries in the UI. The chat and the Knowledge
@@ -225,8 +279,11 @@ using KretivOS as the company system of record, still connect:
 - Scheduled workers for Tuesday and monthly settlements
 - Live integrations for Google, GitHub, payment, marketplace and advertising platforms
 - Automated tests, linting and a deployment pipeline
-
-Content Planner entries and the financial projection inputs are still browser-local and
-are not shared between team members.
+- **Dark mode.** `tailwind.config.ts` sets `darkMode: ["class"]` and `globals.css`
+  defines the HSL token set, but roughly 500 hardcoded hex values across the
+  workspace pages bypass both. Converting them needs a per-usage decision rather
+  than a find-and-replace, because the same value is a background in one place and
+  text in another and those invert in opposite directions. A toggle shipped before
+  that work would leave most workspaces unreadable, so it is deliberately not wired up.
 
 See `docs/PRODUCT_SCOPE.md` and `docs/DATA_MODEL.md`.

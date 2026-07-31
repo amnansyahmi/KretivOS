@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { KretivOSToolsNav } from "@/components/kretivos-tools-nav";
 import { AttendanceTestSession } from "@/components/attendance-test-session";
+import { GlobalCommandPalette } from "@/components/command-palette";
+import { ToastProvider } from "@/components/toast";
 
 export const metadata: Metadata = {
   title: "KretivOS",
@@ -22,9 +24,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        {children}
-        <KretivOSToolsNav />
-        <AttendanceTestSession />
+        <ToastProvider>
+          {children}
+          <KretivOSToolsNav />
+          <AttendanceTestSession />
+          {/* Mounted at the root so ⌘K reaches every workspace, not just the dashboard. */}
+          <GlobalCommandPalette />
+        </ToastProvider>
       </body>
     </html>
   );
