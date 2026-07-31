@@ -12,17 +12,76 @@ function inline(text: string) {
   });
 }
 
+/** Splits a table row on unescaped pipes, so `\|` can appear inside a cell. */
+function splitRow(line: string) {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.replace(/\\\|/g, "|").trim());
+}
+
+const isTableRow = (line: string) => /^\s*\|.*\|\s*$/.test(line);
+const isTableDivider = (line: string) => /^\s*\|[\s:|-]+\|\s*$/.test(line) && line.includes("-");
+
+function alignments(divider: string) {
+  return splitRow(divider).map((cell) => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    if (left && right) return "center" as const;
+    if (right) return "right" as const;
+    return "left" as const;
+  });
+}
+
 export function MarkdownPreview({ content }: { content: string }) {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
   const nodes: React.ReactNode[] = [];
   let code: string[] = [];
   let inCode = false;
   let list: string[] = [];
+  let table: string[] = [];
 
   const flushList = () => {
     if (!list.length) return;
     nodes.push(<ul key={`list-${nodes.length}`} className="my-4 list-disc space-y-1.5 pl-6 text-sm leading-7 text-[#4d574f]">{list.map((item, index) => <li key={index}>{inline(item)}</li>)}</ul>);
     list = [];
+  };
+
+  const flushTable = () => {
+    if (!table.length) return;
+    const rows = table;
+    table = [];
+
+    // A table needs a header and an alignment divider; otherwise emit the raw lines.
+    if (rows.length < 2 || !isTableDivider(rows[1])) {
+      rows.forEach((line, index) => nodes.push(<p key={`row-${nodes.length}-${index}`} className="text-sm leading-7 text-[#4d574f]">{inline(line)}</p>));
+      return;
+    }
+
+    const align = alignments(rows[1]);
+    const header = splitRow(rows[0]);
+    const body = rows.slice(2).map(splitRow);
+    // Both class families are emitted: Tailwind for the in-app preview, and
+    // md-align-* for the exported HTML, which only ships the document stylesheet.
+    const cellAlign = (index: number) =>
+      align[index] === "right" ? "text-right md-align-right"
+        : align[index] === "center" ? "text-center md-align-center"
+          : "text-left md-align-left";
+
+    nodes.push(
+      <div key={`table-${nodes.length}`} className="my-4 -mx-1 overflow-x-auto">
+        <table className="w-full min-w-[420px] border-collapse text-sm">
+          <thead>
+            <tr>{header.map((heading, index) => <th key={index} className={`border-b-2 border-[#26342b] bg-[#f2efe8] px-3 py-2 text-xs font-semibold ${cellAlign(index)}`}>{inline(heading)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {body.map((row, rowIndex) => <tr key={rowIndex}>{row.map((value, index) => <td key={index} className={`border-b border-[#e3ded4] px-3 py-2 leading-6 text-[#4d574f] ${cellAlign(index)}`}>{inline(value)}</td>)}</tr>)}
+          </tbody>
+        </table>
+      </div>
+    );
   };
 
   const flushCode = () => {
@@ -41,6 +100,12 @@ export function MarkdownPreview({ content }: { content: string }) {
       code.push(line);
       return;
     }
+    if (isTableRow(line)) {
+      flushList();
+      table.push(line);
+      return;
+    }
+    flushTable();
     if (/^[-*]\s+/.test(line)) {
       list.push(line.replace(/^[-*]\s+/, ""));
       return;
@@ -57,6 +122,7 @@ export function MarkdownPreview({ content }: { content: string }) {
     else nodes.push(<p key={index} className="text-sm leading-7 text-[#4d574f]">{inline(line)}</p>);
   });
 
+  flushTable();
   flushList();
   flushCode();
 

@@ -24,6 +24,29 @@ Each of these owns real records and is reached from the sidebar as its own route
 | Automation Builder | `/automations` |
 | Reusable Templates | `/templates` |
 
+#### Commercial documents with line items
+
+A template that uses the `{{line_items}}` variable — Quotation, Invoice and any
+template you add — opens an interactive line-item table in the document composer
+instead of a plain text box. Rows can be added, duplicated, reordered and removed;
+each row carries a description, quantity, unit and unit price.
+
+`{{subtotal}}`, `{{tax}}`, `{{total}}` and `{{amount_due}}` are then calculated
+rather than typed, and become read-only in the editor. Discount is applied to the
+subtotal before tax. Currency, discount percentage and the tax label and rate are
+all configurable per document, so SST or a zero-rated document both work.
+
+The rows are stored on the generated document, so reopening a saved quotation
+restores the table rather than a block of text. The rendered markdown table is
+written back into `{{line_items}}`, which keeps the A4 preview, the PDF print
+output and the Word export in step with no template changes.
+
+#### Funnel activities
+
+Funnel activities can be reordered within a stage, moved between TOFU, MOFU, BOFU
+and Retention, and advanced through Draft → In progress → Ready → Live by tapping
+the status chip. Each stage header shows how many of its activities are ready.
+
 ### Rendered in the app shell
 
 - Company Command Centre — live figures read from `/api/business`

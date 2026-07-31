@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Bot, Check, ChevronLeft, ChevronRight, FlaskConical, Layers3, List,
+  ArrowDown, ArrowUp, Bot, ChevronLeft, FlaskConical, Layers3, List,
   Pencil, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,10 @@ const emptyStages = (): FunnelStage[] => [
   { key: "BOFU", title: "Conversion", objective: "Remove friction and drive the required action.", kpi: "Leads, sales or bookings", sortOrder: 2, items: [] },
   { key: "RETENTION", title: "Retention", objective: "Create repeat value, advocacy and referrals.", kpi: "Repeat, reviews and referrals", sortOrder: 3, items: [] },
 ];
+
+/** Lifecycle an activity moves through; the chip on each card cycles this list. */
+const ACTIVITY_STATUSES: string[] = ["Draft", "In progress", "Ready", "Live"];
+const STAGE_KEYS: PlaybookStageKey[] = ["TOFU", "MOFU", "BOFU", "RETENTION"];
 
 const uid = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const now = () => new Date().toISOString();
@@ -253,8 +257,12 @@ export default function FunnelLibraryPage() {
   useEffect(() => {
     const list = mode === "production" ? funnels : sandboxFunnels;
     if (!list.some((item) => item.id === selectedId)) setSelectedId(list[0]?.id || "");
-    setMobileDetail(false);
   }, [mode, funnels, sandboxFunnels, selectedId]);
+
+  // Only switching between client and sandbox mode returns to the list on mobile.
+  // Resetting on every funnel change would bounce the user out of the detail pane
+  // each time an activity is edited, reordered or moved between stages.
+  useEffect(() => { setMobileDetail(false); }, [mode]);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -393,6 +401,62 @@ export default function FunnelLibraryPage() {
     setNotice("Choose the customer and brand. The sandbox structure will be copied after creation.");
   }
 
+  /**
+   * Applies a change to the selected funnel's stages. The local list is updated
+   * first so reordering feels immediate, then the result is persisted.
+   */
+  async function updateStages(mutate: (stages: FunnelStage[]) => FunnelStage[], message: string) {
+    if (!selected) return;
+    const mutated = mutate(JSON.parse(JSON.stringify(selected.stages)) as FunnelStage[]);
+    const next: Funnel = {
+      ...selected,
+      stages: mutated.map((stage, stageIndex) => ({
+        ...stage,
+        sortOrder: stageIndex,
+        items: stage.items.map((item, itemIndex) => ({ ...item, sortOrder: itemIndex })),
+      })),
+    };
+
+    if (next.sandbox || mode === "sandbox") setSandboxFunnels((current) => current.map((item) => item.id === next.id ? next : item));
+    else setFunnels((current) => current.map((item) => item.id === next.id ? next : item));
+
+    await persistFunnel(next, message);
+  }
+
+  function moveActivity(stageKey: PlaybookStageKey, activityId: string, direction: -1 | 1) {
+    return updateStages((stages) => stages.map((stage) => {
+      if (stage.key !== stageKey) return stage;
+      const index = stage.items.findIndex((item) => item.id === activityId);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= stage.items.length) return stage;
+      const items = [...stage.items];
+      [items[index], items[target]] = [items[target], items[index]];
+      return { ...stage, items };
+    }), "Activity order updated.");
+  }
+
+  function moveActivityToStage(fromKey: PlaybookStageKey, activityId: string, toKey: PlaybookStageKey) {
+    if (fromKey === toKey) return;
+    return updateStages((stages) => {
+      const moving = stages.find((stage) => stage.key === fromKey)?.items.find((item) => item.id === activityId);
+      if (!moving) return stages;
+      return stages.map((stage) => {
+        if (stage.key === fromKey) return { ...stage, items: stage.items.filter((item) => item.id !== activityId) };
+        if (stage.key === toKey) return { ...stage, items: [...stage.items, moving] };
+        return stage;
+      });
+    }, `Activity moved to ${toKey}.`);
+  }
+
+  function cycleActivityStatus(stageKey: PlaybookStageKey, activityId: string) {
+    return updateStages((stages) => stages.map((stage) => stage.key !== stageKey ? stage : {
+      ...stage,
+      items: stage.items.map((item) => item.id === activityId
+        ? { ...item, status: ACTIVITY_STATUSES[(ACTIVITY_STATUSES.indexOf(item.status) + 1) % ACTIVITY_STATUSES.length] }
+        : item),
+    }), "Activity status updated.");
+  }
+
   function applyTemplate(templateId: string) {
     if (!activityEditor) return;
     const template = contentTemplates.find((item) => item.id === templateId);
@@ -422,7 +486,44 @@ export default function FunnelLibraryPage() {
           {selected ? <div className="space-y-5">
             <Card className="bg-white/80"><CardHeader className="border-b p-4 sm:p-6"><div className="flex items-start gap-3 xl:hidden"><button onClick={() => setMobileDetail(false)} className="flex h-9 w-9 items-center justify-center rounded-xl border bg-white"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-0 flex-1"><CardTitle className="line-clamp-2">{selected.name}</CardTitle><p className="mt-1 text-xs text-muted-foreground">{selected.sandbox ? "Sandbox experiment" : selected.client}</p></div></div><div className="hidden items-start justify-between gap-4 xl:flex"><div><div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]"><span>{selected.sandbox ? "Sandbox" : selected.client}</span>{selected.brandName && <><span>•</span><span>{selected.brandName}</span></>}<span>•</span><span>{selected.playbookKey}</span></div><CardTitle className="mt-2 text-2xl">{selected.name}</CardTitle><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{selected.summary}</p></div><Status value={selected.status} /></div><div className="mt-4 flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => { setDetailDraft(JSON.parse(JSON.stringify(selected))); setEditingDetails(true); }}><Pencil className="h-3.5 w-3.5" />Edit details</Button>{selected.sandbox && <Button variant="outline" size="sm" onClick={promoteSandbox}><Target className="h-3.5 w-3.5" />Promote to client</Button>}<Button variant="outline" size="sm" className="text-red-600" onClick={deleteFunnel}><Trash2 className="h-3.5 w-3.5" />Delete</Button></div></CardHeader><CardContent className="grid gap-3 p-4 sm:grid-cols-3 sm:p-6"><Mini label="Objective" value={selected.objective} /><Mini label="Audience" value={selected.audience || "Not defined"} /><Mini label="Offer" value={selected.offer || "Not defined"} /></CardContent></Card>
 
-            <div className="grid gap-4 2xl:grid-cols-2">{selected.stages.map((stage) => <Card key={stage.key} className="bg-white/80"><CardHeader className="border-b p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]">{stage.key}</div><CardTitle className="mt-1">{stage.title}</CardTitle><p className="mt-2 text-xs leading-5 text-muted-foreground">{stage.objective}</p></div><Button size="sm" onClick={() => setActivityEditor({ stageKey: stage.key, isNew: true, item: { id: uid(), title: "", format: "", cta: "", contentTemplateId: "", marketingChannelIds: [], content: {}, status: "Draft", sortOrder: stage.items.length } })}><Plus className="h-3.5 w-3.5" />Activity</Button></div><div className="mt-3 rounded-lg bg-[#f3efe7] px-3 py-2 text-[11px] text-[#5d665f]">KPI: {stage.kpi}</div></CardHeader><CardContent className="space-y-2 p-3">{stage.items.map((item) => <div key={item.id} className="rounded-xl border bg-white p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-sm font-medium">{item.title}</div><div className="mt-1 text-[10px] text-muted-foreground">{item.format || "Format not set"}</div></div><div className="flex gap-1"><button onClick={() => setActivityEditor({ stageKey: stage.key, item: JSON.parse(JSON.stringify(item)), isNew: false })} className="rounded-lg p-2 hover:bg-[#f3efe7]"><Pencil className="h-3.5 w-3.5" /></button><button onClick={() => deleteActivity(stage.key, item.id)} className="rounded-lg p-2 text-red-500 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button></div></div><div className="mt-3 flex flex-wrap gap-1.5">{item.marketingChannelIds.map((id) => <span key={id} className="rounded-full bg-[#eeeae0] px-2 py-1 text-[10px] text-[#5a605a]">{channels.find((channel) => channel.id === id)?.name || id}</span>)}{!item.marketingChannelIds.length && <span className="text-[10px] text-muted-foreground">No channel selected</span>}</div>{item.cta && <div className="mt-3 text-xs"><span className="text-muted-foreground">CTA:</span> {item.cta}</div>}</div>)}{!stage.items.length && <div className="rounded-xl border border-dashed p-6 text-center text-xs text-muted-foreground">No activities yet.</div>}</CardContent></Card>)}</div>
+            <div className="grid gap-4 2xl:grid-cols-2">{selected.stages.map((stage) => {
+              const ready = stage.items.filter((item) => item.status === "Ready" || item.status === "Live").length;
+              const coverage = stage.items.length ? Math.round(ready / stage.items.length * 100) : 0;
+              return <Card key={stage.key} className="min-w-0 bg-white/80">
+                <CardHeader className="border-b p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]">{stage.key}</div>
+                      <CardTitle className="mt-1">{stage.title}</CardTitle>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{stage.objective}</p>
+                    </div>
+                    <Button size="sm" onClick={() => setActivityEditor({ stageKey: stage.key, isNew: true, item: { id: uid(), title: "", format: "", cta: "", contentTemplateId: "", marketingChannelIds: [], content: {}, status: "Draft", sortOrder: stage.items.length } })}><Plus className="h-3.5 w-3.5" />Activity</Button>
+                  </div>
+                  <div className="mt-3 rounded-lg bg-[#f3efe7] px-3 py-2 text-[11px] text-[#5d665f]">KPI: {stage.kpi}</div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#ece8de]"><div className="h-full rounded-full bg-[#ba5c42] transition-all" style={{ width: `${coverage}%` }} /></div>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">{ready}/{stage.items.length} ready</span>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2 p-3">
+                  {stage.items.map((item, index) => <ActivityCard
+                    key={item.id}
+                    item={item}
+                    index={index}
+                    total={stage.items.length}
+                    stageKey={stage.key}
+                    channelNames={item.marketingChannelIds.map((id) => channels.find((channel) => channel.id === id)?.name || id)}
+                    busy={saving}
+                    onEdit={() => setActivityEditor({ stageKey: stage.key, item: JSON.parse(JSON.stringify(item)), isNew: false })}
+                    onDelete={() => deleteActivity(stage.key, item.id)}
+                    onMove={(direction) => moveActivity(stage.key, item.id, direction)}
+                    onMoveStage={(toKey) => moveActivityToStage(stage.key, item.id, toKey)}
+                    onCycleStatus={() => cycleActivityStatus(stage.key, item.id)}
+                  />)}
+                  {!stage.items.length && <div className="rounded-xl border border-dashed p-6 text-center text-xs text-muted-foreground">No activities yet. Add one, or move an activity here from another stage.</div>}
+                </CardContent>
+              </Card>;
+            })}</div>
           </div> : <Card className="bg-white/80"><CardContent className="p-12 text-center"><Layers3 className="mx-auto h-8 w-8 text-muted-foreground" /><div className="mt-4 font-semibold">No funnel selected</div><Button className="mt-4" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />Create funnel</Button></CardContent></Card>}
         </div>
       </div>
@@ -462,6 +563,69 @@ function Field({ label, wide, children }: { label: string; wide?: boolean; child
 
 function Mini({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl border bg-white p-3"><div className="text-[10px] uppercase tracking-[.12em] text-muted-foreground">{label}</div><div className="mt-2 text-xs leading-5">{value}</div></div>;
+}
+
+const actionClass = "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[#5d665f] transition hover:bg-[#f3efe7] hover:text-[#202c25] disabled:pointer-events-none disabled:opacity-30";
+
+function activityTone(status: string) {
+  if (status === "Live") return "bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
+  if (status === "Ready") return "bg-blue-50 text-blue-700 hover:bg-blue-100";
+  if (status === "In progress") return "bg-amber-50 text-amber-700 hover:bg-amber-100";
+  return "bg-[#eeeae0] text-[#5a605a] hover:bg-[#e4dfd3]";
+}
+
+function ActivityCard({ item, index, total, stageKey, channelNames, busy, onEdit, onDelete, onMove, onMoveStage, onCycleStatus }: {
+  item: FunnelActivity;
+  index: number;
+  total: number;
+  stageKey: PlaybookStageKey;
+  channelNames: string[];
+  busy: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onMove: (direction: -1 | 1) => void;
+  onMoveStage: (stage: PlaybookStageKey) => void;
+  onCycleStatus: () => void;
+}) {
+  return <div className="rounded-xl border bg-white p-3">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{item.title}</div>
+        <div className="mt-1 text-[10px] text-muted-foreground">{item.format || "Format not set"}</div>
+      </div>
+      <button
+        onClick={onCycleStatus}
+        disabled={busy}
+        title="Tap to advance the status"
+        className={cn("shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium transition disabled:opacity-50", activityTone(item.status))}
+      >
+        {item.status || "Draft"}
+      </button>
+    </div>
+
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {channelNames.map((name) => <span key={name} className="rounded-full bg-[#eeeae0] px-2 py-1 text-[10px] text-[#5a605a]">{name}</span>)}
+      {!channelNames.length && <span className="text-[10px] text-muted-foreground">No channel selected</span>}
+    </div>
+
+    {item.cta && <div className="mt-3 text-xs"><span className="text-muted-foreground">CTA:</span> {item.cta}</div>}
+
+    <div className="mt-3 flex items-center gap-1 border-t pt-2">
+      <button onClick={() => onMove(-1)} disabled={busy || index === 0} className={actionClass} aria-label="Move activity up"><ArrowUp className="h-3.5 w-3.5" /></button>
+      <button onClick={() => onMove(1)} disabled={busy || index === total - 1} className={actionClass} aria-label="Move activity down"><ArrowDown className="h-3.5 w-3.5" /></button>
+      <select
+        value={stageKey}
+        onChange={(event) => onMoveStage(event.target.value as PlaybookStageKey)}
+        disabled={busy}
+        aria-label="Move activity to another stage"
+        className="h-10 min-w-0 flex-1 rounded-lg border bg-white px-2 text-[11px] outline-none disabled:opacity-40"
+      >
+        {STAGE_KEYS.map((key) => <option key={key} value={key}>{key === stageKey ? `In ${key}` : `Move to ${key}`}</option>)}
+      </select>
+      <button onClick={onEdit} disabled={busy} className={actionClass} aria-label="Edit activity"><Pencil className="h-3.5 w-3.5" /></button>
+      <button onClick={onDelete} disabled={busy} className={cn(actionClass, "hover:bg-red-50 hover:text-red-600")} aria-label="Delete activity"><Trash2 className="h-3.5 w-3.5" /></button>
+    </div>
+  </div>;
 }
 
 function Status({ value }: { value: string }) {
