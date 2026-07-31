@@ -9,7 +9,31 @@
 const DEFAULT_ORIGIN = "https://ai-nonymauz-cloud.onrender.com";
 
 export type AiMode = "auto" | "fast" | "normal" | "deep" | "vision";
-export type AiMessage = { role: "system" | "user" | "assistant"; content: string };
+
+/**
+ * Multimodal content parts, in the OpenAI-compatible shape the service expects.
+ *
+ * `content` was a plain string, so despite `vision` being a declared mode the
+ * client physically could not send an image. Document capture needs to, so a
+ * message may now carry parts instead. Plain strings still work everywhere, and
+ * the two forms are interchangeable at every call site.
+ */
+export type AiContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "low" | "high" | "auto" } };
+
+export type AiMessage = { role: "system" | "user" | "assistant"; content: string | AiContentPart[] };
+
+/** Builds a vision message from a data URL or an https image URL. */
+export function imageMessage(prompt: string, imageUrl: string, detail: "low" | "high" | "auto" = "high"): AiMessage {
+  return {
+    role: "user",
+    content: [
+      { type: "text", text: prompt },
+      { type: "image_url", image_url: { url: imageUrl, detail } },
+    ],
+  };
+}
 export type AiUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;

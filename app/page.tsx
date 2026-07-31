@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowRight, BarChart3, Bot, Building2, CalendarDays, Check,
   ChevronRight, CircleDollarSign, Clapperboard, ClipboardCheck, Cloud, Code2,
-  Contact, Database, FileCheck2, FileText, Film, FolderKanban, GitBranch,
+  Calculator, Contact, Database, FileCheck2, FileText, Film, FolderKanban, GitBranch,
   HandCoins, LayoutDashboard, Library, Megaphone, Menu, MessageSquareText,
   MonitorSmartphone, MoreHorizontal, Palette, PanelLeftClose, PanelLeftOpen,
   Plus, Presentation, Receipt, RefreshCw, Rocket, Search, Send, Settings2,
@@ -45,6 +45,7 @@ const navGroups: NavGroup[] = [
     { name: "AI Proposal Package", icon: Sparkles, href: "/document-ai" },
     { name: "Sales & Documents", icon: FileCheck2, href: "/business?tab=sales" },
     { name: "Finance", icon: CircleDollarSign, href: "/business?tab=finance" },
+    { name: "Accounting", icon: Calculator, href: "/accounting" },
     { name: "Weekly Settlement", icon: HandCoins, href: "/business?tab=settlements" },
     { name: "Financial Projection", icon: BarChart3, view: "Financial Projection" },
     { name: "Projects & Delivery", icon: FolderKanban, href: "/business?tab=projects" },

@@ -1,0 +1,531 @@
+/**
+ * Accounting workspace API: accounts, vendors, bills, payments, journal and periods.
+ *
+ * Follows the resource/operation shape the Business workspace already uses, so
+ * the client code reads the same way. Every money movement goes through
+ * lib/accounting.ts rather than writing to the journal directly.
+ */
+
+import { randomUUID } from "node:crypto";
+import { NextRequest, NextResponse } from "next/server";
+import { getDatabase } from "@/lib/db";
+import { AccountingError, listAccounts, postEntry, voidEntry } from "@/lib/accounting";
+import { agingBucket, fromCents, lineTax, toCents } from "@/lib/accounting-math";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const ORGANIZATION_ID = "org-kretivco";
+
+const clean = (value: unknown, max = 500) => String(value ?? "").trim().slice(0, max);
+const num = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const arr = (value: unknown) => (Array.isArray(value) ? value : []);
+const isDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+const today = () => new Date().toISOString().slice(0, 10);
+
+function tablesMissing(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return /ledger_accounts|journal_entries|journal_lines|vendors|bills|payments|fiscal_periods/i.test(message);
+}
+
+function failure(error: unknown) {
+  console.error("Accounting request failed", error);
+  if (error instanceof AccountingError) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  const message = error instanceof Error ? error.message : "Accounting request failed.";
+  return NextResponse.json(
+    {
+      error: tablesMissing(error)
+        ? "Accounting tables are not ready. Apply db/migrations/0008_accounting_core.sql to the Neon database."
+        : message,
+    },
+    { status: tablesMissing(error) ? 503 : 500 },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Read
+// ---------------------------------------------------------------------------
+
+async function snapshot() {
+  const sql = getDatabase();
+  const [accounts, vendors, bills, payments, periods, entries] = await Promise.all([
+    listAccounts(),
+    sql`
+      select v.*, a.name as default_account_name
+      from vendors v
+      left join ledger_accounts a on a.id = v.default_expense_account_id
+      where v.organization_id = ${ORGANIZATION_ID}
+      order by v.status, v.name
+    `,
+    sql`
+      select b.*, v.name as vendor_name,
+        (b.total - b.amount_paid) as balance
+      from bills b join vendors v on v.id = b.vendor_id
+      where b.organization_id = ${ORGANIZATION_ID}
+      order by b.bill_date desc, b.created_at desc
+      limit 300
+    `,
+    sql`
+      select p.*, v.name as vendor_name, c.name as customer_name, a.name as bank_account_name
+      from payments p
+      left join vendors v on v.id = p.vendor_id
+      left join customers c on c.id = p.customer_id
+      left join ledger_accounts a on a.id = p.bank_account_id
+      where p.organization_id = ${ORGANIZATION_ID}
+      order by p.payment_date desc, p.created_at desc
+      limit 200
+    `,
+    sql`
+      select * from fiscal_periods
+      where organization_id = ${ORGANIZATION_ID}
+      order by year desc, month desc
+      limit 36
+    `,
+    sql`
+      select e.*, coalesce(sum(l.debit), 0) as total
+      from journal_entries e
+      left join journal_lines l on l.entry_id = e.id
+      where e.organization_id = ${ORGANIZATION_ID}
+      group by e.id
+      order by e.entry_date desc, e.created_at desc
+      limit 100
+    `,
+  ]);
+
+  return {
+    accounts,
+    vendors: vendors.map((row: any) => ({
+      id: row.id, name: row.name, tin: row.tin, sstNumber: row.sst_number,
+      registrationNumber: row.registration_number, email: row.email, phone: row.phone,
+      paymentTermsDays: Number(row.payment_terms_days), currency: row.currency,
+      defaultExpenseAccountId: row.default_expense_account_id || "",
+      defaultAccountName: row.default_account_name || "",
+      status: row.status, notes: row.notes,
+      city: row.city, state: row.state, postcode: row.postcode,
+      addressLine1: row.address_line1, addressLine2: row.address_line2,
+      countryCode: row.country_code,
+    })),
+    bills: bills.map((row: any) => ({
+      id: row.id, vendorId: row.vendor_id, vendorName: row.vendor_name,
+      billNumber: row.bill_number, reference: row.reference,
+      billDate: String(row.bill_date).slice(0, 10),
+      dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
+      currency: row.currency, subtotal: Number(row.subtotal), taxAmount: Number(row.tax_amount),
+      total: Number(row.total), amountPaid: Number(row.amount_paid), balance: Number(row.balance),
+      status: row.status, notes: row.notes, captureId: row.capture_id || "",
+      journalEntryId: row.journal_entry_id || "",
+      aging: row.due_date && Number(row.balance) > 0 ? agingBucket(String(row.due_date).slice(0, 10)) : "current",
+    })),
+    payments: payments.map((row: any) => ({
+      id: row.id, direction: row.direction, paymentDate: String(row.payment_date).slice(0, 10),
+      bankAccountId: row.bank_account_id, bankAccountName: row.bank_account_name || "",
+      vendorId: row.vendor_id || "", vendorName: row.vendor_name || "",
+      customerId: row.customer_id || "", customerName: row.customer_name || "",
+      amount: Number(row.amount), unallocated: Number(row.unallocated),
+      method: row.method, reference: row.reference, notes: row.notes,
+    })),
+    periods: periods.map((row: any) => ({
+      id: row.id, year: Number(row.year), month: Number(row.month), status: row.status,
+      closedAt: row.closed_at,
+    })),
+    entries: entries.map((row: any) => ({
+      id: row.id, date: String(row.entry_date).slice(0, 10), memo: row.memo,
+      reference: row.reference, sourceType: row.source_type, sourceId: row.source_id || "",
+      status: row.status, total: Number(row.total),
+    })),
+  };
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const entryId = clean(request.nextUrl.searchParams.get("entryId"), 100);
+    if (entryId) {
+      const sql = getDatabase();
+      const lines = await sql`
+        select l.*, a.code, a.name as account_name
+        from journal_lines l join ledger_accounts a on a.id = l.account_id
+        where l.entry_id = ${entryId}
+        order by l.line_order
+      `;
+      return NextResponse.json({
+        lines: lines.map((row: any) => ({
+          id: row.id, accountId: row.account_id, accountCode: row.code, accountName: row.account_name,
+          debit: Number(row.debit), credit: Number(row.credit), memo: row.memo,
+          customerId: row.customer_id || "", vendorId: row.vendor_id || "",
+        })),
+      });
+    }
+    return NextResponse.json(await snapshot(), { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Write
+// ---------------------------------------------------------------------------
+
+/** Computes bill totals from its lines so the header can never drift from them. */
+function billTotals(lines: any[]) {
+  let subtotalCents = 0;
+  let taxCents = 0;
+
+  const prepared = lines.map((line, index) => {
+    const quantity = num(line.quantity) || 1;
+    const unitPrice = num(line.unitPrice);
+    const amountCents = toCents(quantity * unitPrice);
+    const { taxCents: lineTaxCents } = lineTax({ amountCents, ratePercent: num(line.taxRate) });
+    subtotalCents += amountCents;
+    taxCents += lineTaxCents;
+    return {
+      accountId: clean(line.accountId, 100) || null,
+      description: clean(line.description, 400),
+      quantity,
+      unitPrice,
+      taxCode: clean(line.taxCode, 20),
+      taxRate: num(line.taxRate),
+      amount: fromCents(amountCents),
+      taxAmount: fromCents(lineTaxCents),
+      customerId: clean(line.customerId, 100) || null,
+      projectId: clean(line.projectId, 100) || null,
+      order: index,
+    };
+  });
+
+  return {
+    lines: prepared,
+    subtotal: fromCents(subtotalCents),
+    taxAmount: fromCents(taxCents),
+    total: fromCents(subtotalCents + taxCents),
+  };
+}
+
+/**
+ * Posts a bill: the expense (and recoverable tax) is recognised now, and the
+ * amount owed sits in accounts payable until it is paid.
+ */
+async function postBillEntry(bill: any, lines: any[], vendorName: string) {
+  const journalLines: any[] = [];
+
+  for (const line of lines) {
+    if (toCents(line.amount) === 0) continue;
+    journalLines.push({
+      accountId: line.accountId || undefined,
+      accountKey: line.accountId ? undefined : "uncategorised",
+      debit: line.amount,
+      memo: line.description,
+      customerId: line.customerId,
+      vendorId: bill.vendorId,
+      projectId: line.projectId,
+      taxCode: line.taxCode,
+    });
+  }
+
+  if (toCents(bill.taxAmount) > 0) {
+    journalLines.push({ accountKey: "tax_input", debit: bill.taxAmount, memo: "SST on purchase", vendorId: bill.vendorId });
+  }
+
+  journalLines.push({
+    accountKey: "accounts_payable",
+    credit: bill.total,
+    memo: `${vendorName} ${bill.billNumber}`.trim(),
+    vendorId: bill.vendorId,
+  });
+
+  return postEntry({
+    date: bill.billDate,
+    reference: bill.billNumber,
+    memo: `Bill from ${vendorName}`,
+    sourceType: "bill",
+    sourceId: bill.id,
+    lines: journalLines,
+  });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const resource = clean(body.resource, 40);
+    const operation = clean(body.operation, 40) || "create";
+    const data = body.data && typeof body.data === "object" ? body.data : {};
+    const sql = getDatabase();
+
+    // ---- vendors ----------------------------------------------------------
+    if (resource === "vendor") {
+      const name = clean(data.name, 200);
+      if (!name) return NextResponse.json({ error: "A vendor name is required." }, { status: 400 });
+
+      if (operation === "create") {
+        const rows = await sql`
+          insert into vendors (
+            organization_id, name, registration_number, tin, sst_number, email, phone,
+            address_line1, address_line2, city, state, postcode, country_code,
+            payment_terms_days, default_expense_account_id, currency, notes
+          ) values (
+            ${ORGANIZATION_ID}, ${name}, ${clean(data.registrationNumber, 60)}, ${clean(data.tin, 60)},
+            ${clean(data.sstNumber, 60)}, ${clean(data.email, 200)}, ${clean(data.phone, 60)},
+            ${clean(data.addressLine1, 200)}, ${clean(data.addressLine2, 200)}, ${clean(data.city, 100)},
+            ${clean(data.state, 100)}, ${clean(data.postcode, 20)}, ${clean(data.countryCode, 3) || "MYS"},
+            ${Math.max(0, Math.min(365, num(data.paymentTermsDays) || 30))},
+            ${clean(data.defaultExpenseAccountId, 100) || null}, ${clean(data.currency, 3) || "MYR"},
+            ${clean(data.notes, 2000)}
+          ) returning id
+        `;
+        return NextResponse.json({ id: rows[0].id, ...(await snapshot()) }, { status: 201 });
+      }
+
+      const id = clean(data.id, 100);
+      if (!id) return NextResponse.json({ error: "A vendor ID is required." }, { status: 400 });
+      await sql`
+        update vendors set
+          name = ${name}, registration_number = ${clean(data.registrationNumber, 60)},
+          tin = ${clean(data.tin, 60)}, sst_number = ${clean(data.sstNumber, 60)},
+          email = ${clean(data.email, 200)}, phone = ${clean(data.phone, 60)},
+          address_line1 = ${clean(data.addressLine1, 200)}, address_line2 = ${clean(data.addressLine2, 200)},
+          city = ${clean(data.city, 100)}, state = ${clean(data.state, 100)},
+          postcode = ${clean(data.postcode, 20)}, country_code = ${clean(data.countryCode, 3) || "MYS"},
+          payment_terms_days = ${Math.max(0, Math.min(365, num(data.paymentTermsDays) || 30))},
+          default_expense_account_id = ${clean(data.defaultExpenseAccountId, 100) || null},
+          status = ${clean(data.status, 20) === "Inactive" ? "Inactive" : "Active"},
+          notes = ${clean(data.notes, 2000)}
+        where id = ${id} and organization_id = ${ORGANIZATION_ID}
+      `;
+      return NextResponse.json(await snapshot());
+    }
+
+    // ---- bills ------------------------------------------------------------
+    if (resource === "bill") {
+      if (operation === "create") {
+        const vendorId = clean(data.vendorId, 100);
+        const billDate = clean(data.billDate, 10);
+        if (!vendorId) return NextResponse.json({ error: "Select a vendor." }, { status: 400 });
+        if (!isDate(billDate)) return NextResponse.json({ error: "A valid bill date is required." }, { status: 400 });
+
+        const vendors = await sql`select id, name, payment_terms_days from vendors where id = ${vendorId} and organization_id = ${ORGANIZATION_ID}`;
+        if (!vendors.length) return NextResponse.json({ error: "Vendor was not found." }, { status: 404 });
+
+        const totals = billTotals(arr(data.lines));
+        if (toCents(totals.total) <= 0) return NextResponse.json({ error: "A bill needs at least one line with an amount." }, { status: 400 });
+
+        const billNumber = clean(data.billNumber, 100);
+        // The vendor's own number is what identifies the document, so the same
+        // invoice entered twice is caught here rather than in the ledger.
+        if (billNumber) {
+          const existing = await sql`
+            select id from bills where vendor_id = ${vendorId} and lower(bill_number) = lower(${billNumber})
+          `;
+          if (existing.length) {
+            return NextResponse.json(
+              { error: `Bill ${billNumber} already exists for this vendor.`, duplicateOf: existing[0].id },
+              { status: 409 },
+            );
+          }
+        }
+
+        const dueDate = isDate(clean(data.dueDate, 10))
+          ? clean(data.dueDate, 10)
+          : new Date(new Date(`${billDate}T00:00:00Z`).getTime() + Number(vendors[0].payment_terms_days || 30) * 86_400_000)
+              .toISOString().slice(0, 10);
+
+        const billId = randomUUID();
+        const statements: any[] = [
+          sql`
+            insert into bills (
+              id, organization_id, vendor_id, bill_number, reference, bill_date, due_date,
+              currency, subtotal, tax_amount, total, status, customer_id, project_id, capture_id, notes
+            ) values (
+              ${billId}, ${ORGANIZATION_ID}, ${vendorId}, ${billNumber}, ${clean(data.reference, 100)},
+              ${billDate}, ${dueDate}, ${clean(data.currency, 3) || "MYR"},
+              ${totals.subtotal}, ${totals.taxAmount}, ${totals.total}, 'Approved',
+              ${clean(data.customerId, 100) || null}, ${clean(data.projectId, 100) || null},
+              ${clean(data.captureId, 100) || null}, ${clean(data.notes, 2000)}
+            )
+          `,
+        ];
+        for (const line of totals.lines) {
+          statements.push(sql`
+            insert into bill_lines (
+              bill_id, account_id, description, quantity, unit_price, tax_code, tax_rate,
+              amount, tax_amount, customer_id, project_id, line_order
+            ) values (
+              ${billId}, ${line.accountId}, ${line.description}, ${line.quantity}, ${line.unitPrice},
+              ${line.taxCode}, ${line.taxRate}, ${line.amount}, ${line.taxAmount},
+              ${line.customerId}, ${line.projectId}, ${line.order}
+            )
+          `);
+        }
+        await sql.transaction(statements);
+
+        const entry = await postBillEntry(
+          { id: billId, vendorId, billDate, billNumber, total: totals.total, taxAmount: totals.taxAmount },
+          totals.lines,
+          vendors[0].name,
+        );
+        await sql`update bills set journal_entry_id = ${entry.id} where id = ${billId}`;
+        if (clean(data.captureId, 100)) {
+          await sql`
+            update document_captures set status = 'Posted', bill_id = ${billId}, journal_entry_id = ${entry.id}, reviewed_at = now()
+            where id = ${clean(data.captureId, 100)} and organization_id = ${ORGANIZATION_ID}
+          `;
+        }
+        return NextResponse.json({ id: billId, journalEntryId: entry.id, ...(await snapshot()) }, { status: 201 });
+      }
+
+      if (operation === "void") {
+        const id = clean(data.id, 100);
+        const bills = await sql`select * from bills where id = ${id} and organization_id = ${ORGANIZATION_ID}`;
+        if (!bills.length) return NextResponse.json({ error: "Bill was not found." }, { status: 404 });
+        if (Number(bills[0].amount_paid) > 0) {
+          return NextResponse.json({ error: "Unallocate the payments before voiding this bill." }, { status: 400 });
+        }
+        if (bills[0].journal_entry_id) await voidEntry(bills[0].journal_entry_id, { memo: `Void bill ${bills[0].bill_number}` });
+        await sql`update bills set status = 'Void' where id = ${id}`;
+        return NextResponse.json(await snapshot());
+      }
+    }
+
+    // ---- payments ---------------------------------------------------------
+    if (resource === "payment" && operation === "create") {
+      const direction = clean(data.direction, 5) === "in" ? "in" : "out";
+      const paymentDate = clean(data.paymentDate, 10) || today();
+      const bankAccountId = clean(data.bankAccountId, 100);
+      const amount = num(data.amount);
+
+      if (!isDate(paymentDate)) return NextResponse.json({ error: "A valid payment date is required." }, { status: 400 });
+      if (!bankAccountId) return NextResponse.json({ error: "Select the bank or cash account used." }, { status: 400 });
+      if (toCents(amount) <= 0) return NextResponse.json({ error: "A payment must be for more than zero." }, { status: 400 });
+
+      const allocations = arr(data.allocations)
+        .map((item: any) => ({ billId: clean(item.billId, 100), amount: num(item.amount) }))
+        .filter((item: any) => item.billId && toCents(item.amount) > 0);
+
+      const allocatedCents = allocations.reduce((sum: number, item: any) => sum + toCents(item.amount), 0);
+      if (allocatedCents > toCents(amount)) {
+        return NextResponse.json({ error: "Allocations exceed the payment amount." }, { status: 400 });
+      }
+
+      const paymentId = randomUUID();
+      const vendorId = clean(data.vendorId, 100) || null;
+      const customerId = clean(data.customerId, 100) || null;
+
+      // Money out clears the payable and reduces the bank; money in does the
+      // mirror image against receivables.
+      const entry = await postEntry({
+        date: paymentDate,
+        reference: clean(data.reference, 100),
+        memo: clean(data.notes, 400) || (direction === "out" ? "Supplier payment" : "Customer receipt"),
+        sourceType: "payment",
+        sourceId: paymentId,
+        lines: direction === "out"
+          ? [
+            { accountKey: "accounts_payable", debit: amount, vendorId },
+            { accountId: bankAccountId, credit: amount },
+          ]
+          : [
+            { accountId: bankAccountId, debit: amount },
+            { accountKey: "accounts_receivable", credit: amount, customerId },
+          ],
+      });
+
+      const statements: any[] = [
+        sql`
+          insert into payments (
+            id, organization_id, direction, payment_date, bank_account_id, customer_id, vendor_id,
+            amount, currency, method, reference, unallocated, journal_entry_id, notes
+          ) values (
+            ${paymentId}, ${ORGANIZATION_ID}, ${direction}, ${paymentDate}, ${bankAccountId},
+            ${customerId}, ${vendorId}, ${amount}, ${clean(data.currency, 3) || "MYR"},
+            ${clean(data.method, 60) || "Bank transfer"}, ${clean(data.reference, 100)},
+            ${fromCents(toCents(amount) - allocatedCents)}, ${entry.id}, ${clean(data.notes, 2000)}
+          )
+        `,
+      ];
+      for (const allocation of allocations) {
+        statements.push(sql`
+          insert into payment_allocations (payment_id, bill_id, amount)
+          values (${paymentId}, ${allocation.billId}, ${allocation.amount})
+        `);
+        // Keeping amount_paid on the bill means aging does not have to
+        // re-aggregate allocations on every read.
+        statements.push(sql`
+          update bills set
+            amount_paid = amount_paid + ${allocation.amount},
+            status = case
+              when amount_paid + ${allocation.amount} >= total then 'Paid'
+              when amount_paid + ${allocation.amount} > 0 then 'Partially paid'
+              else status end
+          where id = ${allocation.billId} and organization_id = ${ORGANIZATION_ID}
+        `);
+      }
+      await sql.transaction(statements);
+      return NextResponse.json({ id: paymentId, journalEntryId: entry.id, ...(await snapshot()) }, { status: 201 });
+    }
+
+    // ---- manual journal ---------------------------------------------------
+    if (resource === "journal") {
+      if (operation === "void") {
+        await voidEntry(clean(data.id, 100), { memo: clean(data.reason, 300) });
+        return NextResponse.json(await snapshot());
+      }
+      const entry = await postEntry({
+        date: clean(data.date, 10),
+        memo: clean(data.memo, 400),
+        reference: clean(data.reference, 100),
+        sourceType: "manual",
+        lines: arr(data.lines).map((line: any) => ({
+          accountId: clean(line.accountId, 100),
+          debit: num(line.debit),
+          credit: num(line.credit),
+          memo: clean(line.memo, 300),
+          customerId: clean(line.customerId, 100) || null,
+        })),
+      });
+      return NextResponse.json({ id: entry.id, ...(await snapshot()) }, { status: 201 });
+    }
+
+    // ---- periods ----------------------------------------------------------
+    if (resource === "period") {
+      const year = Math.trunc(num(data.year));
+      const month = Math.trunc(num(data.month));
+      if (!year || month < 1 || month > 12) return NextResponse.json({ error: "A valid year and month are required." }, { status: 400 });
+      const status = operation === "close" ? "Closed" : "Open";
+      await sql`
+        insert into fiscal_periods (organization_id, year, month, status, closed_at)
+        values (${ORGANIZATION_ID}, ${year}, ${month}, ${status}, ${status === "Closed" ? new Date().toISOString() : null})
+        on conflict (organization_id, year, month)
+        do update set status = ${status}, closed_at = ${status === "Closed" ? new Date().toISOString() : null}
+      `;
+      return NextResponse.json(await snapshot());
+    }
+
+    // ---- accounts ---------------------------------------------------------
+    if (resource === "account" && operation === "create") {
+      const code = clean(data.code, 20);
+      const name = clean(data.name, 200);
+      const type = clean(data.type, 20);
+      if (!code || !name) return NextResponse.json({ error: "An account code and name are required." }, { status: 400 });
+      if (!["asset", "liability", "equity", "income", "expense"].includes(type)) {
+        return NextResponse.json({ error: "Select a valid account type." }, { status: 400 });
+      }
+      await sql`
+        insert into ledger_accounts (organization_id, code, name, type, subtype, is_bank, bank_name, account_number, description)
+        values (
+          ${ORGANIZATION_ID}, ${code}, ${name}, ${type}, ${clean(data.subtype, 60)},
+          ${Boolean(data.isBank)}, ${clean(data.bankName, 120)}, ${clean(data.accountNumber, 60)},
+          ${clean(data.description, 500)}
+        )
+        on conflict (organization_id, code) do nothing
+      `;
+      return NextResponse.json(await snapshot(), { status: 201 });
+    }
+
+    return NextResponse.json({ error: "Unsupported accounting operation." }, { status: 400 });
+  } catch (error) {
+    return failure(error);
+  }
+}
