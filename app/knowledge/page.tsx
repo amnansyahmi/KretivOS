@@ -2,13 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Bot, CalendarDays, Download, FileCode2, Library, Pencil, Plus, Save, Search, Tag, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft, Bot, CalendarDays, ChevronLeft, ChevronRight, Download,
+  FileCode2, Filter, Library, MoreHorizontal, Pencil, Plus, Save,
+  Search, Send, SlidersHorizontal, Sparkles, Tag, Trash2, Upload, X
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { MarkdownPreview } from "@/components/markdown-preview";
-import { WorkspacePage } from "@/components/workspace-page";
 import { builtInKnowledge, KNOWLEDGE_STORAGE_KEY, KnowledgeEntry, slugifyFilename } from "@/lib/knowledge";
 import { cn } from "@/lib/utils";
+
+type MobileScreen = "library" | "document";
 
 function loadEntries(): KnowledgeEntry[] {
   if (typeof window === "undefined") return builtInKnowledge;
@@ -22,12 +27,39 @@ function loadEntries(): KnowledgeEntry[] {
   }
 }
 
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString("en-MY", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function excerpt(content: string) {
+  return content
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*_`>#-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 190);
+}
+
+function sourceLabel(source: KnowledgeEntry["source"]) {
+  if (source === "markdown") return "Uploaded Markdown";
+  if (source === "editor") return "Edited in KretivOS";
+  return "Built-in knowledge";
+}
+
 export default function KnowledgeLibraryPage() {
   const [entries, setEntries] = useState<KnowledgeEntry[]>(builtInKnowledge);
   const [selectedId, setSelectedId] = useState(builtInKnowledge[0]?.id || "");
   const [query, setQuery] = useState("");
   const [client, setClient] = useState("All clients");
-  const [mobileListOpen, setMobileListOpen] = useState(true);
+  const [category, setCategory] = useState("All");
+  const [screen, setScreen] = useState<MobileScreen>("library");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState<KnowledgeEntry | null>(null);
   const [ask, setAsk] = useState("");
@@ -45,22 +77,35 @@ export default function KnowledgeLibraryPage() {
     localStorage.setItem(KNOWLEDGE_STORAGE_KEY, JSON.stringify(entries));
   }, [entries]);
 
-  const clients = useMemo(() => ["All clients", ...Array.from(new Set(entries.map((entry) => entry.client))).sort()], [entries]);
+  const clients = useMemo(
+    () => ["All clients", ...Array.from(new Set(entries.map((entry) => entry.client))).sort()],
+    [entries],
+  );
+
+  const categories = useMemo(
+    () => ["All", ...Array.from(new Set(entries.map((entry) => entry.category))).sort()],
+    [entries],
+  );
+
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
     return entries.filter((entry) => {
       const clientMatch = client === "All clients" || entry.client === client;
-      const haystack = [entry.title, entry.client, entry.category, entry.tags.join(" "), entry.content].join(" ").toLowerCase();
-      return clientMatch && (!term || haystack.includes(term));
+      const categoryMatch = category === "All" || entry.category === category;
+      const haystack = [entry.title, entry.client, entry.category, entry.tags.join(" "), entry.content]
+        .join(" ")
+        .toLowerCase();
+      return clientMatch && categoryMatch && (!term || haystack.includes(term));
     });
-  }, [entries, query, client]);
+  }, [entries, query, client, category]);
 
   const selected = entries.find((entry) => entry.id === selectedId) || filtered[0] || entries[0];
 
   function openEntry(id: string) {
     setSelectedId(id);
-    setMobileListOpen(false);
+    setScreen("document");
     setEditing(false);
+    setEditDraft(null);
     setNotice("");
   }
 
@@ -72,29 +117,28 @@ export default function KnowledgeLibraryPage() {
 
   function saveEdit() {
     if (!editDraft || !editDraft.title.trim() || !editDraft.content.trim()) return;
-    const updated = {
+    const updated: KnowledgeEntry = {
       ...editDraft,
       title: editDraft.title.trim(),
       client: editDraft.client.trim() || "General",
       category: editDraft.category.trim() || "General",
       filename: editDraft.filename.trim() || slugifyFilename(editDraft.title),
       updatedAt: new Date().toISOString(),
-      source: editDraft.source === "built-in" ? "editor" as const : editDraft.source,
+      source: editDraft.source === "built-in" ? "editor" : editDraft.source,
     };
     setEntries((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
     setEditDraft(updated);
     setEditing(false);
-    setNotice("Knowledge updated.");
+    setNotice("Knowledge updated successfully.");
   }
 
   function deleteEntry() {
     if (!selected) return;
-    const confirmed = window.confirm(`Delete “${selected.title}”? This removes it from this PWA browser.`);
-    if (!confirmed) return;
+    if (!window.confirm(`Delete “${selected.title}”? This cannot be undone.`)) return;
     const remaining = entries.filter((entry) => entry.id !== selected.id);
     setEntries(remaining);
     setSelectedId(remaining[0]?.id || "");
-    setMobileListOpen(true);
+    setScreen("library");
     setEditing(false);
     setNotice("Knowledge deleted.");
   }
@@ -115,14 +159,21 @@ export default function KnowledgeLibraryPage() {
     setAsking(true);
     setAnswer("");
     try {
-      const contextEntries = selected ? [selected, ...filtered.filter((entry) => entry.id !== selected.id).slice(0, 3)] : filtered.slice(0, 4);
-      const context = contextEntries.map((entry) => `SOURCE: ${entry.title}\nCLIENT: ${entry.client}\n${entry.content.slice(0, 6000)}`).join("\n\n---\n\n");
+      const contextEntries = selected
+        ? [selected, ...filtered.filter((entry) => entry.id !== selected.id).slice(0, 3)]
+        : filtered.slice(0, 4);
+      const context = contextEntries
+        .map((entry) => `SOURCE: ${entry.title}\nCLIENT: ${entry.client}\n${entry.content.slice(0, 6000)}`)
+        .join("\n\n---\n\n");
       const response = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           module: "Knowledge Library",
-          messages: [{ role: "user", content: `Answer the question only from the supplied KretivOS knowledge. Cite the source titles used. If the answer is not present, say so.\n\nQUESTION:\n${ask}\n\nKNOWLEDGE:\n${context}` }],
+          messages: [{
+            role: "user",
+            content: `Answer only from the supplied KretivOS knowledge. Cite the source titles used. If the answer is not present, say so.\n\nQUESTION:\n${ask}\n\nKNOWLEDGE:\n${context}`,
+          }],
         }),
       });
       const data = await response.json();
@@ -136,90 +187,249 @@ export default function KnowledgeLibraryPage() {
   }
 
   return (
-    <WorkspacePage
-      eyebrow="Company memory"
-      title="Knowledge Library"
-      description="Upload, create, search, edit and delete Markdown knowledge by client. Selected records can be used as grounded context for ai-nonymauz-cloud."
-      actions={
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => setMobileListOpen((value) => !value)} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium xl:hidden"><Library className="h-4 w-4" />{mobileListOpen ? "Hide files" : "Show files"}</button>
-          <Link href="/knowledge/add" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"><Plus className="h-4 w-4" />Add knowledge</Link>
+    <main className="min-h-screen bg-[#f5f2ea] pb-24 text-[#202820]">
+      <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f5f2ea]/95 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-3 px-4 md:h-auto md:min-h-24 md:px-8 md:py-6">
+          <Link href="/" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#506057] hover:bg-black/5" aria-label="Back to KretivOS">
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] md:block">Company memory</div>
+            <h1 className="truncate text-lg font-semibold tracking-tight md:mt-1 md:text-3xl">Knowledge</h1>
+            <p className="mt-1 hidden max-w-3xl text-sm leading-6 text-[#687169] md:block">Search, maintain and ask questions across agreements, proposals, SOPs, campaign learnings and technical decisions.</p>
+          </div>
+          <Button variant="outline" size="icon" className="bg-white md:hidden" onClick={() => setAiOpen(true)} aria-label="Ask Kretiv AI">
+            <Bot className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" className="hidden bg-white md:inline-flex" onClick={() => setAiOpen(true)}>
+            <Sparkles className="h-4 w-4" /> Ask Kretiv AI
+          </Button>
+          <Button asChild size="icon" className="md:hidden">
+            <Link href="/knowledge/add" aria-label="Add knowledge"><Plus className="h-5 w-5" /></Link>
+          </Button>
+          <Button asChild className="hidden md:inline-flex">
+            <Link href="/knowledge/add"><Upload className="h-4 w-4" /> Add knowledge</Link>
+          </Button>
         </div>
-      }
-    >
-      {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
+      </header>
 
-      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <Card className={cn("h-fit bg-white/80 xl:sticky xl:top-5 xl:block", !mobileListOpen && "hidden")}>
-          <CardHeader className="border-b p-4 sm:p-5">
-            <div className="flex items-center justify-between"><div><CardTitle>Knowledge files</CardTitle><p className="mt-1 text-xs text-muted-foreground">{entries.length} Markdown records</p></div><Library className="h-5 w-5 text-[#ba5c42]" /></div>
-            <div className="mt-4 space-y-2">
-              <div className="flex h-10 items-center gap-2 rounded-lg border bg-white px-3"><Search className="h-4 w-4 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 text-sm outline-none" placeholder="Search title or content" /></div>
-              <select value={client} onChange={(event) => setClient(event.target.value)} className="h-10 w-full rounded-lg border bg-white px-3 text-sm outline-none">{clients.map((name) => <option key={name}>{name}</option>)}</select>
-            </div>
-          </CardHeader>
-          <CardContent className="max-h-[58vh] space-y-2 overflow-y-auto p-3 xl:max-h-[calc(100vh-260px)]">
-            {filtered.map((entry) => (
-              <button key={entry.id} onClick={() => openEntry(entry.id)} className={cn("w-full rounded-xl border p-4 text-left transition", selected?.id === entry.id ? "border-[#ba5c42] bg-[#fff8f4]" : "bg-white hover:bg-[#f8f5ee]") }>
-                <div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#eee9df]"><FileCode2 className="h-4 w-4 text-[#ba5c42]" /></div><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{entry.title}</div><div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground"><span>{entry.client}</span><span>•</span><span>{entry.category}</span></div><div className="mt-2 truncate text-[10px] text-muted-foreground">{entry.filename}</div></div></div>
-              </button>
-            ))}
-            {!filtered.length && <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No knowledge matches your search.</div>}
-          </CardContent>
-        </Card>
+      <div className="mx-auto max-w-[1500px] px-4 py-4 md:px-8 md:py-7">
+        {notice && (
+          <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")} className="rounded-md p-1 hover:bg-emerald-100" aria-label="Dismiss"><X className="h-4 w-4" /></button>
+          </div>
+        )}
 
-        <div className="min-w-0 space-y-5">
-          {selected ? (
-            <>
-              <Card className="bg-white/80">
-                <CardHeader className="border-b p-4 sm:p-6">
-                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]"><span>{selected.client}</span><span>•</span><span>{selected.category}</span></div><CardTitle className="mt-2 break-words text-2xl">{selected.title}</CardTitle><div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground"><span className="flex items-center gap-1"><CalendarDays className="h-3 w-3" />Updated {new Date(selected.updatedAt).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" })}</span><span>{selected.filename}</span></div></div>
-                    <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={downloadEntry}><Download className="h-3.5 w-3.5" />Download</Button><Button variant="outline" size="sm" onClick={beginEdit}><Pencil className="h-3.5 w-3.5" />Edit</Button><Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={deleteEntry}><Trash2 className="h-3.5 w-3.5" />Delete</Button></div>
+        <div className="grid min-w-0 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <section className={cn("min-w-0", screen === "document" && "hidden lg:block")}>
+            <Card className="overflow-hidden border-black/8 bg-white/85 shadow-sm lg:sticky lg:top-[116px]">
+              <CardContent className="p-0">
+                <div className="sticky top-16 z-20 border-b bg-white/95 p-3 backdrop-blur md:top-24 md:p-4 lg:static">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      className="h-11 w-full rounded-xl border bg-[#fbfaf7] pl-10 pr-12 text-sm outline-none transition focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10"
+                      placeholder="Search knowledge..."
+                    />
+                    <button onClick={() => setFiltersOpen((value) => !value)} className={cn("absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg", filtersOpen || client !== "All clients" ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-black/5")} aria-label="Show filters">
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </button>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2">{selected.tags.map((item) => <span key={item} className="inline-flex items-center gap-1 rounded-full bg-[#eeeae0] px-2.5 py-1 text-[10px] text-[#5a605a]"><Tag className="h-3 w-3" />{item}</span>)}</div>
-                </CardHeader>
-                <CardContent className="p-4 sm:p-6">
-                  {editing && editDraft ? (
-                    <div className="space-y-4">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <Field label="Title"><input value={editDraft.title} onChange={(event) => setEditDraft({ ...editDraft, title: event.target.value })} className="input" /></Field>
-                        <Field label="Filename"><input value={editDraft.filename} onChange={(event) => setEditDraft({ ...editDraft, filename: event.target.value })} className="input" /></Field>
-                        <Field label="Client"><input value={editDraft.client} onChange={(event) => setEditDraft({ ...editDraft, client: event.target.value })} className="input" /></Field>
-                        <Field label="Category"><input value={editDraft.category} onChange={(event) => setEditDraft({ ...editDraft, category: event.target.value })} className="input" /></Field>
-                        <Field label="Tags (comma separated)" wide><input value={editDraft.tags.join(", ")} onChange={(event) => setEditDraft({ ...editDraft, tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} className="input" /></Field>
-                      </div>
-                      <Field label="Markdown content"><textarea value={editDraft.content} onChange={(event) => setEditDraft({ ...editDraft, content: event.target.value })} className="min-h-[420px] w-full resize-y rounded-xl border bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42]" /></Field>
-                      <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => { setEditing(false); setEditDraft(null); }}>Cancel</Button><Button onClick={saveEdit}><Save className="h-4 w-4" />Save changes</Button></div>
-                    </div>
-                  ) : (
-                    <div className="mx-auto max-w-4xl"><MarkdownPreview content={selected.content} /></div>
-                  )}
-                </CardContent>
-              </Card>
 
-              <Card className="bg-[#26342b] text-white">
-                <CardHeader className="p-4 sm:p-6"><div className="flex items-center gap-2"><Bot className="h-5 w-5 text-[#ef9a75]" /><CardTitle>Ask Kretiv AI</CardTitle></div><p className="mt-1 text-xs text-white/45">The selected knowledge file and up to three relevant filtered files are supplied as context.</p></CardHeader>
-                <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-                  <div className="flex flex-col gap-2 sm:flex-row"><textarea value={ask} onChange={(event) => setAsk(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askKnowledge(); } }} className="min-h-12 flex-1 resize-none rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35" placeholder="Ask a question from this knowledge..." /><Button variant="secondary" className="shrink-0" onClick={askKnowledge} disabled={asking}>{asking ? "Thinking…" : "Ask AI"}</Button></div>
-                  {answer && <div className="mt-4 whitespace-pre-wrap rounded-xl border border-white/10 bg-black/10 p-4 text-sm leading-7 text-white/70">{answer}</div>}
-                </CardContent>
-              </Card>
-            </>
-          ) : (
-            <Card className="bg-white/80"><CardContent className="p-12 text-center"><Library className="mx-auto h-8 w-8 text-muted-foreground" /><div className="mt-4 font-semibold">No knowledge files yet</div><Link href="/knowledge/add" className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"><Plus className="h-4 w-4" />Add knowledge</Link></CardContent></Card>
-          )}
+                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                    {categories.map((item) => (
+                      <button key={item} onClick={() => setCategory(item)} className={cn("shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition", category === item ? "border-[#202c25] bg-[#202c25] text-white" : "border-black/8 bg-white text-[#667067] hover:bg-[#f3efe7]")}>{item}</button>
+                    ))}
+                  </div>
+
+                  {filtersOpen && (
+                    <div className="mt-3 rounded-xl border bg-[#fbfaf7] p-3">
+                      <label className="text-xs font-medium text-[#4e5a52]">Client / workspace</label>
+                      <select value={client} onChange={(event) => setClient(event.target.value)} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm outline-none focus:border-[#ba5c42]">
+                        {clients.map((name) => <option key={name}>{name}</option>)}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{filtered.length} of {entries.length} files</span>
+                    {(query || client !== "All clients" || category !== "All") && (
+                      <button onClick={() => { setQuery(""); setClient("All clients"); setCategory("All"); }} className="font-medium text-[#ba5c42]">Clear filters</button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2 p-3 lg:max-h-[calc(100vh-270px)] lg:overflow-y-auto">
+                  {filtered.map((entry) => (
+                    <button
+                      key={entry.id}
+                      onClick={() => openEntry(entry.id)}
+                      className={cn(
+                        "group w-full rounded-2xl border p-3.5 text-left transition",
+                        selected?.id === entry.id ? "border-[#d07155] bg-[#fff8f3] shadow-sm" : "border-black/8 bg-white hover:border-black/15 hover:bg-[#fbfaf7]",
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f1ece2] text-[#9b4a36]">
+                          <FileCode2 className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <h2 className="line-clamp-2 text-sm font-semibold leading-5 text-[#202820]">{entry.title}</h2>
+                            <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5" />
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <span>{entry.client}</span><span>•</span><span>{entry.category}</span>
+                          </div>
+                          <p className="mt-2 line-clamp-2 text-xs leading-5 text-[#6a746d]">{excerpt(entry.content) || "No summary available."}</p>
+                          <div className="mt-2.5 text-[10px] text-muted-foreground">Updated {formatDate(entry.updatedAt)}</div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                  {!filtered.length && (
+                    <div className="rounded-2xl border border-dashed p-8 text-center">
+                      <Search className="mx-auto h-6 w-6 text-muted-foreground" />
+                      <div className="mt-3 text-sm font-medium">No matching knowledge</div>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">Try a different keyword, client or category.</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+
+          <section className={cn("min-w-0", screen === "library" && "hidden lg:block")}>
+            {selected ? (
+              <div className="space-y-4">
+                <Card className="overflow-hidden border-black/8 bg-white/90 shadow-sm">
+                  <div className="border-b bg-[#fbfaf7] p-4 md:p-6">
+                    <div className="flex items-start gap-3 lg:hidden">
+                      <button onClick={() => setScreen("library")} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-white" aria-label="Back to knowledge list"><ChevronLeft className="h-4 w-4" /></button>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#ba5c42]">{selected.category}</div>
+                        <h2 className="mt-1 line-clamp-2 text-lg font-semibold leading-6">{selected.title}</h2>
+                      </div>
+                      <button className="inline-flex h-9 w-9 items-center justify-center rounded-xl border bg-white" aria-label="More document actions"><MoreHorizontal className="h-4 w-4" /></button>
+                    </div>
+
+                    <div className="hidden items-start justify-between gap-6 lg:flex">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[.16em] text-[#ba5c42]"><span>{selected.client}</span><span>•</span><span>{selected.category}</span></div>
+                        <h2 className="mt-2 break-words text-3xl font-semibold tracking-tight">{selected.title}</h2>
+                        <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5" />Updated {formatDate(selected.updatedAt)}</span>
+                          <span>{sourceLabel(selected.source)}</span>
+                          <span>{selected.filename}</span>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <Button variant="outline" size="sm" onClick={downloadEntry}><Download className="h-3.5 w-3.5" />Download</Button>
+                        <Button variant="outline" size="sm" onClick={beginEdit}><Pencil className="h-3.5 w-3.5" />Edit</Button>
+                        <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={deleteEntry}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {selected.tags.map((item) => (
+                        <span key={item} className="inline-flex items-center gap-1 rounded-full border border-black/5 bg-white px-2.5 py-1 text-[10px] text-[#5a645d]"><Tag className="h-3 w-3" />{item}</span>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-3 gap-2 lg:hidden">
+                      <Button variant="outline" size="sm" onClick={downloadEntry}><Download className="h-3.5 w-3.5" />Download</Button>
+                      <Button variant="outline" size="sm" onClick={beginEdit}><Pencil className="h-3.5 w-3.5" />Edit</Button>
+                      <Button variant="outline" size="sm" onClick={() => setAiOpen(true)}><Bot className="h-3.5 w-3.5" />Ask AI</Button>
+                    </div>
+                  </div>
+
+                  <CardContent className="p-4 md:p-7">
+                    {editing && editDraft ? (
+                      <div className="space-y-5">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <Field label="Title"><input value={editDraft.title} onChange={(event) => setEditDraft({ ...editDraft, title: event.target.value })} className="field-control" /></Field>
+                          <Field label="Filename"><input value={editDraft.filename} onChange={(event) => setEditDraft({ ...editDraft, filename: event.target.value })} className="field-control" /></Field>
+                          <Field label="Client"><input value={editDraft.client} onChange={(event) => setEditDraft({ ...editDraft, client: event.target.value })} className="field-control" /></Field>
+                          <Field label="Category"><input value={editDraft.category} onChange={(event) => setEditDraft({ ...editDraft, category: event.target.value })} className="field-control" /></Field>
+                          <Field label="Tags (comma separated)" wide><input value={editDraft.tags.join(", ")} onChange={(event) => setEditDraft({ ...editDraft, tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} className="field-control" /></Field>
+                        </div>
+                        <Field label="Markdown content"><textarea value={editDraft.content} onChange={(event) => setEditDraft({ ...editDraft, content: event.target.value })} className="min-h-[52vh] w-full resize-y rounded-xl border bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10 md:min-h-[520px]" /></Field>
+                        <div className="sticky bottom-3 flex justify-end gap-2 rounded-2xl border bg-white/95 p-3 shadow-lg backdrop-blur">
+                          <Button variant="outline" onClick={() => { setEditing(false); setEditDraft(null); }}>Cancel</Button>
+                          <Button onClick={saveEdit}><Save className="h-4 w-4" />Save changes</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <article className="mx-auto max-w-4xl"><MarkdownPreview content={selected.content} /></article>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <button onClick={() => setAiOpen(true)} className="hidden w-full items-center justify-between rounded-2xl border border-[#26342b]/10 bg-[#26342b] p-5 text-left text-white transition hover:bg-[#2d3d32] lg:flex">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10"><Sparkles className="h-5 w-5 text-[#ef9a75]" /></div>
+                    <div><div className="font-semibold">Ask Kretiv AI about this document</div><div className="mt-1 text-xs text-white/50">Uses this file and up to three related knowledge records as grounded context.</div></div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-white/40" />
+                </button>
+              </div>
+            ) : (
+              <Card className="border-black/8 bg-white/85"><CardContent className="p-12 text-center"><Library className="mx-auto h-8 w-8 text-muted-foreground" /><div className="mt-4 font-semibold">No knowledge files yet</div><Button asChild className="mt-4"><Link href="/knowledge/add"><Plus className="h-4 w-4" />Add knowledge</Link></Button></CardContent></Card>
+            )}
+          </section>
         </div>
       </div>
 
+      {aiOpen && (
+        <div className="fixed inset-0 z-[140]">
+          <button className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={() => setAiOpen(false)} aria-label="Close AI drawer" />
+          <section role="dialog" aria-modal="true" aria-label="Ask Kretiv AI" className="absolute inset-x-0 bottom-0 flex max-h-[88dvh] flex-col overflow-hidden rounded-t-3xl bg-[#f7f4ed] shadow-2xl md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-[470px] md:rounded-none">
+            <div className="flex items-start justify-between border-b bg-white/70 p-4 md:p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#26342b] text-white"><Bot className="h-5 w-5" /></div>
+                <div><h2 className="font-semibold">Ask Kretiv AI</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Grounded in {selected ? `“${selected.title}”` : "the filtered library"}.</p></div>
+              </div>
+              <button onClick={() => setAiOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-black/5" aria-label="Close"><X className="h-4 w-4" /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 md:p-5">
+              {!answer && (
+                <div className="rounded-2xl border bg-white p-4">
+                  <div className="flex items-center gap-2 text-sm font-medium"><Sparkles className="h-4 w-4 text-[#ba5c42]" />Suggested questions</div>
+                  <div className="mt-3 space-y-2">
+                    {["Summarise the key decisions.", "What actions or deadlines are mentioned?", "Which commercial terms should the team remember?"].map((prompt) => (
+                      <button key={prompt} onClick={() => setAsk(prompt)} className="w-full rounded-xl border bg-[#fbfaf7] px-3 py-3 text-left text-xs leading-5 hover:border-[#ba5c42]/40 hover:bg-[#fff8f3]">{prompt}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {answer && <div className="whitespace-pre-wrap rounded-2xl border bg-white p-4 text-sm leading-7 text-[#4c574f]">{answer}</div>}
+            </div>
+
+            <div className="border-t bg-white/85 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] backdrop-blur md:p-4">
+              <div className="flex items-end gap-2 rounded-2xl border bg-white p-2 focus-within:border-[#ba5c42] focus-within:ring-4 focus-within:ring-[#ba5c42]/10">
+                <textarea value={ask} onChange={(event) => setAsk(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askKnowledge(); } }} rows={2} className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none" placeholder="Ask about this knowledge..." />
+                <Button size="icon" onClick={askKnowledge} disabled={asking || !ask.trim()} aria-label="Send question"><Send className="h-4 w-4" /></Button>
+              </div>
+              <p className="mt-2 px-1 text-[10px] text-muted-foreground">AI answers may be incomplete. Verify important commercial or legal information against the source document.</p>
+            </div>
+          </section>
+        </div>
+      )}
+
       <style jsx>{`
-        .input { height: 2.75rem; width: 100%; border-radius: .65rem; border: 1px solid hsl(var(--border)); background: white; padding: 0 .8rem; font-size: .875rem; outline: none; }
-        .input:focus { box-shadow: 0 0 0 3px rgba(186,92,66,.12); border-color: rgba(186,92,66,.55); }
+        .field-control { height: 2.75rem; width: 100%; border-radius: .75rem; border: 1px solid hsl(var(--border)); background: white; padding: 0 .8rem; font-size: .875rem; outline: none; }
+        .field-control:focus { box-shadow: 0 0 0 4px rgba(186,92,66,.1); border-color: rgba(186,92,66,.6); }
+        .scrollbar-none::-webkit-scrollbar { display: none; }
+        .scrollbar-none { scrollbar-width: none; }
       `}</style>
-    </WorkspacePage>
+    </main>
   );
 }
 
 function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
-  return <label className={cn("block text-xs font-medium", wide && "md:col-span-2")}>{label}<div className="mt-2">{children}</div></label>;
+  return <label className={cn("block text-xs font-medium text-[#4e5a52]", wide && "md:col-span-2")}>{label}<div className="mt-2">{children}</div></label>;
 }
