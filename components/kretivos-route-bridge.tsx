@@ -4,6 +4,17 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 const routes: Array<[string, string]> = [
+  ["client workspaces", "/business?tab=customers"],
+  ["customer onboarding", "/business?tab=onboarding"],
+  ["crm & pipeline", "/business?tab=crm"],
+  ["sales & documents", "/business?tab=sales"],
+  ["finance", "/business?tab=finance"],
+  ["weekly settlement", "/business?tab=settlements"],
+  ["projects & delivery", "/business?tab=projects"],
+  ["new opportunity", "/business?tab=crm"],
+  ["record transaction", "/business?tab=finance"],
+  ["new project", "/business?tab=projects"],
+  ["onboard client", "/business?tab=onboarding"],
   ["add knowledge", "/knowledge/add"],
   ["knowledge", "/knowledge"],
   ["funnel builder", "/funnels"],
@@ -11,7 +22,7 @@ const routes: Array<[string, string]> = [
   ["automations", "/automations"],
   ["new automation", "/automations"],
   ["templates", "/templates"],
-  ["create template", "/templates"],
+  ["create template", "/templates"]
 ];
 
 export function KretivOSRouteBridge() {
