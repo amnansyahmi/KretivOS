@@ -1,4 +1,4 @@
-const CACHE = "kretivos-v2";
+const CACHE = "kretivos-v3";
 const APP_SHELL = [
   "/",
   "/funnels",
