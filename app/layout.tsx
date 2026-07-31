@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { KretivOSToolsNav } from "@/components/kretivos-tools-nav";
 import { KretivOSRouteBridge } from "@/components/kretivos-route-bridge";
-import { IndustrySelectEnhancer } from "@/components/industry-select-enhancer";
 import { AutomationRuntime } from "@/components/automation-runtime";
 
 export const metadata: Metadata = {
@@ -26,7 +25,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         {children}
         <KretivOSRouteBridge />
-        <IndustrySelectEnhancer />
         <AutomationRuntime />
         <KretivOSToolsNav />
       </body>
