@@ -35,11 +35,14 @@ export function KretivOSRouteBridge() {
   useEffect(() => {
     if (pathname !== "/") return;
 
-    // Migrate users who last opened the old client-specific finance screen.
     try {
       const savedView = JSON.parse(localStorage.getItem("kretivos-view") || "null");
       if (savedView === "Chef Ammar Financials") {
         localStorage.setItem("kretivos-view", JSON.stringify("Finance"));
+      }
+      if (savedView === "Knowledge") {
+        router.replace("/knowledge");
+        return;
       }
     } catch {}
 
