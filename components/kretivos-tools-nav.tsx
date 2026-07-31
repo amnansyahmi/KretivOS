@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  BookOpen, BriefcaseBusiness, Eye, FileText, Home, Library,
+  BookOpen, BriefcaseBusiness, Eye, FileText, Home, Library, Palette,
   Plus, Target, Workflow, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 const items = [
   { href: "/", label: "KretivOS Home", icon: Home },
   { href: "/business", label: "Business Workspace", icon: BriefcaseBusiness },
+  { href: "/brands", label: "Brand DNA", icon: Palette },
   { href: "/funnels", label: "Funnel Library", icon: Target },
   { href: "/knowledge", label: "Knowledge Library", icon: Library },
   { href: "/knowledge/add", label: "Add Knowledge (.md)", icon: Plus },
