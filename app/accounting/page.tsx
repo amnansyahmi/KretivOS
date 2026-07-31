@@ -14,8 +14,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, ArrowLeftRight, BookOpen, Building2, Camera, Check,
   ChevronRight, CircleDollarSign, FileText, HandCoins, Landmark, ListTree, Loader2,
-  Lock, LockOpen, Plus, Receipt, RefreshCw, ScrollText, Trash2, TrendingDown,
-  TrendingUp, Upload, X,
+  Lock, LockOpen, Plus, Receipt, RefreshCw, ScrollText, Sparkles, Trash2,
+  TrendingDown, TrendingUp, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -863,6 +863,7 @@ function Reports() {
   const { profitAndLoss: pl, balanceSheet: bs } = report;
 
   return <div className="space-y-5">
+    <PeriodReview />
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Stat label="Income" value={money(pl.totalIncome)} note={`${report.range.from} → ${report.range.to}`} icon={TrendingUp} />
       <Stat label="Expenses" value={money(pl.totalExpense)} note="Same period" icon={TrendingDown} />
@@ -948,6 +949,63 @@ function Reports() {
       </CardContent>
     </Card>
   </div>;
+}
+
+/**
+ * Month-end review.
+ *
+ * Every item is detected in code against the ledger; the AI ranks and explains
+ * them. When the service is unavailable the same items appear with a plainer
+ * description, so the review is never empty just because AI is down.
+ */
+function PeriodReview() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/accounting/insights", { cache: "no-store" })
+      .then((response) => response.json().then((payload) => ({ ok: response.ok, payload })))
+      .then(({ ok, payload }) => { if (!ok) throw new Error(payload.error); setData(payload); })
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "Review unavailable."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Card className="bg-[#26342b] text-white"><CardContent className="flex items-center gap-3 p-6 text-sm">
+    <Loader2 className="h-4 w-4 animate-spin" />Reviewing the ledger…
+  </CardContent></Card>;
+  if (error || !data) return null;
+
+  const { review, signals } = data;
+  const tone = (severity: string) => severity === "high" ? "bg-red-400" : severity === "medium" ? "bg-amber-300" : "bg-white/30";
+
+  return <Card className="overflow-hidden bg-[#26342b] text-white"><CardContent className="p-6">
+    <div className="flex items-center gap-2 text-[10px] uppercase tracking-[.2em] text-white/45">
+      <Sparkles className="h-3.5 w-3.5 text-[#ef9a75]" />Month-end review · {data.period}
+    </div>
+    <h2 className="mt-4 max-w-2xl text-xl font-medium leading-snug">{review.headline}</h2>
+    {review.commentary && <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/70">{review.commentary}</p>}
+
+    {review.actions?.length > 0 && <div className="mt-6 space-y-3">
+      {review.actions.map((action: any, index: number) => <div key={index} className="flex gap-3 text-sm">
+        <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", tone(action.severity))} />
+        <span className="min-w-0">
+          <span className="font-medium text-white">{action.title}</span>
+          {action.detail && <span className="ml-2 text-white/65">{action.detail}</span>}
+        </span>
+      </div>)}
+    </div>}
+
+    <div className="mt-6 flex flex-wrap items-center gap-3 text-[10px] text-white/35">
+      <span>{signals.length} check{signals.length === 1 ? "" : "s"} run against the ledger</span>
+      <span>·</span>
+      <span>
+        {review.source === "ai-nonymauz-cloud"
+          ? "Prioritised by ai-nonymauz-cloud from figures calculated here — it never computes a number"
+          : "AI unavailable, so this is the plain computed review"}
+      </span>
+    </div>
+  </CardContent></Card>;
 }
 
 function Row({ label, value, bold, highlight }: { label: string; value: string; bold?: boolean; highlight?: boolean }) {

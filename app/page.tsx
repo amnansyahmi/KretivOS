@@ -375,6 +375,7 @@ function CommandCentre() {
           <div className="mt-3 truncate text-[11px] text-muted-foreground">Next: {c.next}</div>
         </Link>)}
       </CardContent></Card>
+      <CashOutlook />
       <Card className="bg-white/75"><CardHeader><CardTitle>Quick create</CardTitle></CardHeader><CardContent className="grid grid-cols-2 gap-2">{[
         [FileText, "Quotation", "/business?tab=sales"], [MessageSquareText, "Opportunity", "/business?tab=crm"],
         [Clapperboard, "Funnel", "/funnels"], [Megaphone, "Brand DNA", "/brands"],
@@ -1073,4 +1074,60 @@ function Settings() {
       <div className="rounded-lg border bg-white p-4"><div className="flex items-center gap-2 text-sm font-semibold"><MonitorSmartphone className="h-4 w-4" />PWA and offline</div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">The app shell is cached for offline launch. Business records are always fetched live so shared data is never served stale.</p></div>
     </CardContent></Card>
   </div>;
+}
+
+/**
+ * The daily cash question, on the page everyone opens first.
+ *
+ * Codex suggested keeping Finance as a read-only "Cash Outlook" beside
+ * Accounting. The operational need is real — "what have we got, what is due" is
+ * asked far more often than "show me the trial balance" — but a second
+ * money menu is what made people unsure where to record things in the first
+ * place. So the view lives here, and the records live in one place.
+ */
+function CashOutlook() {
+  const [data, setData] = useState<{ cash: number; receivable: { total: number }; payable: { total: number } } | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/accounting/reports", { cache: "no-store" })
+      .then(response => response.json().then(payload => ({ ok: response.ok, payload })))
+      .then(({ ok, payload }) => { if (!cancelled && ok) setData(payload); else if (!cancelled) setUnavailable(true); })
+      .catch(() => { if (!cancelled) setUnavailable(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (unavailable) return null;
+
+  const rows: [string, number, string][] = data
+    ? [
+      ["Cash at bank", data.cash, "text-foreground"],
+      ["Owed to us", data.receivable.total, "text-emerald-700"],
+      ["Owed by us", -data.payable.total, "text-red-600"],
+    ]
+    : [];
+
+  return <Card className="bg-white/75">
+    <CardHeader className="flex-row items-center justify-between">
+      <CardTitle>Cash outlook</CardTitle>
+      <Link href="/accounting" className="text-xs font-medium">Accounting</Link>
+    </CardHeader>
+    <CardContent className="space-y-3">
+      {!data && <RowSkeleton rows={3} />}
+      {rows.map(([label, value, tone]) => <div key={label} className="flex items-baseline justify-between gap-3">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className={cn("text-sm font-semibold tabular-nums", tone)}>{money(value)}</span>
+      </div>)}
+      {data && <div className="border-t pt-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-xs font-medium">Net position</span>
+          <span className="text-lg font-semibold tabular-nums">{money(data.cash + data.receivable.total - data.payable.total)}</span>
+        </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+          Read from the ledger. Record money in Accounting so this and the reports always agree.
+        </p>
+      </div>}
+    </CardContent>
+  </Card>;
 }

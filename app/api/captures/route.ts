@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { extractDocument, suggestAccountKey, type CaptureKind } from "@/lib/ocr";
+import { suggestAccountWithAi } from "@/lib/accounting-ai";
 import { duplicateFingerprint, normaliseVendor } from "@/lib/ocr-parse";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
@@ -213,10 +214,32 @@ export async function POST(request: NextRequest) {
         : [];
 
       const accounts = await sql`
-        select id, coalesce(system_key, '') as system_key from ledger_accounts
-        where organization_id = ${ORGANIZATION_ID} and type = 'expense'
+        select id, code, name, type, coalesce(system_key, '') as system_key from ledger_accounts
+        where organization_id = ${ORGANIZATION_ID} and type = 'expense' and is_active
       `;
       const accountByKey = new Map(accounts.filter((row: any) => row.system_key).map((row: any) => [row.system_key, row.id]));
+
+      // The keyword table answers instantly for the suppliers Kretivco actually
+      // uses. The model is only consulted when that misses, so a known vendor
+      // never waits on a network call, and an unknown one still gets a sensible
+      // suggestion the reviewer can accept or change.
+      const keywordKey = suggestAccountKey(extraction.vendorName);
+      let suggestedAccountId = keywordKey === "uncategorised" ? "" : (accountByKey.get(keywordKey) ?? "");
+      let suggestionSource = suggestedAccountId ? "keywords" : "none";
+      let suggestionReason = "";
+
+      if (!suggestedAccountId && extraction.vendorName) {
+        const aiSuggestion = await suggestAccountWithAi({
+          vendorName: extraction.vendorName,
+          description: extraction.lines.map((line) => line.description).filter(Boolean).slice(0, 5).join("; "),
+          accounts: accounts.map((row: any) => ({ id: row.id, code: row.code, name: row.name, type: row.type })),
+        });
+        if (aiSuggestion) {
+          suggestedAccountId = aiSuggestion.accountId;
+          suggestionSource = "ai";
+          suggestionReason = aiSuggestion.reason;
+        }
+      }
 
       const statements: any[] = [
         sql`
@@ -247,13 +270,14 @@ export async function POST(request: NextRequest) {
 
       extraction.lines.forEach((line, index) => {
         const key = suggestAccountKey(extraction.vendorName, line.description);
+        const lineAccount = accountByKey.get(key) ?? suggestedAccountId ?? accountByKey.get("uncategorised") ?? null;
         statements.push(sql`
           insert into document_capture_lines (
             capture_id, description, quantity, unit_price, amount, tax_amount,
             suggested_account_id, confidence, line_order
           ) values (
             ${captureId}, ${line.description}, ${line.quantity}, ${line.unitPrice},
-            ${line.amount}, ${line.taxAmount}, ${accountByKey.get(key) ?? accountByKey.get("uncategorised") ?? null},
+            ${line.amount}, ${line.taxAmount}, ${lineAccount},
             ${line.confidence}, ${index}
           )
         `);
@@ -264,7 +288,9 @@ export async function POST(request: NextRequest) {
       const rows = await sql`select * from document_captures where id = ${captureId}`;
       return NextResponse.json({
         capture: mapCapture(rows[0]),
-        suggestedAccountKey: suggestAccountKey(extraction.vendorName),
+        suggestedAccountId,
+        suggestionSource,
+        suggestionReason,
         duplicate: Boolean(duplicates.length),
         warnings: extraction.warnings,
       }, { status: 201 });
