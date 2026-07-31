@@ -106,6 +106,15 @@ export default function AiStudioPage() {
   }
 
   useEffect(() => { load("", true); }, []);
+  useEffect(() => {
+    const handoff = localStorage.getItem("kretivos-ai-studio-image-prompt");
+    const imageMode = new URLSearchParams(window.location.search).get("mode") === "image";
+    if (handoff) {
+      setImagePrompt(handoff);
+      localStorage.removeItem("kretivos-ai-studio-image-prompt");
+    }
+    if (imageMode || handoff) setStudioMode("image");
+  }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, sending]);
 
   async function openConversation(conversation: Conversation, knownData = data) {

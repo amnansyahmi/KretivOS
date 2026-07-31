@@ -43,7 +43,7 @@ function formatDate(value: string) {
 function sourceLabel(source: KnowledgeEntry["source"]) {
   if (source === "markdown") return "Uploaded Markdown";
   if (source === "automation") return "Automation";
-  if (source === "built-in") return "Starter knowledge";
+  if (source === "built-in") return "Curated knowledge";
   return "Knowledge editor";
 }
 

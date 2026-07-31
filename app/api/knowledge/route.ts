@@ -71,12 +71,14 @@ async function audit(action: string, entityId: string | null, afterData?: unknow
   }
 }
 
-async function seedStarterKnowledge() {
+async function syncBuiltInKnowledge() {
   const sql = getDatabase();
-  const countRows = await sql`select count(*)::int as count from knowledge_entries where organization_id = ${ORGANIZATION_ID}`;
-  if (Number(countRows[0]?.count || 0) > 0) return;
+  const existingRows = await sql`
+    select id from knowledge_entries where organization_id = ${ORGANIZATION_ID}
+  `;
+  const existingIds = new Set(existingRows.map((row: any) => String(row.id)));
 
-  for (const entry of builtInKnowledge) {
+  for (const entry of builtInKnowledge.filter((item) => !existingIds.has(item.id))) {
     const customerId = await customerIdForName(entry.client);
     await sql`
       insert into knowledge_entries (
@@ -96,7 +98,7 @@ async function seedStarterKnowledge() {
 }
 
 async function listEntries() {
-  await seedStarterKnowledge();
+  await syncBuiltInKnowledge();
   const sql = getDatabase();
   const rows = await sql`
     select
