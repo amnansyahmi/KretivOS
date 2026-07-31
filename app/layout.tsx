@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { KretivOSToolsNav } from "@/components/kretivos-tools-nav";
+import { KretivOSRouteBridge } from "@/components/kretivos-route-bridge";
 
 export const metadata: Metadata = {
   title: "KretivOS",
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en">
       <body>
         {children}
+        <KretivOSRouteBridge />
         <KretivOSToolsNav />
       </body>
     </html>
