@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 44 36% 97%;
+  --foreground: 150 8% 12%;
+  --card: 42 30% 99%;
+  --card-foreground: 150 8% 12%;
+  --primary: 145 22% 19%;
+  --primary-foreground: 42 40% 98%;
+  --secondary: 43 26% 92%;
+  --secondary-foreground: 145 18% 18%;
+  --muted: 42 21% 93%;
+  --muted-foreground: 150 5% 43%;
+  --accent: 13 39% 49%;
+  --accent-foreground: 42 40% 98%;
+  --border: 42 18% 86%;
+  --input: 42 18% 86%;
+  --ring: 145 22% 19%;
+  --radius: .85rem;
+}
+* { @apply border-border; }
+body { @apply bg-background text-foreground antialiased; font-feature-settings: "rlig" 1, "calt" 1; }
+::selection { background: rgba(112, 74, 52, .18); }
