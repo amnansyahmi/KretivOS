@@ -38,6 +38,7 @@ export function KretivOSToolsNav() {
   const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState<Position>({ x: 20, y: 680 });
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
+  const hideOnKnowledgeMobile = pathname.startsWith("/knowledge");
 
   useEffect(() => {
     const fallback = { x: 18, y: window.innerHeight - 76 };
@@ -88,13 +89,13 @@ export function KretivOSToolsNav() {
 
   if (!mounted) return null;
   if (hidden) {
-    return <button onClick={() => setHidden(false)} className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 z-[90] flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-[#202c25] text-white shadow-xl" aria-label="Show KretivOS tools" title="Show KretivOS tools"><Eye className="h-4 w-4" /></button>;
+    return <button onClick={() => setHidden(false)} className={cn("fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 z-[90] h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-[#202c25] text-white shadow-xl", hideOnKnowledgeMobile ? "hidden sm:flex" : "flex")} aria-label="Show KretivOS tools" title="Show KretivOS tools"><Eye className="h-4 w-4" /></button>;
   }
 
   const dockRight = position.x > (typeof window !== "undefined" ? window.innerWidth / 2 : 600);
   const openAbove = position.y > (typeof window !== "undefined" ? window.innerHeight / 2 : 400);
 
-  return <div className="fixed z-[90] touch-none" style={{ left: position.x, top: position.y }}>
+  return <div className={cn("fixed z-[90] touch-none", hideOnKnowledgeMobile && "hidden sm:block")} style={{ left: position.x, top: position.y }}>
     {open && <div className={cn(
       "absolute max-h-[min(70vh,560px)] w-[min(288px,calc(100vw-1.5rem))] overflow-y-auto rounded-2xl border border-black/10 bg-[#202c25] p-2 text-white shadow-2xl",
       dockRight ? "right-0" : "left-0",
