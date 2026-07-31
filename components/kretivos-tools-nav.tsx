@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { BookOpen, ChevronUp, Home, Library, Plus, Target, X } from "lucide-react";
+import { BookOpen, ChevronUp, FileText, Home, Library, Plus, Target, Workflow, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -11,6 +11,8 @@ const items = [
   { href: "/funnels", label: "Funnel Library", icon: Target },
   { href: "/knowledge", label: "Knowledge Library", icon: Library },
   { href: "/knowledge/add", label: "Add Knowledge (.md)", icon: Plus },
+  { href: "/automations", label: "Automations", icon: Workflow },
+  { href: "/templates", label: "Templates", icon: FileText },
 ];
 
 export function KretivOSToolsNav() {
@@ -18,9 +20,9 @@ export function KretivOSToolsNav() {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="fixed bottom-5 right-5 z-[90] flex flex-col items-end gap-2">
+    <div className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-5 z-[90] flex flex-col items-end gap-2">
       {open && (
-        <div className="w-[250px] overflow-hidden rounded-2xl border border-black/10 bg-[#202c25] p-2 text-white shadow-2xl">
+        <div className="max-h-[70vh] w-[min(280px,calc(100vw-2.5rem))] overflow-y-auto rounded-2xl border border-black/10 bg-[#202c25] p-2 text-white shadow-2xl">
           <div className="flex items-center justify-between px-3 py-2">
             <div>
               <div className="text-sm font-semibold">KretivOS tools</div>
