@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { mutateWorkspaceState, WorkspaceConflictError } from "@/lib/workspace-state";
+import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -33,31 +35,14 @@ const defaultOperations = {
   },
 };
 
-async function loadOperations() {
-  const sql = getDatabase();
-  const rows = await sql`select data, version from workspace_state where organization_id = ${ORGANIZATION_ID} and scope = ${SCOPE} limit 1`;
-  if (!rows.length) {
-    const created = await sql`
-      insert into workspace_state (organization_id, scope, version, data)
-      values (${ORGANIZATION_ID}, ${SCOPE}, 1, ${JSON.stringify(defaultOperations)}::jsonb)
-      returning data, version
-    `;
-    return { data: created[0].data, version: Number(created[0].version) };
-  }
-  const data = { ...defaultOperations, ...object(rows[0].data) };
-  data.settings = { ...defaultOperations.settings, ...object(data.settings) };
-  data.settings.attendance = { ...defaultOperations.settings.attendance, ...object(data.settings.attendance) };
-  return { data, version: Number(rows[0].version || 1) };
-}
+const operationsStore = neonWorkspaceStore<Record<string, any>>(SCOPE);
 
-async function saveOperations(data: Record<string, any>) {
-  const sql = getDatabase();
-  await sql`
-    insert into workspace_state (organization_id, scope, version, data)
-    values (${ORGANIZATION_ID}, ${SCOPE}, 1, ${JSON.stringify(data)}::jsonb)
-    on conflict (organization_id, scope)
-    do update set data = excluded.data, version = workspace_state.version + 1, updated_at = now()
-  `;
+/** Fills in defaults the stored blob may predate, without writing them back. */
+function withDefaults(data: Record<string, any>): Record<string, any> {
+  const next = { ...defaultOperations, ...object(data) };
+  next.settings = { ...defaultOperations.settings, ...object(next.settings) };
+  next.settings.attendance = { ...defaultOperations.settings.attendance, ...object(next.settings.attendance) };
+  return next;
 }
 
 function zonedParts(date: Date, timezone: string) {
@@ -224,46 +209,66 @@ export async function POST(request: NextRequest) {
     const officialAt = officialDate.toISOString();
     const local = zonedParts(officialDate, timezone);
 
-    const operations = await loadOperations();
-    const state = operations.data;
-    const list = array(state.attendance);
-    const settings = { ...defaultOperations.settings.attendance, ...object(state.settings?.attendance) };
-    const existing = list.find((item: any) => item.employeeId === employeeId && item.date === local.date);
+    // The photo row must be written before the state mutation, because the
+    // record stores its id — and the mutation below may run more than once, so
+    // it cannot be the thing that creates it. A candidate attendance id is
+    // resolved here for the same reason. If the day's record already exists its
+    // id is stable; if it does not, a second concurrent clock-in loses the race
+    // and fails the "already clocked in" check on retry, and the catch below
+    // removes the orphaned photo.
+    const preloaded = await operationsStore.load();
+    const priorRecord = array(withDefaults(preloaded?.data ?? {}).attendance)
+      .find((item: any) => item.employeeId === employeeId && item.date === local.date);
+    const attendanceId = priorRecord?.id || randomUUID();
 
-    if (existing?.status === "Leave") throw new Error("This team member is recorded as on leave today.");
-    if (action === "check_in" && (existing?.checkInAt || existing?.checkIn)) throw new Error("This team member has already clocked in today.");
-    if (action === "check_out" && (!existing?.checkInAt && !existing?.checkIn)) throw new Error("Clock in is required before clock out.");
-    if (action === "check_out" && (existing?.checkOutAt || existing?.checkOut)) throw new Error("This team member has already clocked out today.");
-
-    const attendanceId = existing?.id || randomUUID();
     insertedPhotoId = await insertPhoto({ attendanceId, employeeId, action, photoDataUrl: photo.dataUrl, mimeType: photo.mimeType,
       fileSize: photo.estimatedBytes, capturedAtDevice: capturedAtDevice.toISOString(), officialAt,
       serverReceivedAt: serverReceivedAt.toISOString(), timezone, captureMethod, verification, driftSeconds, location });
 
+    const photoId = insertedPhotoId;
     const nowIso = serverReceivedAt.toISOString();
-    let record: any;
-    if (action === "check_in") {
-      const lateAfter = minutesFromClock(clean(settings.shiftStart) || "09:00") + Number(settings.graceMinutes || 0);
-      const lateMinutes = Math.max(0, minutesFromClock(local.time) - lateAfter);
-      const status = workMode === "Remote" || workMode === "WFH" ? "WFH" : workMode === "Client Site" ? "Client Site" : "Present";
-      record = { ...(existing || {}), id: attendanceId, employeeId, date: local.date, status, workMode,
-        checkIn: local.time, checkInAt: officialAt, checkInDeviceAt: capturedAtDevice.toISOString(),
-        checkInServerAt: serverReceivedAt.toISOString(), checkInPhotoId: insertedPhotoId,
-        checkInVerification: verification, checkInDriftSeconds: driftSeconds, checkInLocation: location,
-        checkOut: existing?.checkOut || "", note, lateMinutes, createdAt: existing?.createdAt || nowIso, updatedAt: nowIso };
-    } else {
-      const checkInAt = new Date(clean(existing.checkInAt) || `${existing.date}T${existing.checkIn}:00+08:00`);
-      const durationMinutes = Number.isFinite(checkInAt.getTime()) ? Math.max(0, Math.round((officialDate.getTime() - checkInAt.getTime()) / 60_000)) : 0;
-      const overtimeMinutes = Math.max(0, durationMinutes - Number(settings.overtimeAfterMinutes || 540));
-      record = { ...existing, workMode: existing.workMode || workMode, checkOut: local.time, checkOutAt: officialAt,
-        checkOutDeviceAt: capturedAtDevice.toISOString(), checkOutServerAt: serverReceivedAt.toISOString(),
-        checkOutPhotoId: insertedPhotoId, checkOutVerification: verification, checkOutDriftSeconds: driftSeconds,
-        checkOutLocation: location, durationMinutes, overtimeMinutes, note: note || existing.note || "", updatedAt: nowIso };
-    }
 
-    state.attendance = existing ? list.map((item: any) => item.id === attendanceId ? record : item) : [record, ...list];
-    await saveOperations(state);
-    await audit(`hr.attendance.photo_${action}`, attendanceId, { ...record, employeeName: employees[0].display_name, photoId: insertedPhotoId, timestampLabel: local.timestampLabel }, session.userId);
+    // Everything below is re-run verbatim if another write commits first, so the
+    // duplicate-clock-in checks are decided against committed state rather than
+    // a snapshot that may already be stale.
+    const { result: record } = await mutateWorkspaceState(operationsStore, () => ({ ...defaultOperations }), (raw) => {
+      // `state` is the stored object itself, so the assignment below commits.
+      const state = Object.assign(raw, withDefaults(raw));
+      const list = array(state.attendance);
+      const settings = { ...defaultOperations.settings.attendance, ...object(state.settings?.attendance) };
+      const existing = list.find((item: any) => item.employeeId === employeeId && item.date === local.date);
+
+      if (existing?.status === "Leave") throw new Error("This team member is recorded as on leave today.");
+      if (action === "check_in" && (existing?.checkInAt || existing?.checkIn)) throw new Error("This team member has already clocked in today.");
+      if (action === "check_out" && (!existing?.checkInAt && !existing?.checkIn)) throw new Error("Clock in is required before clock out.");
+      if (action === "check_out" && (existing?.checkOutAt || existing?.checkOut)) throw new Error("This team member has already clocked out today.");
+
+      const recordId = existing?.id || attendanceId;
+      let next: any;
+      if (action === "check_in") {
+        const lateAfter = minutesFromClock(clean(settings.shiftStart) || "09:00") + Number(settings.graceMinutes || 0);
+        const lateMinutes = Math.max(0, minutesFromClock(local.time) - lateAfter);
+        const status = workMode === "Remote" || workMode === "WFH" ? "WFH" : workMode === "Client Site" ? "Client Site" : "Present";
+        next = { ...(existing || {}), id: recordId, employeeId, date: local.date, status, workMode,
+          checkIn: local.time, checkInAt: officialAt, checkInDeviceAt: capturedAtDevice.toISOString(),
+          checkInServerAt: serverReceivedAt.toISOString(), checkInPhotoId: photoId,
+          checkInVerification: verification, checkInDriftSeconds: driftSeconds, checkInLocation: location,
+          checkOut: existing?.checkOut || "", note, lateMinutes, createdAt: existing?.createdAt || nowIso, updatedAt: nowIso };
+      } else {
+        const checkInAt = new Date(clean(existing.checkInAt) || `${existing.date}T${existing.checkIn}:00+08:00`);
+        const durationMinutes = Number.isFinite(checkInAt.getTime()) ? Math.max(0, Math.round((officialDate.getTime() - checkInAt.getTime()) / 60_000)) : 0;
+        const overtimeMinutes = Math.max(0, durationMinutes - Number(settings.overtimeAfterMinutes || 540));
+        next = { ...existing, workMode: existing.workMode || workMode, checkOut: local.time, checkOutAt: officialAt,
+          checkOutDeviceAt: capturedAtDevice.toISOString(), checkOutServerAt: serverReceivedAt.toISOString(),
+          checkOutPhotoId: photoId, checkOutVerification: verification, checkOutDriftSeconds: driftSeconds,
+          checkOutLocation: location, durationMinutes, overtimeMinutes, note: note || existing.note || "", updatedAt: nowIso };
+      }
+
+      state.attendance = existing ? list.map((item: any) => item.id === recordId ? next : item) : [next, ...list];
+      return next;
+    });
+
+    await audit(`hr.attendance.photo_${action}`, record.id, { ...record, employeeName: employees[0].display_name, photoId, timestampLabel: local.timestampLabel }, session.userId);
 
     return NextResponse.json({ ok: true, record, employeeName: employees[0].display_name, officialTime: local.time,
       officialDate: local.date, verification, driftSeconds, location, photoUrl: `/api/hr/attendance/photo/${insertedPhotoId}` },
@@ -273,6 +278,9 @@ export async function POST(request: NextRequest) {
       try { const sql = getDatabase(); await sql`delete from assets where id = ${insertedPhotoId} and organization_id = ${ORGANIZATION_ID}`; } catch {}
     }
     const message = error instanceof Error ? error.message : "Attendance capture failed.";
-    return NextResponse.json({ error: message }, { status: error instanceof HRAuthError ? error.status : message.includes("not found") ? 404 : 400 });
+    const status = error instanceof HRAuthError ? error.status
+      : error instanceof WorkspaceConflictError ? 409
+        : message.includes("not found") ? 404 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }

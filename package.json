@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types \"lib/**/*.test.ts\""
   },
   "dependencies": {
     "@neondatabase/serverless": "1.1.0",

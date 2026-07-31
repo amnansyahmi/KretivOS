@@ -39,7 +39,7 @@ function headers() {
   };
 }
 
-async function request(path: string, init?: RequestInit, timeoutMs = 60_000) {
+async function rawRequest(path: string, init?: RequestInit, timeoutMs = 60_000) {
   const response = await fetch(`${configuredOrigin()}${path}`, {
     ...init,
     headers: { ...headers(), ...(init?.headers || {}) },
@@ -51,20 +51,14 @@ async function request(path: string, init?: RequestInit, timeoutMs = 60_000) {
     const detail = (await response.text()).slice(0, 800);
     throw new Error(`ai-nonymauz-cloud ${path} failed (${response.status})${detail ? `: ${detail}` : ""}`);
   }
-  return response.json();
+  return response;
 }
 
-export async function aiNonymauzChat({
-  messages,
-  systemPrompt = "",
-  model,
-  mode = "normal",
-  temperature,
-  maxTokens,
-  useRag = true,
-  useTools = true,
-  city,
-}: {
+async function request(path: string, init?: RequestInit, timeoutMs = 60_000) {
+  return (await rawRequest(path, init, timeoutMs)).json();
+}
+
+export type AiChatOptions = {
   messages: AiMessage[];
   systemPrompt?: string;
   model?: string;
@@ -74,21 +68,29 @@ export async function aiNonymauzChat({
   useRag?: boolean;
   useTools?: boolean;
   city?: string;
-}): Promise<AiCompletion> {
+};
+
+/** The wire body is identical for streamed and buffered calls apart from `stream`. */
+function completionBody(options: AiChatOptions, stream: boolean) {
+  return JSON.stringify({
+    model: options.model || process.env.AI_NONYMAUZ_MODEL || undefined,
+    mode: options.mode ?? "normal",
+    messages: options.messages,
+    system_prompt: options.systemPrompt ?? "",
+    temperature: options.temperature,
+    max_tokens: options.maxTokens,
+    stream,
+    use_rag: options.useRag !== false,
+    use_tools: options.useTools !== false,
+    city: options.city?.trim() || undefined,
+  });
+}
+
+export async function aiNonymauzChat(options: AiChatOptions): Promise<AiCompletion> {
+  const { model, mode = "normal" } = options;
   const result = await request("/v1/chat/completions", {
     method: "POST",
-    body: JSON.stringify({
-      model: model || process.env.AI_NONYMAUZ_MODEL || undefined,
-      mode,
-      messages,
-      system_prompt: systemPrompt,
-      temperature,
-      max_tokens: maxTokens,
-      stream: false,
-      use_rag: useRag,
-      use_tools: useTools,
-      city: city?.trim() || undefined,
-    }),
+    body: completionBody(options, false),
   });
 
   const message = result?.choices?.[0]?.message;
@@ -102,6 +104,119 @@ export async function aiNonymauzChat({
     usage: result.usage && typeof result.usage === "object" ? result.usage : {},
     raw: result,
   };
+}
+
+export type AiStreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; content: string; model: string; usage: AiUsage; streamed: boolean };
+
+/** Yields decoded `data:` payloads from an SSE body, tolerating chunk boundaries mid-event. */
+async function* sseFrames(body: ReadableStream<Uint8Array>) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Events are separated by a blank line; anything after the last one is a
+      // partial event and stays buffered until the next read completes it.
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const data = frame
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trim())
+          .join("");
+        if (data) yield data;
+        boundary = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
+/**
+ * Streams a completion, falling back to the buffered call when the deployment
+ * does not actually stream. The service is an OpenAI-compatible FastAPI app, but
+ * a proxy in front of it can buffer or strip SSE, and a dead chat box is worse
+ * than a slow one — so any failure before the first delta retries without
+ * `stream`. Failures *after* the first delta keep whatever text arrived.
+ */
+export async function* aiNonymauzChatStream(options: AiChatOptions): AsyncGenerator<AiStreamEvent> {
+  const { model, mode = "normal" } = options;
+  let content = "";
+  let resolvedModel = "";
+  let usage: AiUsage = {};
+
+  try {
+    const response = await rawRequest(
+      "/v1/chat/completions",
+      { method: "POST", body: completionBody(options, true), headers: { Accept: "text/event-stream" } },
+      180_000,
+    );
+
+    if (!response.body || !(response.headers.get("content-type") || "").includes("text/event-stream")) {
+      throw new Error("ai-nonymauz-cloud did not return an event stream.");
+    }
+
+    for await (const data of sseFrames(response.body)) {
+      if (data === "[DONE]") break;
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        continue; // Keep-alive comments and malformed frames are not fatal.
+      }
+
+      if (parsed?.error) throw new Error(String(parsed.error?.message || parsed.error));
+      if (parsed?.model) resolvedModel = String(parsed.model);
+      if (parsed?.usage && typeof parsed.usage === "object") usage = parsed.usage;
+
+      const choice = parsed?.choices?.[0];
+      const text = choice?.delta?.content ?? choice?.message?.content;
+      if (typeof text === "string" && text) {
+        content += text;
+        yield { type: "delta", text };
+      }
+    }
+
+    if (!content) throw new Error("ai-nonymauz-cloud streamed no content.");
+
+    yield {
+      type: "done",
+      content,
+      model: resolvedModel || model || process.env.AI_NONYMAUZ_MODEL || mode,
+      usage,
+      streamed: true,
+    };
+    return;
+  } catch (error) {
+    // Text already reached the caller, so surface what we have rather than
+    // replaying the whole answer through a second, contradictory request.
+    if (content) {
+      yield {
+        type: "done",
+        content,
+        model: resolvedModel || model || process.env.AI_NONYMAUZ_MODEL || mode,
+        usage,
+        streamed: true,
+      };
+      return;
+    }
+    console.error("ai-nonymauz-cloud streaming unavailable, falling back to buffered completion", error);
+  }
+
+  const result = await aiNonymauzChat(options);
+  yield { type: "delta", text: result.content };
+  yield { type: "done", content: result.content, model: result.model, usage: result.usage, streamed: false };
 }
 
 export async function aiNonymauzStatus() {

@@ -15,6 +15,8 @@
  */
 
 import { getDatabase } from "@/lib/db";
+import { indexStaleEntries } from "@/lib/knowledge-chunks";
+import { expandQuery, workspaceGuidance, type SnapshotSection } from "@/lib/ai-workspaces";
 
 const ORGANIZATION_ID = "org-kretivco";
 
@@ -29,6 +31,10 @@ export type KnowledgeMatch = {
   sourceUrl: string;
   nextReviewAt: string;
   freshnessStatus: "Current" | "Review soon" | "Overdue" | "Unscheduled";
+  /** Headings the matching passages sit under, when chunk retrieval was used. */
+  sections: string[];
+  /** Which retrievers found this entry, for debugging a bad answer. */
+  retrievers: string[];
 };
 
 export type OperationsSnapshot = {
@@ -65,26 +71,145 @@ function keywords(question: string) {
   )).slice(0, 12);
 }
 
+/** Reciprocal rank fusion. The constant damps the top of any single ranking. */
+const RRF_K = 60;
+
+type ChunkRow = {
+  entry_id: string;
+  heading: string;
+  chunk: string;
+  title: string;
+  category: string;
+  customer_name: string | null;
+  metadata: any;
+};
+
 /**
- * Full-text search over the knowledge library. Falls back to a keyword ILIKE
- * scan when the tsquery matches nothing, which is common for short questions
- * and for proper nouns the English dictionary stems oddly.
+ * Chunk-level hybrid retrieval.
+ *
+ * Three independent rankings are fused rather than trusting any one of them:
+ *
+ *   english — stemmed English, the strongest signal when the question and the
+ *             document share a language.
+ *   simple  — no stemming, which is exactly what Malay content and proper nouns
+ *             need. `english` reduces "bayaran" to nothing useful; `simple`
+ *             matches it literally.
+ *   trigram — fuzzy, so "chef amar" and "kretivco" typed wrong still resolve.
+ *
+ * Fusion is by reciprocal rank, so a passage all three retrievers rank
+ * moderately beats one that a single retriever loves. The library is small
+ * enough that the trigram pass can scan; it is the only unindexed leg.
  */
-export async function searchKnowledge(question: string, limit = 5): Promise<KnowledgeMatch[]> {
-  const terms = keywords(question);
-  if (!terms.length) return [];
+async function searchChunks(terms: string[], limit: number): Promise<KnowledgeMatch[] | null> {
+  const sql = getDatabase();
+  const tsquery = terms.join(" | ");
+  const depth = Math.max(12, limit * 4);
 
-  try {
-    const sql = getDatabase();
+  const [english, simple, fuzzy] = await Promise.all([
+    sql`
+      select c.entry_id, c.heading, c.content as chunk, k.title, k.category, k.metadata,
+             cu.name as customer_name
+      from knowledge_chunks c
+      join knowledge_entries k on k.id = c.entry_id
+      left join customers cu on cu.id = k.customer_id
+      where c.organization_id = ${ORGANIZATION_ID}
+        and c.tsv_english @@ to_tsquery('english', ${tsquery})
+      order by ts_rank(c.tsv_english, to_tsquery('english', ${tsquery})) desc, k.updated_at desc
+      limit ${depth}
+    `,
+    sql`
+      select c.entry_id, c.heading, c.content as chunk, k.title, k.category, k.metadata,
+             cu.name as customer_name
+      from knowledge_chunks c
+      join knowledge_entries k on k.id = c.entry_id
+      left join customers cu on cu.id = k.customer_id
+      where c.organization_id = ${ORGANIZATION_ID}
+        and c.tsv_simple @@ to_tsquery('simple', ${tsquery})
+      order by ts_rank(c.tsv_simple, to_tsquery('simple', ${tsquery})) desc, k.updated_at desc
+      limit ${depth}
+    `,
+    // Scored per term, not on the whole probe: word_similarity() looks for one
+    // continuous extent matching its entire first argument, so passing the full
+    // keyword list would ask the document to contain them contiguously and score
+    // near zero. Summing each term's best match rewards a chunk that fuzzily
+    // matches several of them.
+    sql`
+      select c.entry_id, c.heading, c.content as chunk, k.title, k.category, k.metadata,
+             cu.name as customer_name,
+             (select coalesce(sum(word_similarity(t, coalesce(k.title, '') || ' ' || c.heading || ' ' || c.content)), 0)
+              from unnest(${terms}::text[]) as t) as score
+      from knowledge_chunks c
+      join knowledge_entries k on k.id = c.entry_id
+      left join customers cu on cu.id = k.customer_id
+      where c.organization_id = ${ORGANIZATION_ID}
+        and (select max(word_similarity(t, coalesce(k.title, '') || ' ' || c.heading || ' ' || c.content))
+             from unnest(${terms}::text[]) as t) > 0.5
+      order by score desc, k.updated_at desc
+      limit ${depth}
+    `,
+  ]);
 
-    // OR the terms rather than using websearch_to_tsquery, which ANDs them: a
-    // natural-language question almost always contains at least one word absent
-    // from the document ("payment" vs "payable"), and under AND that returns
-    // nothing at all. ts_rank still orders by how well each entry matches.
-    // Terms are already reduced to [a-z0-9] by keywords(), so this is safe input.
-    const tsquery = terms.join(" | ");
+  const fused = new Map<string, { row: ChunkRow; score: number; retrievers: Set<string>; chunks: ChunkRow[] }>();
 
-    const ranked = await sql`
+  const absorb = (rows: any[], retriever: string) => {
+    rows.forEach((row: ChunkRow, position: number) => {
+      const key = String(row.entry_id);
+      const contribution = 1 / (RRF_K + position + 1);
+      const existing = fused.get(key);
+      if (existing) {
+        existing.score += contribution;
+        existing.retrievers.add(retriever);
+        // Keep distinct passages so a long document contributes its best few.
+        if (!existing.chunks.some((item) => item.chunk === row.chunk) && existing.chunks.length < 3) {
+          existing.chunks.push(row);
+        }
+        return;
+      }
+      fused.set(key, { row, score: contribution, retrievers: new Set([retriever]), chunks: [row] });
+    });
+  };
+
+  absorb(english, "english");
+  absorb(simple, "simple");
+  absorb(fuzzy, "trigram");
+
+  if (!fused.size) return [];
+
+  return Array.from(fused.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => {
+      const sections = Array.from(new Set(entry.chunks.map((chunk) => chunk.heading).filter(Boolean)));
+      const body = entry.chunks
+        .map((chunk) => (chunk.heading ? `## ${chunk.heading}\n${chunk.chunk}` : chunk.chunk))
+        .join("\n\n");
+      return {
+        ...toMatch({ ...entry.row, id: entry.row.entry_id, content: body, rank: entry.score }),
+        // The chunk body is already the relevant passage, so it is passed through
+        // whole rather than re-truncated from the top of the document.
+        excerpt: excerpt(body, MAX_EXCERPT * 2),
+        sections,
+        retrievers: Array.from(entry.retrievers),
+      };
+    });
+}
+
+/**
+ * Entry-level search, kept as the fallback for databases where migration 0006
+ * has not been applied yet. Falls back again to a keyword ILIKE scan when the
+ * tsquery matches nothing.
+ */
+async function searchEntries(terms: string[], limit: number): Promise<KnowledgeMatch[]> {
+  const sql = getDatabase();
+
+  // OR the terms rather than using websearch_to_tsquery, which ANDs them: a
+  // natural-language question almost always contains at least one word absent
+  // from the document ("payment" vs "payable"), and under AND that returns
+  // nothing at all. ts_rank still orders by how well each entry matches.
+  // Terms are already reduced to [a-z0-9] by keywords(), so this is safe input.
+  const tsquery = terms.join(" | ");
+
+  const ranked = await sql`
       select k.id, k.title, k.category, k.content, k.metadata, c.name as customer_name,
              ts_rank(
                to_tsvector('english', coalesce(k.title, '') || ' ' || coalesce(k.content, '')),
@@ -99,21 +224,44 @@ export async function searchKnowledge(question: string, limit = 5): Promise<Know
       limit ${limit}
     `;
 
-    if (ranked.length) return ranked.map(toMatch);
+  if (ranked.length) return ranked.map(toMatch);
 
-    // Nothing matched the parsed query, so try the raw keywords instead.
-    const pattern = `%${terms.join("%")}%`;
-    const loose = await sql`
-      select k.id, k.title, k.category, k.content, k.metadata, c.name as customer_name, 0::float as rank
-      from knowledge_entries k
-      left join customers c on c.id = k.customer_id
-      where k.organization_id = ${ORGANIZATION_ID}
-        and (k.title ilike ${pattern} or k.content ilike ${pattern}
-             or exists (select 1 from unnest(k.tags) tag where tag ilike any(${terms.map((term) => `%${term}%`)})))
-      order by k.updated_at desc
-      limit ${limit}
-    `;
-    return loose.map(toMatch);
+  // Nothing matched the parsed query, so try the raw keywords instead.
+  const pattern = `%${terms.join("%")}%`;
+  const loose = await sql`
+    select k.id, k.title, k.category, k.content, k.metadata, c.name as customer_name, 0::float as rank
+    from knowledge_entries k
+    left join customers c on c.id = k.customer_id
+    where k.organization_id = ${ORGANIZATION_ID}
+      and (k.title ilike ${pattern} or k.content ilike ${pattern}
+           or exists (select 1 from unnest(k.tags) tag where tag ilike any(${terms.map((term) => `%${term}%`)})))
+    order by k.updated_at desc
+    limit ${limit}
+  `;
+  return loose.map(toMatch);
+}
+
+/**
+ * Retrieval entry point. Prefers chunk-level hybrid search and drops back to the
+ * entry-level scan when the chunk index is absent or empty, so an unmigrated
+ * database keeps answering exactly as it did before.
+ */
+export async function searchKnowledge(question: string, limit = 5, workspace?: string): Promise<KnowledgeMatch[]> {
+  const expanded = expandQuery(question, workspace);
+  const terms = keywords(expanded);
+  if (!terms.length) return [];
+
+  try {
+    const chunked = await searchChunks(terms, limit);
+    if (chunked && chunked.length) return chunked;
+  } catch (error) {
+    // A missing table or extension means migration 0006 has not run yet, which
+    // is expected on an existing deployment and must not break the answer.
+    console.error("Chunk retrieval unavailable, using entry-level search", error);
+  }
+
+  try {
+    return await searchEntries(terms, limit);
   } catch (error) {
     console.error("Knowledge retrieval failed", error);
     return [];
@@ -143,6 +291,8 @@ function toMatch(row: any): KnowledgeMatch {
     sourceUrl: String(metadata.sourceUrl || ""),
     nextReviewAt,
     freshnessStatus,
+    sections: [],
+    retrievers: ["entry"],
   };
 }
 
@@ -228,27 +378,43 @@ export async function operationsSnapshot(): Promise<OperationsSnapshot | null> {
   }
 }
 
-/** Renders the snapshot as compact lines for a prompt. */
-export function snapshotLines(snapshot: OperationsSnapshot) {
-  return [
-    `Customers: ${snapshot.customers.total} total, ${snapshot.customers.active} active, ${snapshot.customers.leads} leads.`,
-    `Pipeline: ${snapshot.pipeline.open} open opportunities, ${money(snapshot.pipeline.totalValue)} total, ${money(snapshot.pipeline.weightedValue)} weighted, ${snapshot.pipeline.stalled} stalled over 14 days.`,
-    `Receivables: ${money(snapshot.receivables.outstanding)} outstanding, ${money(snapshot.receivables.overdue)} overdue across ${snapshot.receivables.overdueCount} invoice(s).`,
-    `Settlements: ${snapshot.settlements.open} open worth ${money(snapshot.settlements.openValue)}, ${snapshot.settlements.unverified} unverified.`,
-    `Delivery: ${snapshot.projects.active} active projects, ${snapshot.projects.overdue} overdue, ${snapshot.projects.atRisk} at risk.`,
-    `Cleared cash: ${money(snapshot.cash.net)} (income ${money(snapshot.cash.income)}, expense ${money(snapshot.cash.expense)}).`,
-  ];
+/**
+ * Renders the snapshot as compact lines for a prompt, ordered so the workspace's
+ * own numbers come first. Nothing is dropped — a Finance question can still need
+ * the pipeline — but a model reads the top of a block most reliably.
+ */
+export function snapshotLines(snapshot: OperationsSnapshot, lead: SnapshotSection[] = []) {
+  const lines: Record<SnapshotSection, string> = {
+    customers: `Customers: ${snapshot.customers.total} total, ${snapshot.customers.active} active, ${snapshot.customers.leads} leads.`,
+    pipeline: `Pipeline: ${snapshot.pipeline.open} open opportunities, ${money(snapshot.pipeline.totalValue)} total, ${money(snapshot.pipeline.weightedValue)} weighted, ${snapshot.pipeline.stalled} stalled over 14 days.`,
+    receivables: `Receivables: ${money(snapshot.receivables.outstanding)} outstanding, ${money(snapshot.receivables.overdue)} overdue across ${snapshot.receivables.overdueCount} invoice(s).`,
+    settlements: `Settlements: ${snapshot.settlements.open} open worth ${money(snapshot.settlements.openValue)}, ${snapshot.settlements.unverified} unverified.`,
+    projects: `Delivery: ${snapshot.projects.active} active projects, ${snapshot.projects.overdue} overdue, ${snapshot.projects.atRisk} at risk.`,
+    cash: `Cleared cash: ${money(snapshot.cash.net)} (income ${money(snapshot.cash.income)}, expense ${money(snapshot.cash.expense)}).`,
+  };
+
+  const order: SnapshotSection[] = ["customers", "pipeline", "receivables", "settlements", "projects", "cash"];
+  const ordered = [...lead.filter((key) => order.includes(key)), ...order.filter((key) => !lead.includes(key))];
+  return ordered.map((key) => lines[key]);
 }
 
 /**
  * Builds the grounding block injected into a prompt. Sources are numbered so the
  * model can cite them and the UI can resolve those numbers back to real records.
  */
-export function buildContextBlock({ snapshot, matches }: { snapshot: OperationsSnapshot | null; matches: KnowledgeMatch[] }) {
+export function buildContextBlock({
+  snapshot,
+  matches,
+  lead = [],
+}: {
+  snapshot: OperationsSnapshot | null;
+  matches: KnowledgeMatch[];
+  lead?: SnapshotSection[];
+}) {
   const sections: string[] = [];
 
   if (snapshot) {
-    sections.push(["CURRENT OPERATIONS (live from the shared database):", ...snapshotLines(snapshot).map((line) => `- ${line}`)].join("\n"));
+    sections.push(["CURRENT OPERATIONS (live from the shared database):", ...snapshotLines(snapshot, lead).map((line) => `- ${line}`)].join("\n"));
     if (snapshot.attention.length) {
       sections.push(["NEEDS ATTENTION:", ...snapshot.attention.map((line) => `- ${line}`)].join("\n"));
     }
@@ -257,7 +423,16 @@ export function buildContextBlock({ snapshot, matches }: { snapshot: OperationsS
   if (matches.length) {
     sections.push([
       "KNOWLEDGE LIBRARY EXTRACTS (cite these by number, e.g. [1]):",
-      ...matches.map((match, index) => `[${index + 1}] ${match.title}${match.customerName ? ` · ${match.customerName}` : ""} · ${match.category}\n${match.excerpt}`),
+      ...matches.map((match, index) => {
+        // The section path tells the model where in a long document the passage
+        // came from, which keeps a mid-document clause from reading like the
+        // document's headline position.
+        const where = match.sections.length ? ` · section: ${match.sections.join("; ")}` : "";
+        const stale = match.freshnessStatus === "Overdue" || match.freshnessStatus === "Unscheduled"
+          ? ` · REVIEW ${match.freshnessStatus.toUpperCase()}`
+          : "";
+        return `[${index + 1}] ${match.title}${match.customerName ? ` · ${match.customerName}` : ""} · ${match.category}${where}${stale}\n${match.excerpt}`;
+      }),
     ].join("\n\n"));
   }
 
@@ -266,10 +441,14 @@ export function buildContextBlock({ snapshot, matches }: { snapshot: OperationsS
 }
 
 /** Convenience wrapper: retrieve everything relevant to a question in parallel. */
-export async function gatherContext(question: string, { knowledge = true, operations = true, limit = 5 } = {}) {
+export async function gatherContext(
+  question: string,
+  { knowledge = true, operations = true, limit = 5, workspace = "" } = {},
+) {
+  const lead = workspaceGuidance(workspace).lead;
   const [matches, snapshot] = await Promise.all([
-    knowledge ? searchKnowledge(question, limit) : Promise.resolve([]),
+    knowledge ? searchKnowledge(question, limit, workspace) : Promise.resolve([]),
     operations ? operationsSnapshot() : Promise.resolve(null),
   ]);
-  return { matches, snapshot, block: buildContextBlock({ snapshot, matches }) };
+  return { matches, snapshot, block: buildContextBlock({ snapshot, matches, lead }) };
 }

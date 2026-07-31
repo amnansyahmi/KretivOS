@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { mutateWorkspaceState } from "@/lib/workspace-state";
+import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,24 +36,7 @@ async function loadAsset(id: string) {
   return rows[0] || null;
 }
 
-async function loadOperations() {
-  const sql = getDatabase();
-  const rows = await sql`
-    select data from workspace_state
-    where organization_id = ${ORGANIZATION_ID} and scope = ${SCOPE}
-    limit 1
-  `;
-  return rows.length ? object(rows[0].data) : null;
-}
-
-async function saveOperations(data: Record<string, any>) {
-  const sql = getDatabase();
-  await sql`
-    update workspace_state
-    set data = ${JSON.stringify(data)}::jsonb, version = version + 1, updated_at = now()
-    where organization_id = ${ORGANIZATION_ID} and scope = ${SCOPE}
-  `;
-}
+const operationsStore = neonWorkspaceStore<Record<string, any>>(SCOPE);
 
 async function audit(action: string, entityId: string, payload: unknown, userId: string) {
   try {
@@ -172,27 +157,19 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
     const action = clean(metadata.action || asset.category);
     const deletedAt = new Date().toISOString();
 
-    const operations = await loadOperations();
-    if (operations && attendanceId) {
-      const records = array(operations.attendance);
-      operations.attendance = records.map((record: any) => {
-        if (record.id !== attendanceId) return record;
-        if (action === "check_in") {
-          return {
-            ...record,
-            checkInPhotoId: null,
-            checkInPhotoDeletedAt: deletedAt,
-            updatedAt: deletedAt,
-          };
-        }
-        return {
-          ...record,
-          checkOutPhotoId: null,
-          checkOutPhotoDeletedAt: deletedAt,
-          updatedAt: deletedAt,
-        };
+    if (attendanceId) {
+      // Detaching the photo is a read-modify-write on the shared HR blob, so it
+      // takes the same compare-and-swap path as every other write: without it a
+      // concurrent clock-in would be silently erased by this update.
+      await mutateWorkspaceState(operationsStore, () => ({ attendance: [] }), (operations) => {
+        operations.attendance = array(operations.attendance).map((record: any) => {
+          if (record.id !== attendanceId) return record;
+          if (action === "check_in") {
+            return { ...record, checkInPhotoId: null, checkInPhotoDeletedAt: deletedAt, updatedAt: deletedAt };
+          }
+          return { ...record, checkOutPhotoId: null, checkOutPhotoDeletedAt: deletedAt, updatedAt: deletedAt };
+        });
       });
-      await saveOperations(operations);
     }
 
     const sql = getDatabase();

@@ -24,9 +24,24 @@ Add `DATABASE_URL` to Vercel for Production, Preview, and Development, then rede
 
 1. Open the Neon project.
 2. Open **SQL Editor**.
-3. Run `db/migrations/0001_initial.sql`.
-4. Run `db/migrations/0002_seed_reference_data.sql`.
-5. Open `/api/db/health` on the deployed KretivOS URL.
+3. Run the migrations in order:
+
+   | File | Adds |
+   | --- | --- |
+   | `0001_initial.sql` | Core schema |
+   | `0002_seed_reference_data.sql` | Reference data |
+   | `0003_business_idempotency.sql` | Idempotency keys for business writes |
+   | `0004_ai_studio.sql` | AI conversations, prompts, saved outputs, usage |
+   | `0005_hrms_security.sql` | HRMS accounts and sessions (only when enabling HR login) |
+   | `0006_knowledge_chunks.sql` | Chunked bilingual knowledge retrieval |
+   | `0007_shared_planner_projection.sql` | Shared content plan and projection scenario |
+
+4. Open `/api/db/health` on the deployed KretivOS URL.
+
+Migrations 0006 and 0007 are additive and safe to run on an existing database.
+Until they are applied, knowledge retrieval falls back to the previous
+entry-level search, and the Content Planner and Financial Projection show a
+banner saying their inputs are not being shared.
 
 A successful response looks like:
 
