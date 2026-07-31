@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  BookOpen, BriefcaseBusiness, Eye, FileText, Home, Library, Palette,
+  BookOpen, BriefcaseBusiness, ClipboardCheck, Eye, FileText, Home, Library, Palette,
   Plus, Target, UsersRound, Workflow, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ const items = [
   { href: "/", label: "KretivOS Home", icon: Home },
   { href: "/business", label: "Business Workspace", icon: BriefcaseBusiness },
   { href: "/hr", label: "HR & Team", icon: UsersRound },
+  { href: "/hr/attendance-review", label: "Attendance Review", icon: ClipboardCheck },
   { href: "/brands", label: "Brand DNA", icon: Palette },
   { href: "/funnels", label: "Funnel Library", icon: Target },
   { href: "/knowledge", label: "Knowledge Library", icon: Library },
@@ -40,7 +41,7 @@ export function KretivOSToolsNav() {
   const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState<Position>({ x: 20, y: 680 });
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
-  const hideOnFocusedMobile = pathname.startsWith("/knowledge") || pathname.startsWith("/hr");
+  const hideOnFocusedMobile = pathname.startsWith("/knowledge");
 
   useEffect(() => {
     const fallback = { x: 18, y: window.innerHeight - 76 };
