@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { dispatchAutomationEvent } from "@/lib/automation-server";
+import { isIssuedInvoice } from "@/lib/accounting-entries";
+import { postSalesInvoice, settleInvoiceInFull } from "@/lib/invoice-posting";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -190,6 +192,37 @@ async function audit(action: string, entityType: string, entityId: string | null
   } catch {
     // A failed audit write must not invalidate the primary business operation.
   }
+}
+
+/**
+ * Recognises revenue as soon as an invoice reaches an issued status.
+ *
+ * Accrual accounting records the sale when it is invoiced, not when the money
+ * arrives — recognising on payment would misstate every period an invoice
+ * straddles. Posting is idempotent, so this runs safely on every write.
+ *
+ * Never throws: recording an invoice must not fail because the ledger is
+ * unavailable or the period is closed. A failure leaves the invoice unposted and
+ * retryable through the Accounting workspace, and is reported back to the caller.
+ */
+async function recogniseInvoiceRevenue(result: any) {
+  const record = result?.document || result;
+  const id = text(record?.id);
+  if (!id || text(record?.type) !== "Invoice") return null;
+  if (!isIssuedInvoice(text(record.type), text(record.status))) return null;
+
+  const outcome = await postSalesInvoice(id);
+
+  // A "Paid" invoice needs both halves: the revenue on issue, and the receipt
+  // that clears it. Posting only the first would leave receivables permanently
+  // debited for money that has already arrived.
+  const receipt = text(record.status) === "Paid" ? await settleInvoiceInFull(id) : null;
+
+  if (outcome.status === "failed") return { posted: false, error: outcome.reason };
+  if (receipt?.status === "failed") return { posted: true, error: receipt.reason };
+  if (outcome.status === "posted") return { posted: true, entryId: outcome.entryId };
+  if (receipt?.status === "posted") return { posted: true, entryId: receipt.entryId };
+  return null;
 }
 
 async function dispatchBusinessAutomation(operation: string, resource: string, action: string, result: any) {
@@ -521,7 +554,8 @@ export async function POST(request: NextRequest) {
 
     await audit(operation === "action" ? text(body.action) : operation, resource || "business", id || (result as any)?.id || null, result);
     await dispatchBusinessAutomation(operation, resource, text(body.action), result);
-    return NextResponse.json({ ok: true, result });
+    const ledger = await recogniseInvoiceRevenue(result);
+    return NextResponse.json({ ok: true, result, ...(ledger ? { ledger } : {}) });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Business operation failed." },

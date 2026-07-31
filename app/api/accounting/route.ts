@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { AccountingError, listAccounts, postEntry, prepareEntry, voidEntry } from "@/lib/accounting";
 import { agingBucket, fromCents, lineTax, toCents } from "@/lib/accounting-math";
+import { backfillSalesInvoices, postSalesInvoice, unpostedInvoiceCount } from "@/lib/invoice-posting";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +62,7 @@ function failure(error: unknown) {
 
 async function snapshot() {
   const sql = getDatabase();
-  const [accounts, vendors, bills, payments, periods, entries] = await Promise.all([
+  const [accounts, vendors, bills, payments, periods, entries, unpostedInvoices] = await Promise.all([
     listAccounts(),
     sql`
       select v.*, a.name as default_account_name
@@ -103,6 +104,9 @@ async function snapshot() {
       order by e.entry_date desc, e.created_at desc
       limit 100
     `,
+    // Surfaced so revenue the ledger cannot see is visible in the workspace
+    // rather than silently missing from every report.
+    unpostedInvoiceCount(),
   ]);
 
   return {
@@ -146,6 +150,7 @@ async function snapshot() {
       reference: row.reference, sourceType: row.source_type, sourceId: row.source_id || "",
       status: row.status, total: Number(row.total),
     })),
+    unpostedInvoices,
   };
 }
 
@@ -638,6 +643,22 @@ export async function POST(request: NextRequest) {
         do update set status = ${status}, closed_at = ${closedAt}, closed_by = ${status === "Closed" ? session.userId : null}
       `;
       return NextResponse.json(await snapshot());
+    }
+
+    // ---- invoices ---------------------------------------------------------
+    if (resource === "invoice") {
+      // Invoices raised before this posting path existed carry real revenue the
+      // ledger cannot see. Each posts at its own issue date so it lands in the
+      // period it belongs to, not today.
+      if (operation === "backfill") {
+        const result = await backfillSalesInvoices({ createdBy: session.userId });
+        return NextResponse.json({ ...result, ...(await snapshot()) });
+      }
+      if (operation === "post") {
+        const outcome = await postSalesInvoice(clean(data.id, 100), { createdBy: session.userId });
+        if (outcome.status === "failed") return NextResponse.json({ error: outcome.reason }, { status: 400 });
+        return NextResponse.json({ ...outcome, ...(await snapshot()) });
+      }
     }
 
     // ---- accounts ---------------------------------------------------------

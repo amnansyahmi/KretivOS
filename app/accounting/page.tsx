@@ -41,6 +41,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 type Snapshot = {
   accounts: any[]; vendors: any[]; bills: any[]; payments: any[]; periods: any[]; entries: any[];
+  unpostedInvoices?: { count: number; value: number };
 };
 
 const EMPTY: Snapshot = { accounts: [], vendors: [], bills: [], payments: [], periods: [], entries: [] };
@@ -132,6 +133,19 @@ export default function AccountingPage() {
       {error && <div className="mb-5 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
         <span>{error}</span>
         <Button variant="outline" size="sm" className="bg-white" onClick={() => void load()}><RefreshCw className="h-3.5 w-3.5" />Retry</Button>
+      </div>}
+
+      {!loading && Number(data.unpostedInvoices?.count) > 0 && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <span className="flex-1">
+          {data.unpostedInvoices!.count} issued invoice{data.unpostedInvoices!.count === 1 ? " is" : "s are"} not on the ledger
+          ({money(data.unpostedInvoices!.value)}). Income and receivables are understated by that amount until they are posted.
+        </span>
+        <Button
+          size="sm"
+          className="shrink-0"
+          onClick={() => submit({ resource: "invoice", operation: "backfill" }, "Invoices posted to the ledger.")}
+        >Post them now</Button>
       </div>}
 
       {tab === "overview" && <Overview data={data} totals={totals} loading={loading} onGo={setTab} />}

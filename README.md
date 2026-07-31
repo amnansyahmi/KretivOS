@@ -291,6 +291,33 @@ one.
 Corrections post a reversing entry rather than deleting: a posted entry is a
 historical assertion, and erasing it defeats the audit trail.
 
+### Both halves of the money flow
+
+A bill debits an expense and credits payables. An invoice debits receivables and
+credits income, with any SST charged split out to the output-tax account, because
+tax collected from a client is a liability owed to the government rather than
+revenue.
+
+Revenue is recognised when the invoice is **issued**, not when it is paid — a
+receipt afterwards only moves the amount from receivables to the bank.
+Recognising on payment instead would misstate every period an invoice straddles.
+
+The invoice side was missing when accounting first shipped: nothing debited
+`accounts_receivable` or credited `sales_income`, so raising an invoice produced
+no journal entry at all. Income read as zero on every report, receipts drove
+receivables negative, and per-client profitability showed nothing — none of which
+tripped the trial balance, because each individual entry was internally balanced.
+
+Posting is idempotent on `sales_documents.journal_entry_id` and runs on every
+sales-document write. Invoices raised before this existed are counted in the
+Accounting workspace with a **Post them now** action that backfills them at their
+own issue dates, so each lands in the period it belongs to.
+
+Marking an invoice paid from the Sales workspace posts both halves: the revenue,
+and the receipt that clears it into the default bank account. Recording the
+receipt in the Payments screen instead lets the operator choose the account, and
+the Sales action skips anything already allocated there.
+
 ### Document capture (OCR)
 
 Upload or photograph a receipt, supplier invoice or cheque. The image is stored
