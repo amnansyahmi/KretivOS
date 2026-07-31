@@ -20,7 +20,8 @@ function todayMY() {
 
 export function AttendanceTestSession() {
   const pathname = usePathname();
-  const visible = pathname === "/hr" || pathname.startsWith("/hr/");
+  const visible = pathname === "/hr" || pathname.startsWith("/hr/attendance");
+  const [admin, setAdmin] = useState(false);
   const [open, setOpen] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [records, setRecords] = useState<Attendance[]>([]);
@@ -44,6 +45,11 @@ export function AttendanceTestSession() {
   useEffect(() => {
     if (visible && open) load().catch((value) => setError(value instanceof Error ? value.message : "Unable to load attendance data."));
   }, [visible, open]);
+
+  useEffect(() => {
+    if (!visible) return;
+    fetch("/api/hr/auth/status", { cache: "no-store" }).then((response) => response.json()).then((result) => setAdmin(result.session?.role === "hr_admin")).catch(() => setAdmin(false));
+  }, [visible]);
 
   const employee = employees.find((item) => item.id === employeeId);
   const record = useMemo(() => records.find((item) => item.employeeId === employeeId && item.date === date), [records, employeeId, date]);
@@ -73,7 +79,7 @@ export function AttendanceTestSession() {
     }
   }
 
-  if (!visible) return null;
+  if (!visible || !admin) return null;
 
   return <>
     <button onClick={() => setOpen(true)} className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-3 z-[86] flex min-h-11 items-center gap-2 rounded-full border border-amber-300 bg-amber-100 px-4 text-xs font-semibold text-amber-950 shadow-xl sm:bottom-5 sm:right-5">

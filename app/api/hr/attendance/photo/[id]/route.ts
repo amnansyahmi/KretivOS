@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
+import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -52,15 +53,15 @@ async function saveOperations(data: Record<string, any>) {
   `;
 }
 
-async function audit(action: string, entityId: string, payload: unknown) {
+async function audit(action: string, entityId: string, payload: unknown, userId: string) {
   try {
     const sql = getDatabase();
     await sql`
-      insert into audit_logs (organization_id, action, entity_type, entity_id, after_data, metadata)
+      insert into audit_logs (organization_id, user_id, action, entity_type, entity_id, after_data, metadata)
       values (
-        ${ORGANIZATION_ID}, ${action}, 'hr_attendance_photo', ${entityId},
+        ${ORGANIZATION_ID}, ${userId}, ${action}, 'hr_attendance_photo', ${entityId},
         ${JSON.stringify(payload)}::jsonb,
-        ${JSON.stringify({ source: "attendance-evidence-api", authentication: "skipped", attendanceTimePreserved: true })}::jsonb
+        ${JSON.stringify({ source: "attendance-evidence-api", authenticated: true, attendanceTimePreserved: true })}::jsonb
       )
     `;
   } catch {}
@@ -68,9 +69,12 @@ async function audit(action: string, entityId: string, payload: unknown) {
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const session = await requireHRSession();
     const { id } = await context.params;
     const asset = await loadAsset(id);
     if (!asset) return NextResponse.json({ error: "Attendance photo was not found." }, { status: 404 });
+    const employeeId = clean(object(asset.metadata).employeeId);
+    if (!["hr_admin", "manager"].includes(session.role) && employeeId !== session.userId) throw new HRAuthError("You cannot view this attendance evidence.", 403);
 
     if (request.nextUrl.searchParams.get("meta") === "1") {
       return NextResponse.json({
@@ -101,13 +105,15 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to load attendance photo." },
-      { status: 500 },
+      { status: error instanceof HRAuthError ? error.status : 500 },
     );
   }
 }
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const session = await requireHRSession();
+    if (!["hr_admin", "manager"].includes(session.role)) throw new HRAuthError("Only HR Admin or Manager can replace attendance evidence.", 403);
     const { id } = await context.params;
     const asset = await loadAsset(id);
     if (!asset) return NextResponse.json({ error: "Attendance photo was not found." }, { status: 404 });
@@ -144,17 +150,19 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       action: metadata.action,
       replacedAt,
       attendanceTimePreserved: true,
-    });
+    }, session.userId);
 
     return NextResponse.json({ ok: true, id, replacedAt, attendanceTimePreserved: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to replace attendance photo.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: error instanceof HRAuthError ? error.status : 400 });
   }
 }
 
 export async function DELETE(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const session = await requireHRSession();
+    if (!["hr_admin", "manager"].includes(session.role)) throw new HRAuthError("Only HR Admin or Manager can delete attendance evidence.", 403);
     const { id } = await context.params;
     const asset = await loadAsset(id);
     if (!asset) return NextResponse.json({ error: "Attendance photo was not found." }, { status: 404 });
@@ -194,11 +202,11 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
       action,
       deletedAt,
       attendanceTimePreserved: true,
-    });
+    }, session.userId);
 
     return NextResponse.json({ ok: true, id, attendanceId, action, deletedAt, attendanceTimePreserved: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to delete attendance photo.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: error instanceof HRAuthError ? error.status : 400 });
   }
 }

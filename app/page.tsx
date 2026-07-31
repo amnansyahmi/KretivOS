@@ -32,7 +32,7 @@ const navGroups: NavGroup[] = [
     { name: "Command Centre", icon: LayoutDashboard, view: "Command Centre" },
     { name: "Client Workspaces", icon: Building2, href: "/business?tab=customers" },
     { name: "Customer Onboarding", icon: Rocket, href: "/business?tab=onboarding" },
-    { name: "HR & Team", icon: UsersRound, href: "/hr" },
+    { name: "HRMS", icon: UsersRound, href: "/hr" },
     { name: "Approval Inbox", icon: ClipboardCheck, href: "/approvals" },
   ]},
   { label: "Business", items: [
@@ -917,7 +917,7 @@ function Settings() {
   const cards: [any, string, string, string][] = [
     [Building2, "Company profile", "Kretivco Mediaworks, registration, address and signatories", "/business?tab=customers"],
     [FileText, "Documents", "AI-assisted proposals, quotations, invoices, memos and agreements", "/documents"],
-    [UsersRound, "Team and HR", "Employees, leave, attendance, goals and onboarding", "/hr"],
+    [UsersRound, "HRMS", "People, attendance, leave, onboarding, performance and learning", "/hr"],
     [Palette, "Brand DNA", "Colours, typography, tone and approved claims per brand", "/brands"],
     [Workflow, "Automations", "Triggers, actions and approval thresholds", "/automations"],
     [Library, "Knowledge library", "Agreements, SOPs, campaign learnings and technical decisions", "/knowledge"],

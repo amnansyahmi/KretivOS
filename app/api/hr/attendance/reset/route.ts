@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
+import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,6 +13,8 @@ const array = (value: unknown) => Array.isArray(value) ? value : [];
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await requireHRSession();
+    if (session.role !== "hr_admin") throw new HRAuthError("Only HR Admin can reset attendance test data.", 403);
     const body = object(await request.json());
     const employeeId = clean(body.employeeId);
     const date = clean(body.date);
@@ -46,16 +49,16 @@ export async function POST(request: NextRequest) {
     `;
 
     await sql`
-      insert into audit_logs (organization_id, action, entity_type, entity_id, before_data, after_data, metadata)
+      insert into audit_logs (organization_id, user_id, action, entity_type, entity_id, before_data, after_data, metadata)
       values (
-        ${ORGANIZATION_ID}, 'hr.attendance.temporary_reset', 'hr_attendance', ${record.id},
+        ${ORGANIZATION_ID}, ${session.userId}, 'hr.attendance.temporary_reset', 'hr_attendance', ${record.id},
         ${JSON.stringify(record)}::jsonb, null,
-        ${JSON.stringify({ authentication: "skipped", temporaryTestingTool: true, reversibleArchive: true, employeeId, date, resetAt })}::jsonb
+        ${JSON.stringify({ authenticated: true, temporaryTestingTool: true, reversibleArchive: true, employeeId, date, resetAt })}::jsonb
       )
     `;
 
     return NextResponse.json({ ok: true, employeeId, date, resetAt, archived: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to reset attendance." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to reset attendance." }, { status: error instanceof HRAuthError ? error.status : 500 });
   }
 }

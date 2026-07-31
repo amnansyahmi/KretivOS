@@ -25,6 +25,21 @@ Each of these owns real records and is reached from the sidebar as its own route
 | Approval Inbox | `/approvals` |
 | Documents and Reusable Templates | `/documents` |
 
+### HRMS
+
+`/hr` is a role-protected HR workspace with four access levels: HR Admin,
+Manager, Finance and Employee. It includes employee self-service, leave balances
+and approvals, photo attendance with correction requests, claims and private
+receipts, payroll/payslips, onboarding, probation/confirmation/offboarding,
+performance, learning and private HR documents.
+
+HRMS currently runs in shared mode, so `/hr` opens directly without login or a
+setup key. Keep `HRMS_AUTH_ENABLED=false`. When individual accounts are required,
+apply `db/migrations/0005_hrms_security.sql`, set `HRMS_AUTH_ENABLED=true` and
+`HRMS_SETUP_KEY`, then open `/hr/login` to create the first HR Admin PIN. Payroll
+statutory rates are versioned operational inputs; HR and Finance must verify EPF,
+SOCSO, EIS and PCB values against the official Malaysian portals before closing payroll.
+
 #### Commercial documents with line items
 
 A template that uses the `{{line_items}}` variable — Quotation, Invoice and any
@@ -202,9 +217,9 @@ Then open `http://localhost:3000`.
 The commercial record set now runs on Neon PostgreSQL with audit-log writes. Before
 using KretivOS as the company system of record, still connect:
 
-- **Authentication and session handling.** Every API route is currently unauthenticated
-  and every write is attributed to a single hardcoded organisation, so audit entries
-  cannot identify who made a change.
+- Authentication and session handling outside `/hr`. HRMS routes already use
+  opaque HTTP-only sessions, PIN hashes, role permissions and user-attributed audit logs;
+  the remaining workspaces still need the same identity layer.
 - Object storage for files
 - Server-side document/PDF generation
 - Scheduled workers for Tuesday and monthly settlements

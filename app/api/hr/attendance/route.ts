@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
+import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,7 +29,7 @@ const defaultOperations = {
     departments: ["Leadership", "Marketing", "Creative", "Technology", "Finance", "Operations"],
     leaveTypes: ["Annual Leave", "Medical Leave", "Emergency Leave", "Unpaid Leave", "Replacement Leave"],
     workModes: ["Office", "Remote", "Hybrid", "Client Site"],
-    attendance: { timezone: DEFAULT_TIMEZONE, shiftStart: "09:00", graceMinutes: 15 },
+    attendance: { timezone: DEFAULT_TIMEZONE, shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540 },
   },
 };
 
@@ -160,15 +161,15 @@ async function resolveLocation(location: ReturnType<typeof locationPayload>) {
   }
 }
 
-async function audit(action: string, entityId: string, afterData: unknown) {
+async function audit(action: string, entityId: string, afterData: unknown, userId: string) {
   try {
     const sql = getDatabase();
     const safeData = { ...object(afterData) };
     delete safeData.photoDataUrl;
     await sql`
-      insert into audit_logs (organization_id, action, entity_type, entity_id, after_data, metadata)
-      values (${ORGANIZATION_ID}, ${action}, 'hr_attendance', ${entityId}, ${JSON.stringify(safeData)}::jsonb,
-        ${JSON.stringify({ source: "photo-attendance-api", authentication: "skipped", containsBiometricLikePhoto: true, containsLocation: true })}::jsonb)
+      insert into audit_logs (organization_id, user_id, action, entity_type, entity_id, after_data, metadata)
+      values (${ORGANIZATION_ID}, ${userId}, ${action}, 'hr_attendance', ${entityId}, ${JSON.stringify(safeData)}::jsonb,
+        ${JSON.stringify({ source: "photo-attendance-api", authenticated: true, containsBiometricLikePhoto: true, containsLocation: true })}::jsonb)
     `;
   } catch {}
 }
@@ -194,8 +195,10 @@ async function insertPhoto(params: any) {
 export async function POST(request: NextRequest) {
   let insertedPhotoId = "";
   try {
+    const session = await requireHRSession();
     const body = object(await request.json());
-    const employeeId = clean(body.employeeId);
+    const requestedEmployeeId = clean(body.employeeId);
+    const employeeId = session.role === "employee" ? session.userId : requestedEmployeeId;
     const action = clean(body.action);
     const workMode = clean(body.workMode) || "Office";
     const note = clean(body.note);
@@ -251,15 +254,16 @@ export async function POST(request: NextRequest) {
     } else {
       const checkInAt = new Date(clean(existing.checkInAt) || `${existing.date}T${existing.checkIn}:00+08:00`);
       const durationMinutes = Number.isFinite(checkInAt.getTime()) ? Math.max(0, Math.round((officialDate.getTime() - checkInAt.getTime()) / 60_000)) : 0;
+      const overtimeMinutes = Math.max(0, durationMinutes - Number(settings.overtimeAfterMinutes || 540));
       record = { ...existing, workMode: existing.workMode || workMode, checkOut: local.time, checkOutAt: officialAt,
         checkOutDeviceAt: capturedAtDevice.toISOString(), checkOutServerAt: serverReceivedAt.toISOString(),
         checkOutPhotoId: insertedPhotoId, checkOutVerification: verification, checkOutDriftSeconds: driftSeconds,
-        checkOutLocation: location, durationMinutes, note: note || existing.note || "", updatedAt: nowIso };
+        checkOutLocation: location, durationMinutes, overtimeMinutes, note: note || existing.note || "", updatedAt: nowIso };
     }
 
     state.attendance = existing ? list.map((item: any) => item.id === attendanceId ? record : item) : [record, ...list];
     await saveOperations(state);
-    await audit(`hr.attendance.photo_${action}`, attendanceId, { ...record, employeeName: employees[0].display_name, photoId: insertedPhotoId, timestampLabel: local.timestampLabel });
+    await audit(`hr.attendance.photo_${action}`, attendanceId, { ...record, employeeName: employees[0].display_name, photoId: insertedPhotoId, timestampLabel: local.timestampLabel }, session.userId);
 
     return NextResponse.json({ ok: true, record, employeeName: employees[0].display_name, officialTime: local.time,
       officialDate: local.date, verification, driftSeconds, location, photoUrl: `/api/hr/attendance/photo/${insertedPhotoId}` },
@@ -269,6 +273,6 @@ export async function POST(request: NextRequest) {
       try { const sql = getDatabase(); await sql`delete from assets where id = ${insertedPhotoId} and organization_id = ${ORGANIZATION_ID}`; } catch {}
     }
     const message = error instanceof Error ? error.message : "Attendance capture failed.";
-    return NextResponse.json({ error: message }, { status: message.includes("not found") ? 404 : 400 });
+    return NextResponse.json({ error: message }, { status: error instanceof HRAuthError ? error.status : message.includes("not found") ? 404 : 400 });
   }
 }

@@ -66,7 +66,7 @@ export default function ApprovalInboxPage() {
     try {
       const [business, hr, brandData, documentData, automationData, knowledgeData] = await Promise.all([
         jsonRequest("/api/business", { cache: "no-store" }),
-        jsonRequest("/api/hr", { cache: "no-store" }),
+        jsonRequest("/api/hr", { cache: "no-store" }).catch(() => ({ leaveRequests: [], employees: [], session: null })),
         jsonRequest("/api/brand-dna", { cache: "no-store" }),
         jsonRequest("/api/templates", { cache: "no-store" }),
         jsonRequest("/api/automations", { cache: "no-store" }),
@@ -98,14 +98,14 @@ export default function ApprovalInboxPage() {
         });
       }
 
-      for (const request of hr.leaveRequests || []) {
+      for (const request of (["hr_admin", "manager"].includes(hr.session?.role) ? hr.leaveRequests : []) || []) {
         if (request.status !== "Pending") continue;
         const employee = hr.employees?.find((item: any) => item.id === request.employeeId);
         next.push({
           id: `hr:${request.id}`, recordId: request.id, kind: "hr", source: "HR",
           title: `${request.type} request`, context: employee?.name || "Team member",
           reference: `${dateLabel(request.startDate)} → ${dateLabel(request.endDate)}`, value: `${request.days} day${request.days === 1 ? "" : "s"}`,
-          status: request.status, createdAt: request.updatedAt || request.createdAt, href: "/hr", approveLabel: "Approve", rejectLabel: "Reject", record: request,
+          status: request.status, createdAt: request.updatedAt || request.createdAt, href: "/hr?section=leave", approveLabel: "Approve", rejectLabel: "Reject", record: request,
         });
       }
 

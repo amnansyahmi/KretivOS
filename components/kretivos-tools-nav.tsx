@@ -15,7 +15,7 @@ const items = [
   { href: "/document-ai", label: "AI Proposal Package", icon: FileText },
   { href: "/business", label: "Business Workspace", icon: BriefcaseBusiness },
   { href: "/approvals", label: "Approval Inbox", icon: ClipboardCheck },
-  { href: "/hr", label: "HR & Team", icon: UsersRound },
+  { href: "/hr", label: "HRMS", icon: UsersRound },
   { href: "/hr/attendance-review", label: "Attendance Review", icon: ClipboardCheck },
   { href: "/brands", label: "Brand DNA", icon: Palette },
   { href: "/funnels", label: "Funnel Library", icon: Target },
@@ -44,7 +44,7 @@ export function KretivOSToolsNav() {
   const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState<Position>({ x: 20, y: 680 });
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
-  const hideOnFocusedMobile = pathname.startsWith("/knowledge");
+  const hideOnFocusedMobile = pathname.startsWith("/knowledge") || pathname.startsWith("/hr");
 
   useEffect(() => {
     const fallback = { x: 18, y: window.innerHeight - 76 };
