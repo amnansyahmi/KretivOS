@@ -1,8 +1,9 @@
-const CACHE = "kretivos-v6";
+const CACHE = "kretivos-v7";
 const APP_SHELL = [
   "/",
   "/business",
   "/hr",
+  "/hr/attendance-review",
   "/brands",
   "/funnels",
   "/knowledge",
