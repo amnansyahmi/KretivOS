@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 const routes: Array<[string, string]> = [
   ["client workspaces", "/business?tab=customers"],
   ["customer onboarding", "/business?tab=onboarding"],
+  ["hr & team", "/hr"],
+  ["human resources", "/hr"],
   ["crm & pipeline", "/business?tab=crm"],
   ["sales & documents", "/business?tab=sales"],
   ["finance", "/business?tab=finance"],
@@ -29,6 +31,7 @@ const routes: Array<[string, string]> = [
 ];
 
 const deprecatedSidebarItems = new Set(["chef ammar financials"]);
+const peopleIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 
 export function KretivOSRouteBridge() {
   const pathname = usePathname();
@@ -50,15 +53,38 @@ export function KretivOSRouteBridge() {
         router.replace("/brands");
         return;
       }
+      if (savedView === "HR & Team") {
+        router.replace("/hr");
+        return;
+      }
     } catch {}
 
     const cleanSidebar = () => {
       document.querySelectorAll<HTMLElement>("aside button").forEach((button) => {
-        const label = (button.textContent || "").trim().toLowerCase();
+        const label = (button.textContent || button.title || button.getAttribute("aria-label") || "").trim().toLowerCase();
         const deprecated = deprecatedSidebarItems.has(label);
         button.style.display = deprecated ? "none" : "";
         button.setAttribute("aria-hidden", deprecated ? "true" : "false");
       });
+
+      const onboarding = Array.from(document.querySelectorAll<HTMLButtonElement>("aside button")).find((button) => {
+        const label = (button.textContent || button.title || "").trim().toLowerCase();
+        return label === "customer onboarding";
+      });
+      if (!onboarding?.parentElement) return;
+
+      const existing = document.querySelector<HTMLButtonElement>('aside button[data-kretivos-hr-nav="true"]');
+      const hrButton = onboarding.cloneNode(true) as HTMLButtonElement;
+      hrButton.dataset.kretivosHrNav = "true";
+      hrButton.title = onboarding.querySelector("span") ? "" : "HR & Team";
+      hrButton.setAttribute("aria-label", "HR & Team");
+      const icon = hrButton.querySelector("svg");
+      if (icon) icon.outerHTML = peopleIcon;
+      const textSpan = Array.from(hrButton.querySelectorAll("span")).find((span) => !span.className.includes("rounded-full"));
+      if (textSpan) textSpan.textContent = "HR & Team";
+
+      if (!existing) onboarding.insertAdjacentElement("afterend", hrButton);
+      else if (existing.className !== hrButton.className || existing.innerHTML !== hrButton.innerHTML) existing.replaceWith(hrButton);
     };
 
     cleanSidebar();
@@ -69,7 +95,7 @@ export function KretivOSRouteBridge() {
       const target = event.target as HTMLElement | null;
       const clickable = target?.closest("button, a") as HTMLElement | null;
       if (!clickable) return;
-      const text = (clickable.textContent || "").trim().toLowerCase();
+      const text = (clickable.textContent || clickable.title || clickable.getAttribute("aria-label") || "").trim().toLowerCase();
       const match = routes.find(([label]) => text === label || text.includes(label));
       if (!match) return;
       event.preventDefault();
