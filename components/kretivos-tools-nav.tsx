@@ -4,13 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  BookOpen, BriefcaseBusiness, ClipboardCheck, Eye, FileText, Home, Library, Palette,
+  Bot, BookOpen, BriefcaseBusiness, ClipboardCheck, Eye, FileText, Home, Library, Palette,
   Plus, Target, UsersRound, Workflow, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/", label: "KretivOS Home", icon: Home },
+  { href: "/ai-studio", label: "Kretiv AI Studio", icon: Bot },
   { href: "/business", label: "Business Workspace", icon: BriefcaseBusiness },
   { href: "/hr", label: "HR & Team", icon: UsersRound },
   { href: "/hr/attendance-review", label: "Attendance Review", icon: ClipboardCheck },

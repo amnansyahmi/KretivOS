@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { aiNonymauzChat } from "@/lib/ai-nonymauz";
 
 type FunnelRequest = {
   client?: string;
@@ -93,53 +94,24 @@ export async function POST(request: NextRequest) {
     channels: String(raw.channels || "Instagram, TikTok, Threads, Website, WhatsApp").slice(0, 500),
   };
 
-  const baseUrl = process.env.AI_NONYMAUZ_BASE_URL?.replace(/\/$/, "");
-  const apiKey = process.env.AI_NONYMAUZ_API_KEY;
-  const model = process.env.AI_NONYMAUZ_MODEL;
-
-  if (!baseUrl || !apiKey || !model) {
-    return NextResponse.json({ source: "starter", summary: "Starter funnel created because AI is not configured.", stages: fallbackStages(input) });
-  }
-
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.35,
-        stream: false,
-        messages: [
-          {
-            role: "system",
-            content: [
-              "You are the KretivOS senior marketing strategist.",
-              "Build a commercially practical full-funnel campaign for a Malaysian agency client.",
-              "Return JSON only. Do not use markdown fences.",
-              "Use exactly four stages in this order: TOFU, MOFU, BOFU, RETENTION.",
-              "Each stage must contain 3 to 5 specific content or campaign items.",
-              "Avoid generic phrases. Tie every item to the supplied client, audience, offer and channels.",
-              "Schema: {summary:string, stages:[{key:'TOFU'|'MOFU'|'BOFU'|'RETENTION',title:string,objective:string,kpi:string,items:[{title:string,channel:string,format:string,cta:string}]}]}",
-            ].join("\n"),
-          },
-          {
-            role: "user",
-            content: JSON.stringify(input),
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(45_000),
+    const result = await aiNonymauzChat({
+      mode: "normal",
+      temperature: 0.35,
+      useRag: false,
+      useTools: false,
+      systemPrompt: [
+        "You are the KretivOS senior marketing strategist.",
+        "Build a commercially practical full-funnel campaign for a Malaysian agency client.",
+        "Return JSON only. Do not use markdown fences.",
+        "Use exactly four stages in this order: TOFU, MOFU, BOFU, RETENTION.",
+        "Each stage must contain 3 to 5 specific content or campaign items.",
+        "Avoid generic phrases. Tie every item to the supplied client, audience, offer and channels.",
+        "Schema: {summary:string, stages:[{key:'TOFU'|'MOFU'|'BOFU'|'RETENTION',title:string,objective:string,kpi:string,items:[{title:string,channel:string,format:string,cta:string}]}]}",
+      ].join("\n"),
+      messages: [{ role: "user", content: JSON.stringify(input) }],
     });
-
-    if (!response.ok) throw new Error(`AI request failed with ${response.status}`);
-    const result = await response.json();
-    const content = result?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") throw new Error("Invalid AI response");
-
-    const generated = parseJson(content);
+    const generated = parseJson(result.content);
     const stages = Array.isArray(generated.stages) && generated.stages.length === 4
       ? generated.stages
       : fallbackStages(input);

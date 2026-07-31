@@ -6,6 +6,8 @@
  * so a workspace never presents the user with a dead button.
  */
 
+import { AiMode, aiNonymauzChat } from "@/lib/ai-nonymauz";
+
 export type GenerationOutcome<T> = { source: "ai-nonymauz-cloud" | "starter"; value: T };
 
 /** Extracts the first JSON object from a model response, tolerating markdown fences. */
@@ -29,41 +31,29 @@ export async function generateJson<T>({
   fallback,
   validate,
   temperature = 0.35,
+  mode = "normal",
+  useRag = false,
+  useTools = false,
 }: {
   system: string[];
   input: Record<string, unknown>;
   fallback: () => T;
   validate: (parsed: Record<string, any>) => T | null;
   temperature?: number;
+  mode?: AiMode;
+  useRag?: boolean;
+  useTools?: boolean;
 }): Promise<GenerationOutcome<T>> {
-  const baseUrl = process.env.AI_NONYMAUZ_BASE_URL?.replace(/\/$/, "");
-  const apiKey = process.env.AI_NONYMAUZ_API_KEY;
-  const model = process.env.AI_NONYMAUZ_MODEL;
-
-  if (!baseUrl || !apiKey || !model) return { source: "starter", value: fallback() };
-
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature,
-        stream: false,
-        messages: [
-          { role: "system", content: system.join("\n") },
-          { role: "user", content: JSON.stringify(input) },
-        ],
-      }),
-      signal: AbortSignal.timeout(45_000),
+    const result = await aiNonymauzChat({
+      mode,
+      temperature,
+      useRag,
+      useTools,
+      systemPrompt: system.join("\n"),
+      messages: [{ role: "user", content: JSON.stringify(input) }],
     });
-
-    if (!response.ok) throw new Error(`AI request failed with ${response.status}`);
-    const result = await response.json();
-    const content = result?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") throw new Error("Invalid AI response");
-
-    const validated = validate(parseJsonObject(content));
+    const validated = validate(parseJsonObject(result.content));
     if (!validated) throw new Error("AI response did not match the expected schema");
     return { source: "ai-nonymauz-cloud", value: validated };
   } catch (error) {

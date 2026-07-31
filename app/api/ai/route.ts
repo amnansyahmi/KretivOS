@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gatherContext } from "@/lib/ai-context";
+import { AiMode, aiNonymauzChat } from "@/lib/ai-nonymauz";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -8,21 +9,15 @@ type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 export async function POST(request: NextRequest) {
   try {
-    const baseUrl = process.env.AI_NONYMAUZ_BASE_URL?.replace(/\/$/, "");
-    const apiKey = process.env.AI_NONYMAUZ_API_KEY;
-    const model = process.env.AI_NONYMAUZ_MODEL;
-
-    if (!baseUrl || !apiKey || !model) {
-      return NextResponse.json(
-        { error: "AI service is not configured. Add the ai-nonymauz-cloud environment variables." },
-        { status: 503 }
-      );
-    }
-
     const body = (await request.json()) as {
       messages?: ChatMessage[];
       module?: string;
       grounded?: boolean;
+      cloudRag?: boolean;
+      useTools?: boolean;
+      city?: string;
+      mode?: AiMode;
+      model?: string;
     };
 
     if (!Array.isArray(body.messages) || body.messages.length === 0) {
@@ -32,7 +27,7 @@ export async function POST(request: NextRequest) {
     const allowedMessages = body.messages
       .filter((message) => ["user", "assistant"].includes(message.role))
       .slice(-12)
-      .map((message) => ({ role: message.role, content: String(message.content).slice(0, 8000) }));
+      .map((message) => ({ role: message.role as "user" | "assistant", content: String(message.content).slice(0, 8000) }));
 
     // Retrieve against the newest user turn, which is what the answer must address.
     const latestQuestion = [...allowedMessages].reverse().find((message) => message.role === "user")?.content || "";
@@ -67,35 +62,21 @@ export async function POST(request: NextRequest) {
       ].join("\n"),
     };
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        messages: [systemMessage, ...allowedMessages],
-        temperature: 0.3,
-        stream: false
-      }),
-      signal: AbortSignal.timeout(45_000)
+    const result = await aiNonymauzChat({
+      messages: allowedMessages,
+      systemPrompt: systemMessage.content,
+      mode: body.mode || "normal",
+      model: body.model,
+      temperature: 0.3,
+      useRag: body.cloudRag !== false,
+      useTools: body.useTools !== false,
+      city: body.city,
     });
 
-    if (!response.ok) {
-      const details = await response.text();
-      console.error("ai-nonymauz-cloud error", response.status, details.slice(0, 500));
-      return NextResponse.json({ error: "The AI service could not complete this request." }, { status: 502 });
-    }
-
-    const result = await response.json();
-    const content = result?.choices?.[0]?.message?.content;
-    if (typeof content !== "string") {
-      return NextResponse.json({ error: "The AI service returned an invalid response." }, { status: 502 });
-    }
-
     return NextResponse.json({
-      content,
+      content: result.content,
+      model: result.model,
+      usage: result.usage,
       grounded: Boolean(context.block),
       sources: context.matches.map((match, index) => ({
         index: index + 1,

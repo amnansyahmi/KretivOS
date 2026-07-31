@@ -84,7 +84,7 @@ The projection is stored as an editable scenario, separate from actual sales and
 
 ## AI connection
 
-The chatbot and every generator use a server-side OpenAI-compatible route for `ai-nonymauz-cloud`.
+The chatbot and every generator use the deployed `ai-nonymauz-cloud` service through a shared server-side client. The current Render deployment is the code default, so an API key is only needed if the service is protected later.
 
 | Route | Produces |
 | --- | --- |
@@ -95,6 +95,22 @@ The chatbot and every generator use a server-side OpenAI-compatible route for `a
 | `/api/storyboard/generate` | A shot-by-shot storyboard |
 | `/api/prompt/generate` | A model-specific image or video prompt |
 | `/api/funnels/generate` | A four-stage TOFU/MOFU/BOFU/retention funnel |
+| `/api/ai/status` | Live Render health, model, RAG and image capability status |
+| `/api/ai/studio` | Shared AI conversations, prompt templates, outputs, feedback and usage |
+| `/api/ai/image` | Pollinations Flux image generation through ai-nonymauz-cloud |
+
+### Kretiv AI Studio
+
+`/ai-studio` exposes the capabilities already deployed on Render without replacing the existing chatbot:
+
+- fast, normal and deep reasoning modes with optional explicit model selection
+- live KretivOS business and customer context
+- the cloud service's BM25 RAG knowledge and web/weather tools
+- shared Neon-backed conversation history, saved outputs, feedback and token telemetry
+- reusable executive, client, sales, marketing, research and content prompts
+- image generation using the deployed Pollinations Flux endpoint
+
+Apply `db/migrations/0004_ai_studio.sql` to Neon before opening the shared history workspace.
 
 ### Grounding
 
@@ -129,9 +145,9 @@ cp .env.example .env.local
 Configure:
 
 ```env
-AI_NONYMAUZ_BASE_URL=https://your-host/v1
-AI_NONYMAUZ_API_KEY=your-key
-AI_NONYMAUZ_MODEL=your-model
+AI_NONYMAUZ_BASE_URL=https://ai-nonymauz-cloud.onrender.com
+AI_NONYMAUZ_API_KEY=
+AI_NONYMAUZ_MODEL=
 ```
 
 The browser never receives the API key.
