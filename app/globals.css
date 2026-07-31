@@ -20,6 +20,49 @@
   --ring: 145 22% 19%;
   --radius: .85rem;
 }
-* { @apply border-border; }
-body { @apply bg-background text-foreground antialiased; font-feature-settings: "rlig" 1, "calt" 1; }
-::selection { background: rgba(112, 74, 52, .18); }
+
+* {
+  @apply border-border;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(32, 44, 37, .24) transparent;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+::selection {
+  background: rgba(112, 74, 52, .18);
+}
+
+/* Slim overlay-style scrollbar for dashboards, drawers and mobile panels. */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(32, 44, 37, .22);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(186, 92, 66, .52);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
