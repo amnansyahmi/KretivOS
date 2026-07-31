@@ -20,27 +20,72 @@ const MODEL_GUIDANCE: Record<string, string> = {
 };
 
 const BASE_NEGATIVE = "synthetic texture, excessive gloss, warped or floating elements, malformed hands, distorted text, generic stock interiors, watermark, low resolution";
+const FOOD_NEGATIVE = "plastic food surface, repeated grain patterns, cloned ingredients, waxy sauce, fake steam, impossible garnish, inflated portions, floating crumbs, excessive blur, oversharpening, HDR halos";
+const SLOP_LANGUAGE = /\b(masterpiece|best quality|ultra[- ]?detailed|highly detailed|insanely detailed|award[- ]winning|trending on artstation|octane render|unreal engine|8k|16k|32k|hyperreal(?:istic)?|photoreal(?:istic|ism)?|perfectly symmetrical|flawless)\b/gi;
+const VIDEO_MODELS = new Set(["Kling", "Veo", "Runway"]);
+
+function looksLikeFood(input: Record<string, string>) {
+  const text = [input.assetType, input.product, input.brief, input.style].join(" ").toLowerCase();
+  return /\b(food|meal|dish|rice|pizza|pasta|bread|cake|drink|beverage|coffee|tea|sauce|paste|spice|restaurant|menu|dessert|meat|chicken|beef|fish|seafood|fruit|vegetable|nasi|ikan|ayam|daging|makanan|minuman|kuih|sambal)\b/.test(text);
+}
+
+function cleanSlopLanguage(prompt: string) {
+  return prompt
+    .replace(SLOP_LANGUAGE, "")
+    .replace(/\s+([,.;:])/g, "$1")
+    .replace(/([,;])\s*\1+/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function realismGuardrail(input: Record<string, string>, food: boolean) {
+  if (food) {
+    return input.realismProfile === "Balanced commercial"
+      ? "Keep the supplied dish identity and recipe structure recognisably real: varied ingredient shapes, believable moisture, restrained oil sheen, natural portion density and grounded contact shadows"
+      : "Food realism is strict: preserve the supplied dish identity, ingredients and recipe structure; retain irregular grain and ingredient shapes, believable moisture with restrained oil sheen, imperfect edges, natural portion density, small crumbs, real contact shadows and physically plausible plate interaction; do not substitute ingredients, redesign the dish, smooth, inflate, symmetrise or duplicate food texture";
+  }
+  return input.realismProfile === "Balanced commercial"
+    ? "Keep materials, scale, reflections and contact shadows physically believable"
+    : "Preserve small asymmetries, natural material response, plausible scale, restrained reflections and grounded contact shadows; avoid over-polished CGI symmetry and generic stock styling";
+}
+
+function insertBeforeModelParameters(prompt: string, instruction: string) {
+  const parameterIndex = prompt.search(/\s--(?:ar|aspect|raw|q|quality|s|stylize|hd|v|version|no)\b/i);
+  if (parameterIndex < 0) return `${prompt.replace(/[.\s]+$/, "")}. ${instruction}.`;
+  const description = prompt.slice(0, parameterIndex).replace(/[.\s]+$/, "");
+  return `${description}. ${instruction}.${prompt.slice(parameterIndex)}`;
+}
+
+function midjourneyNoList(avoid: string, food: boolean) {
+  const defaults = food
+    ? ["plastic", "wax", "cloning", "warping", "floating", "watermark", "artifacts"]
+    : ["warping", "floating", "watermark", "artifacts"];
+  const safeUserTerms = avoid.split(",").map((item) => item.trim()).filter((item) => /^[a-z-]+$/i.test(item));
+  return [...new Set([...defaults, ...safeUserTerms])].join(", ");
+}
 
 function starterPrompt(input: Record<string, string>): PromptResult {
   const {
     model, client, brand, assetType, brief, ratio, platform, objective,
     product, audience, style, mustInclude, avoid, duration, motion,
     resolution, resolutionMode, quality, composition, lighting, camera, textInstruction,
-    mjQuality, mjStylize, mjRaw,
+    mjQuality, mjStylize, mjRaw, realismProfile,
   } = input;
   const isMidjourney = model.startsWith("Midjourney");
-  const midjourneyExclusions = avoid || "watermark, artifacts, warping";
+  const food = looksLikeFood(input);
+  const midjourneyExclusions = midjourneyNoList(avoid, food);
   const suffix = isMidjourney
     ? ` --ar ${ratio}${mjRaw === "No" ? "" : " --raw"} --q ${mjQuality || "1"} --s ${mjStylize || "100"}${["2K", "4K delivery"].includes(resolutionMode) ? " --hd" : ""} --v 8.2 --no ${midjourneyExclusions}`
     : "";
-  const videoDirection = ["Kling", "Veo", "Runway"].includes(model)
+  const videoDirection = VIDEO_MODELS.has(model)
     ? ` Duration ${duration || "10 seconds"}. Motion: ${motion || "controlled subject movement with a deliberate camera move"}.`
     : "";
   const identity = [client, brand].filter(Boolean).join(" · ");
+  const basePrompt = `${assetType} for ${identity || "Kretivco client"}. Subject: ${product || "the supplied product or subject"}. Objective: ${objective || "create a clear, premium brand asset"}. Audience: ${audience || "the client's intended customer"}. Platform: ${platform || "digital campaign"}. ${brief} Composition: ${composition || "clear visual hierarchy with intentional negative space"}. Lighting: ${lighting || "controlled natural-looking light"}. Camera and lens: ${camera || "commercial photography perspective with believable optical depth"}. Visual direction: ${style || "realistic, refined and commercially usable"}. Preserve true-to-life colour and natural imperfection. ${textInstruction ? `Text handling: ${textInstruction}. ` : ""}${mustInclude ? `Must include: ${mustInclude}. ` : ""}Keep the subject unmistakably identifiable.${videoDirection} Aspect ratio ${ratio}. Output target: ${resolution || "model default"}, ${quality || "high quality"}.${suffix}`;
   return {
-    prompt: `${assetType} for ${identity || "Kretivco client"}. Subject: ${product || "the supplied product or subject"}. Objective: ${objective || "create a clear, premium brand asset"}. Audience: ${audience || "the client's intended customer"}. Platform: ${platform || "digital campaign"}. ${brief} Composition: ${composition || "clear visual hierarchy with intentional negative space"}. Lighting: ${lighting || "controlled natural-looking light"}. Camera and lens: ${camera || "commercial photography perspective with believable optical depth"}. Visual direction: ${style || "realistic, refined and commercially usable"}. Preserve realistic material texture, true-to-life colour and natural imperfection. ${textInstruction ? `Text handling: ${textInstruction}. ` : ""}${mustInclude ? `Must include: ${mustInclude}. ` : ""}Keep the subject unmistakably identifiable.${videoDirection} Aspect ratio ${ratio}. Output target: ${resolution || "model default"}, ${quality || "high quality"}.${suffix}`,
-    negativePrompt: [BASE_NEGATIVE, avoid].filter(Boolean).join(", "),
-    notes: `Starter prompt built from your brief because AI is not configured. ${MODEL_GUIDANCE[model] || "Adjust the phrasing to suit the selected model."}`,
+    prompt: VIDEO_MODELS.has(model) ? cleanSlopLanguage(basePrompt) : insertBeforeModelParameters(cleanSlopLanguage(basePrompt), realismGuardrail(input, food)),
+    negativePrompt: [BASE_NEGATIVE, food ? FOOD_NEGATIVE : "", avoid].filter(Boolean).join(", "),
+    notes: `Anti-slop ${food ? "food realism" : "naturalism"} guardrail applied. ${MODEL_GUIDANCE[model] || "Adjust the phrasing to suit the selected model."}`,
   };
 }
 
@@ -74,6 +119,7 @@ export async function POST(request: NextRequest) {
       mjQuality: field(raw.mjQuality, "1", 10),
       mjStylize: field(raw.mjStylize, "100", 10),
       mjRaw: field(raw.mjRaw, "Yes", 10),
+      realismProfile: field(raw.realismProfile, "Strict natural", 40),
     };
 
     const outcome = await generateJson<PromptResult>({
@@ -86,6 +132,8 @@ export async function POST(request: NextRequest) {
         MODEL_GUIDANCE[model] || "Match the prompt style to the named model.",
         "Return JSON only. Do not use markdown fences.",
         "The prompt must preserve real product identity and avoid an artificial, over-rendered look.",
+        "Never use empty prestige tokens such as masterpiece, best quality, ultra-detailed, hyperrealistic, 8K, 16K, award-winning, Unreal Engine, Octane render or trending on ArtStation. Pixel resolution belongs only in the output setting.",
+        "Prefer observable photographic facts over hype: irregularity, believable material response, natural highlight roll-off, plausible gravity, contact shadow, restrained colour and credible scale.",
         "Use every useful supplied field, but do not invent product features, certifications, ingredients, prices or factual claims.",
         "For video, make subject action, camera behaviour, timing and final frame unambiguous.",
         "For images, order the prompt as subject and identity, composition, environment, lighting, camera or lens, materials and texture, colour, text handling, must-include details and exclusions.",
@@ -99,8 +147,10 @@ export async function POST(request: NextRequest) {
         "Schema: {prompt:string, negativePrompt:string, notes:string}",
       ],
       validate: (parsed) => {
-        let prompt = String(parsed.prompt || "").trim();
+        const food = looksLikeFood(input);
+        let prompt = cleanSlopLanguage(String(parsed.prompt || "").trim());
         if (prompt.length < 40) return null;
+        if (!VIDEO_MODELS.has(model)) prompt = insertBeforeModelParameters(prompt, realismGuardrail(input, food));
         if (model.startsWith("Midjourney")) {
           if (!/--ar\s+\S+/.test(prompt)) prompt += ` --ar ${input.ratio}`;
           if (input.mjRaw !== "No" && !/(?:--raw|--style\s+raw)\b/.test(prompt)) prompt += " --raw";
@@ -108,12 +158,13 @@ export async function POST(request: NextRequest) {
           if (!/--s\s+\S+/.test(prompt)) prompt += ` --s ${input.mjStylize}`;
           if (["2K", "4K delivery"].includes(input.resolutionMode) && !/--hd\b/.test(prompt)) prompt += " --hd";
           if (!/--v(?:ersion)?\s+\S+/.test(prompt)) prompt += " --v 8.2";
-          if (!/--no\b/.test(prompt)) prompt += ` --no ${input.avoid || "watermark, artifacts, warping"}`;
+          if (!/--no\b/.test(prompt)) prompt += ` --no ${midjourneyNoList(input.avoid, food)}`;
         }
+        const negativePrompt = [String(parsed.negativePrompt || BASE_NEGATIVE), food ? FOOD_NEGATIVE : "", input.avoid].filter(Boolean).join(", ");
         return {
           prompt,
-          negativePrompt: String(parsed.negativePrompt || BASE_NEGATIVE),
-          notes: String(parsed.notes || ""),
+          negativePrompt,
+          notes: `Anti-slop ${food ? "food realism" : "naturalism"} guardrail applied. ${String(parsed.notes || "").trim()}`.trim(),
         };
       },
     });

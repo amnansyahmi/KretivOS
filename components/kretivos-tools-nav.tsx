@@ -21,7 +21,7 @@ const items = [
   { href: "/knowledge", label: "Knowledge Library", icon: Library },
   { href: "/knowledge/add", label: "Add Knowledge (.md)", icon: Plus },
   { href: "/automations", label: "Automations", icon: Workflow },
-  { href: "/templates", label: "Templates", icon: FileText }
+  { href: "/documents", label: "Documents", icon: FileText }
 ];
 
 type Position = { x: number; y: number };

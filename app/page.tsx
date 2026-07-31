@@ -56,7 +56,7 @@ const navGroups: NavGroup[] = [
     { name: "Technology", icon: Code2, view: "Technology" },
     { name: "Knowledge", icon: Library, href: "/knowledge" },
     { name: "Automations", icon: Workflow, href: "/automations" },
-    { name: "Templates", icon: FileText, href: "/templates" },
+    { name: "Documents", icon: FileText, href: "/documents" },
     { name: "Settings", icon: Settings2, view: "Settings" },
   ]},
 ];
@@ -676,7 +676,7 @@ type PromptForm = {
   resolution: string; quality: string; composition: string; lighting: string;
   camera: string; style: string; audience: string; textInstruction: string;
   mustInclude: string; avoid: string; duration: string; motion: string;
-  mjQuality: string; mjStylize: string; mjRaw: string;
+  mjQuality: string; mjStylize: string; mjRaw: string; realismProfile: string;
 };
 
 const promptDefaults: PromptForm = {
@@ -684,7 +684,7 @@ const promptDefaults: PromptForm = {
   product: "", platform: "Instagram / Facebook", objective: "Create demand and drive action", brief: "", ratio: "2:3",
   resolution: "2K", quality: "High", composition: "", lighting: "", camera: "", style: "",
   audience: "", textInstruction: "No generated text unless explicitly requested", mustInclude: "", avoid: "",
-  duration: "10 seconds", motion: "", mjQuality: "1", mjStylize: "100", mjRaw: "Yes",
+  duration: "10 seconds", motion: "", mjQuality: "1", mjStylize: "100", mjRaw: "Yes", realismProfile: "Strict natural",
 };
 const imagePromptModels = ["GPT Image 2", "GPT Image", "Midjourney V8.2", "Midjourney", "FLUX.2", "Flux"];
 const imageAssets = ["Food photography", "Product hero", "Editorial campaign", "Poster / key visual", "Social post", "Packaging concept"];
@@ -708,6 +708,42 @@ function imageOutputTarget(model: string, ratio: string, resolution: string) {
   return pixels;
 }
 
+function ImproveWritingButton({ value, field, context, onApply }: { value: string; field: string; context: string; onApply: (value: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const improve = async () => {
+    if (busy || value.trim().length < 3) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/writing/improve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: value, field, context }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to improve writing.");
+      onApply(String(payload.improved || value));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to improve writing.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <span className="inline-flex items-center gap-1.5"><button type="button" onClick={improve} disabled={busy || value.trim().length < 3} className="inline-flex h-7 items-center gap-1 rounded-md border bg-white px-2 text-[10px] font-medium text-[#5d655e] transition hover:border-[#ba5c42] hover:text-[#ba5c42] disabled:cursor-not-allowed disabled:opacity-40">{busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}{busy ? "Improving…" : "Improve with AI"}</button>{error && <span className="text-[10px] text-red-600" title={error}>!</span>}</span>;
+}
+
+function PromptWritingControl({ label, value, onChange, context, placeholder = "", multiline = true, className = "" }: { label: string; value: string; onChange: (value: string) => void; context: string; placeholder?: string; multiline?: boolean; className?: string }) {
+  return <div>
+    <div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">{label}</span><ImproveWritingButton value={value} field={label} context={context} onApply={onChange} /></div>
+    {multiline
+      ? <textarea value={value} onChange={event => onChange(event.target.value)} className={cn("mt-2 min-h-20 w-full resize-y rounded-lg border bg-white p-3 text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10", className)} placeholder={placeholder} />
+      : <input value={value} onChange={event => onChange(event.target.value)} className={cn(inputClass, "mt-2", className)} placeholder={placeholder} />}
+  </div>;
+}
+
 function PromptLab() {
   const [savedForm, setSavedForm] = usePersisted<PromptForm>("prompt-lab-input", promptDefaults);
   const legacyModel = savedForm.model === "GPT Image" ? "GPT Image 2" : savedForm.model === "Midjourney" ? "Midjourney V8.2" : savedForm.model === "Flux" ? "FLUX.2" : savedForm.model;
@@ -715,6 +751,7 @@ function PromptLab() {
   const mergedIsImage = imagePromptModels.includes(mergedForm.model);
   const form = {
     ...mergedForm,
+    quality: mergedForm.quality === "Maximum detail" ? "High" : mergedForm.quality,
     assetType: (mergedIsImage ? imageAssets : videoAssets).includes(mergedForm.assetType)
       ? mergedForm.assetType
       : (mergedIsImage ? imageAssets[0] : videoAssets[0]),
@@ -729,6 +766,7 @@ function PromptLab() {
   const linkedBrands = business.brands.filter((item) => !form.clientId || item.customerId === form.clientId);
   const set = (key: keyof PromptForm, value: string) => setSavedForm({ ...form, [key]: value });
   const outputTarget = isImage ? imageOutputTarget(form.model, form.ratio, form.resolution) : form.resolution;
+  const writingContext = `${form.model} ${form.assetType}; client: ${form.client || "not selected"}; brand: ${form.brand || "not selected"}; product: ${form.product || "not specified"}; platform: ${form.platform}.`;
   const required = [form.model, form.client, form.assetType, form.product || form.brief, form.ratio, form.objective];
   const completeness = Math.round(required.filter((value) => String(value || "").trim()).length / required.length * 100);
 
@@ -758,7 +796,8 @@ function PromptLab() {
         composition: "Slightly zoomed-out portrait composition with generous negative space and a clear food hero",
         lighting: "Bright soft diffused studio light with a subtle natural shadow",
         camera: "50mm lens, three-quarter food photography angle, believable depth of field",
-        style: "Photorealistic editorial food photography, true-to-life texture, natural irregularity, no plastic AI gloss",
+        style: "A real editorial food photograph with true-to-life texture, natural irregularity and restrained retouching",
+        realismProfile: "Strict natural",
         textInstruction: "No text, logo or label unless supplied as an exact reference",
         avoid: "plastic-looking food, uniform synthetic grains, waxy texture, impossible garnish, warped plate, excessive gloss, oversaturation, watermark",
       },
@@ -768,17 +807,19 @@ function PromptLab() {
         composition: "Single hero product with clean separation, balanced props and usable negative space",
         lighting: "Controlled commercial studio lighting with realistic reflections and contact shadow",
         camera: "70mm product photography perspective with accurate proportions and crisp focal detail",
-        style: "Premium commercial product photography, realistic packaging materials and accurate brand colours",
+        style: "A real commercial product photograph with believable packaging materials, restrained retouching and accurate brand colours",
+        realismProfile: "Strict natural",
         textInstruction: "Preserve existing packaging text exactly; do not invent or rewrite labels",
         avoid: "warped packaging, invented label text, floating product, excessive gloss, distorted proportions, watermark",
       },
       poster: {
         model: "Midjourney V8.2", assetType: "Poster / key visual", ratio: "2:3", platform: "Print / Campaign",
-        objective: "Create a strong campaign key visual with room for final artwork", resolution: "4K delivery", quality: "Maximum detail",
+        objective: "Create a strong campaign key visual with room for final artwork", resolution: "4K delivery", quality: "High",
         composition: "Editorial poster composition with one dominant focal point and intentional clear space for copy",
         lighting: "Cinematic directional light with controlled contrast and realistic shadow behaviour",
         camera: "Commercial campaign photography, natural perspective, precise subject separation",
         style: "Distinctive premium campaign art direction with realistic materials and restrained colour grading",
+        realismProfile: "Balanced commercial",
         textInstruction: "Leave clean negative space for typography; do not generate final text",
         avoid: "watermark, artifacts, warping, clutter, oversaturation",
       },
@@ -799,7 +840,7 @@ function PromptLab() {
   };
 
   return <div>
-    <PageHead eyebrow="Production-ready visual prompts" title="Prompt Lab" description="Build detailed, model-specific image and video prompts with the correct aspect ratio, output target and production controls." action={<Button className="hidden sm:inline-flex" onClick={runGenerate} disabled={loading || (!form.brief.trim() && !form.product.trim())}>{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}{loading ? "Generating…" : "Generate prompt"}</Button>} />
+    <PageHead eyebrow="Production-ready visual prompts" title="Prompt Lab" description="Build model-specific prompts with correct output settings and an enforced anti-slop realism layer for believable food, products and campaign visuals." action={<Button className="hidden sm:inline-flex" onClick={runGenerate} disabled={loading || (!form.brief.trim() && !form.product.trim())}>{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}{loading ? "Generating…" : "Generate prompt"}</Button>} />
     <div className="grid gap-5 xl:grid-cols-[minmax(340px,.72fr)_minmax(0,1.28fr)]">
       <Card className="overflow-hidden bg-white/85">
         <CardHeader className="flex-row items-center justify-between space-y-0 border-b p-4 sm:p-5"><div><div className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#ba5c42]">01 · Production brief</div><CardTitle className="mt-1">Image direction</CardTitle></div><div className="text-right"><div className="text-lg font-semibold">{completeness}%</div><div className="text-[9px] text-muted-foreground">brief ready</div></div></CardHeader>
@@ -820,27 +861,28 @@ function PromptLab() {
           </div>
 
           <label className="block text-xs font-medium">Product / main subject<input value={form.product} onChange={e => set("product", e.target.value)} className={cn(inputClass, "mt-2")} placeholder="Pes Kabsah jar with plated rice" /></label>
-          <label className="block text-xs font-medium">Creative request<textarea value={form.brief} onChange={e => set("brief", e.target.value)} className="mt-2 min-h-24 w-full resize-y rounded-lg border bg-white p-3 text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10" placeholder="Describe what should happen or appear. A short idea is enough; the controls below add production detail." /></label>
+          <PromptWritingControl label="Creative request" value={form.brief} onChange={value => set("brief", value)} context={writingContext} className="min-h-24" placeholder="Describe what should happen or appear. A short idea is enough; AI can improve the writing without changing the facts." />
 
           <div className="grid grid-cols-3 gap-2">
             <label className="block text-xs font-medium">Aspect<select value={form.ratio} onChange={e => set("ratio", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["2:3", "3:2", "4:5", "5:4", "1:1", "9:16", "16:9"].map(x => <option key={x}>{x}</option>)}</select></label>
             <label className="block text-xs font-medium">Resolution<select value={form.resolution} onChange={e => set("resolution", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["Auto", "HD", "2K", "4K delivery"].map(x => <option key={x}>{x}</option>)}</select></label>
-            <label className="block text-xs font-medium">Quality<select value={form.quality} onChange={e => set("quality", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["Draft", "Standard", "High", "Maximum detail"].map(x => <option key={x}>{x}</option>)}</select></label>
+            <label className="block text-xs font-medium">Quality<select value={form.quality} onChange={e => set("quality", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["Draft", "Standard", "High"].map(x => <option key={x}>{x}</option>)}</select></label>
           </div>
           <div className="rounded-lg bg-[#f4f1e8] px-3 py-2 text-[10px] leading-5 text-muted-foreground"><span className="font-semibold text-[#202c25]">Output target:</span> {outputTarget}. Aspect ratio controls shape; resolution controls pixel delivery.</div>
+          {isImage && <label className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-medium text-emerald-900"><span><span className="block">Anti-slop realism</span><span className="mt-1 block text-[9px] font-normal text-emerald-700">Always enforced · no hype-token prompting</span></span><select value={form.realismProfile} onChange={e => set("realismProfile", e.target.value)} className="h-9 max-w-[150px] rounded-lg border border-emerald-200 bg-white px-2 text-xs outline-none"><option>Strict natural</option><option>Balanced commercial</option></select></label>}
 
           <details className="group rounded-xl border bg-[#faf8f3]">
             <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-xs font-semibold">Advanced image direction<span className="text-base font-normal text-muted-foreground group-open:rotate-45">+</span></summary>
             <div className="space-y-4 border-t p-4">
-              <label className="block text-xs font-medium">Objective<input value={form.objective} onChange={e => set("objective", e.target.value)} className={cn(inputClass, "mt-2")} /></label>
-              <label className="block text-xs font-medium">Audience<input value={form.audience} onChange={e => set("audience", e.target.value)} className={cn(inputClass, "mt-2")} placeholder="Who should respond to this visual?" /></label>
-              <label className="block text-xs font-medium">Composition<textarea value={form.composition} onChange={e => set("composition", e.target.value)} className="mt-2 min-h-20 w-full rounded-lg border bg-white p-3 text-sm" placeholder="Framing, angle, negative space, hierarchy…" /></label>
-              <label className="block text-xs font-medium">Lighting<textarea value={form.lighting} onChange={e => set("lighting", e.target.value)} className="mt-2 min-h-20 w-full rounded-lg border bg-white p-3 text-sm" placeholder="Soft daylight, warm restaurant light, studio setup…" /></label>
-              <label className="block text-xs font-medium">Camera / lens<input value={form.camera} onChange={e => set("camera", e.target.value)} className={cn(inputClass, "mt-2")} placeholder="50mm, eye-level, shallow depth of field…" /></label>
-              <label className="block text-xs font-medium">Style and realism<textarea value={form.style} onChange={e => set("style", e.target.value)} className="mt-2 min-h-20 w-full rounded-lg border bg-white p-3 text-sm" placeholder="Editorial, true-to-life food texture, natural imperfection…" /></label>
-              <label className="block text-xs font-medium">Text handling<input value={form.textInstruction} onChange={e => set("textInstruction", e.target.value)} className={cn(inputClass, "mt-2")} /></label>
-              <label className="block text-xs font-medium">Must include<input value={form.mustInclude} onChange={e => set("mustInclude", e.target.value)} className={cn(inputClass, "mt-2")} placeholder="Exact product details, props, colours or logo treatment" /></label>
-              <label className="block text-xs font-medium">Avoid<input value={form.avoid} onChange={e => set("avoid", e.target.value)} className={cn(inputClass, "mt-2")} placeholder="Plastic texture, fake rice, warped label…" /></label>
+              <PromptWritingControl label="Objective" value={form.objective} onChange={value => set("objective", value)} context={writingContext} multiline={false} />
+              <PromptWritingControl label="Audience" value={form.audience} onChange={value => set("audience", value)} context={writingContext} multiline={false} placeholder="Who should respond to this visual?" />
+              <PromptWritingControl label="Composition" value={form.composition} onChange={value => set("composition", value)} context={writingContext} placeholder="Framing, angle, negative space, hierarchy…" />
+              <PromptWritingControl label="Lighting" value={form.lighting} onChange={value => set("lighting", value)} context={writingContext} placeholder="Soft daylight, warm restaurant light, studio setup…" />
+              <PromptWritingControl label="Camera / lens" value={form.camera} onChange={value => set("camera", value)} context={writingContext} multiline={false} placeholder="50mm, eye-level, believable depth of field…" />
+              <PromptWritingControl label="Style and realism" value={form.style} onChange={value => set("style", value)} context={writingContext} placeholder="Editorial, true-to-life food texture, natural imperfection…" />
+              <PromptWritingControl label="Text handling" value={form.textInstruction} onChange={value => set("textInstruction", value)} context={writingContext} multiline={false} />
+              <PromptWritingControl label="Must include" value={form.mustInclude} onChange={value => set("mustInclude", value)} context={writingContext} multiline={false} placeholder="Exact product details, props, colours or logo treatment" />
+              <PromptWritingControl label="Avoid" value={form.avoid} onChange={value => set("avoid", value)} context={writingContext} multiline={false} placeholder="Plastic texture, fake rice, warped label…" />
               {form.model.startsWith("Midjourney") && <div className="grid grid-cols-3 gap-2"><label className="block text-xs font-medium">Raw<select value={form.mjRaw} onChange={e => set("mjRaw", e.target.value)} className={cn(inputClass, "mt-2 px-2")}><option>Yes</option><option>No</option></select></label><label className="block text-xs font-medium">Quality<select value={form.mjQuality} onChange={e => set("mjQuality", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["1", "2", "4"].map(x => <option key={x}>{x}</option>)}</select></label><label className="block text-xs font-medium">Stylize<select value={form.mjStylize} onChange={e => set("mjStylize", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["0", "50", "100", "250", "500"].map(x => <option key={x}>{x}</option>)}</select></label><p className="col-span-3 text-[10px] leading-5 text-muted-foreground">Midjourney <code>--q</code> controls GPU effort, not pixel resolution.</p></div>}
               {!isImage && <><label className="block text-xs font-medium">Duration<input value={form.duration} onChange={e => set("duration", e.target.value)} className={cn(inputClass, "mt-2")} /></label><label className="block text-xs font-medium">Motion and camera movement<textarea value={form.motion} onChange={e => set("motion", e.target.value)} className="mt-2 min-h-20 w-full rounded-lg border bg-white p-3 text-sm" /></label></>}
             </div>
@@ -900,7 +942,7 @@ function Technology() {
 function Settings() {
   const cards: [any, string, string, string][] = [
     [Building2, "Company profile", "Kretivco Mediaworks, registration, address and signatories", "/business?tab=customers"],
-    [FileText, "Document templates", "Proposal, quotation, invoice, memo and agreement layouts", "/templates"],
+    [FileText, "Documents", "AI-assisted proposals, quotations, invoices, memos and agreements", "/documents"],
     [UsersRound, "Team and HR", "Employees, leave, attendance, goals and onboarding", "/hr"],
     [Palette, "Brand DNA", "Colours, typography, tone and approved claims per brand", "/brands"],
     [Workflow, "Automations", "Triggers, actions and approval thresholds", "/automations"],

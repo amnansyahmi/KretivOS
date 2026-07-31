@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Download, FileText, List, Pencil, Plus, RefreshCw, Save, Search,
+  Download, FileText, List, Loader2, Pencil, Plus, RefreshCw, Save, Search,
   Sparkles, Trash2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -94,7 +94,7 @@ function downloadHtml(document: GeneratedDocument) {
   URL.revokeObjectURL(url);
 }
 
-export default function TemplatesPage() {
+export default function DocumentsPage() {
   const [tab, setTab] = useState<Tab>("templates");
   const [templates, setTemplates] = useState<Template[]>(parseLocal(TEMPLATE_CACHE, []));
   const [documents, setDocuments] = useState<GeneratedDocument[]>(parseLocal(DOC_CACHE, []));
@@ -108,6 +108,9 @@ export default function TemplatesPage() {
   const [customerId, setCustomerId] = useState("");
   const [documentTitle, setDocumentTitle] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [templateBrief, setTemplateBrief] = useState("");
+  const [documentBrief, setDocumentBrief] = useState("");
+  const [aiBusy, setAiBusy] = useState<"template" | "document" | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -251,7 +254,65 @@ export default function TemplatesPage() {
     setTemplateForDocument(template);
     setDocumentTitle(`${template.name} · ${new Date().toLocaleDateString("en-MY")}`);
     setValues(initialValues);
+    setDocumentBrief("");
     setSetupOpen(true);
+  }
+
+  async function assistTemplate(action: "draft_template" | "improve_template") {
+    if (!draft) return;
+    if (action === "draft_template" && templateBrief.trim().length < 8) {
+      setError("Add a short document brief first.");
+      return;
+    }
+    setAiBusy("template");
+    setError("");
+    try {
+      const data = await jsonRequest("/api/documents/assist", {
+        method: "POST",
+        body: JSON.stringify({ action, brief: templateBrief, template: draft }),
+      });
+      setDraft((current) => current ? { ...current, ...data.template } : current);
+      setNotice(data.source === "ai-nonymauz-cloud"
+        ? "AI draft applied. Review the wording and variables before saving."
+        : "Starter structure applied. AI was unavailable, so review before saving.");
+    } catch (assistError) {
+      setError(assistError instanceof Error ? assistError.message : "Unable to assist this template.");
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
+  async function assistDocument() {
+    if (!templateForDocument) return;
+    if (documentBrief.trim().length < 8) {
+      setError("Add a short document brief first.");
+      return;
+    }
+    setAiBusy("document");
+    setError("");
+    try {
+      const customer = customers.find((item) => item.id === customerId);
+      const data = await jsonRequest("/api/documents/assist", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "fill_document",
+          brief: documentBrief,
+          customerName: customer?.name || "Kretivco / Internal",
+          title: documentTitle,
+          template: templateForDocument,
+          currentValues: values,
+        }),
+      });
+      setDocumentTitle(data.document.title);
+      setValues(data.document.values);
+      setNotice(data.source === "ai-nonymauz-cloud"
+        ? "AI filled the document fields it could verify. Review blanks and facts in the composer."
+        : "AI was unavailable. Existing values were kept for manual completion.");
+    } catch (assistError) {
+      setError(assistError instanceof Error ? assistError.message : "Unable to assist this document.");
+    } finally {
+      setAiBusy(null);
+    }
   }
 
   function openComposer() {
@@ -301,7 +362,7 @@ export default function TemplatesPage() {
   }
 
   return (
-    <WorkspacePage eyebrow="Reusable document system" title="Templates & Documents" description="Maintain shared templates, compose branded documents and preserve final HTML, variables and brand settings in Neon." actions={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={() => loadData(false)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>{tab === "templates" && <Button onClick={() => setDraft(emptyDraft())}><Plus className="h-4 w-4" />New template</Button>}</div>}>
+    <WorkspacePage eyebrow="AI-assisted document workspace" title="Documents" description="Draft reusable templates with AI, fill document fields from a brief, compose branded files and keep every final record in Neon." actions={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={() => loadData(false)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>{tab === "templates" && <Button onClick={() => { setTemplateBrief(""); setDraft(emptyDraft()); }}><Plus className="h-4 w-4" />New template</Button>}</div>}>
       {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
 
@@ -312,9 +373,52 @@ export default function TemplatesPage() {
       {tab === "templates" ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filteredTemplates.map((template) => <Card key={template.id} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#eee9df]"><FileText className="h-5 w-5 text-[#ba5c42]" /></div><span className="rounded-full bg-[#eeeae0] px-2.5 py-1 text-[10px] text-[#5a605a]">{template.category}</span></div><h2 className="mt-5 text-lg font-semibold">{template.name}</h2><p className="mt-2 min-h-10 text-xs leading-5 text-muted-foreground">{template.description || "Reusable KretivOS document template."}</p><div className="mt-4 flex flex-wrap gap-1.5">{template.variables.slice(0, 5).map((item) => <span key={item} className="rounded-md border bg-white px-2 py-1 font-mono text-[9px] text-muted-foreground">{`{{${item}}}`}</span>)}{template.variables.length > 5 && <span className="rounded-md bg-[#f3efe7] px-2 py-1 text-[9px] text-muted-foreground">+{template.variables.length - 5}</span>}</div><div className="mt-5 grid grid-cols-[1fr_auto_auto] gap-2"><Button onClick={() => prepareDocument(template)}><Sparkles className="h-4 w-4" />Create document</Button><Button variant="outline" size="icon" onClick={() => setDraft({ id: template.id, name: template.name, category: template.category, description: template.description, layout: template.layout, content: template.content, status: template.status })}><Pencil className="h-4 w-4" /></Button><Button variant="outline" size="icon" onClick={() => deleteTemplate(template)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}{!filteredTemplates.length && <Card className="bg-white/80 md:col-span-2 xl:col-span-3"><CardContent className="p-12 text-center text-sm text-muted-foreground">No templates match the search.</CardContent></Card>}</div>
       : <div className="space-y-3">{filteredDocuments.map((document) => <Card key={document.id} className="bg-white/80"><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#eee9df]"><FileText className="h-5 w-5 text-[#ba5c42]" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{document.title}</h2><span className="rounded-full bg-[#eeeae0] px-2.5 py-1 text-[10px] text-[#5a605a]">{document.status}</span></div><div className="mt-1 text-xs text-muted-foreground">{document.customerName} · {document.templateName}{document.reference ? ` · ${document.reference}` : ""}</div><div className="mt-2 text-[10px] text-muted-foreground">Saved {new Date(document.updatedAt).toLocaleString("en-MY")}</div></div><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => reopenDocument(document)}><Pencil className="h-3.5 w-3.5" />Reopen</Button><Button variant="outline" size="sm" onClick={() => downloadHtml(document)}><Download className="h-3.5 w-3.5" />HTML</Button><Button variant="outline" size="icon" onClick={() => deleteDocument(document)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}{!filteredDocuments.length && <Card className="bg-white/80"><CardContent className="p-12 text-center"><FileText className="mx-auto h-8 w-8 text-muted-foreground" /><div className="mt-4 font-semibold">No generated documents yet</div><p className="mt-2 text-sm text-muted-foreground">Open a template and save a composed document.</p></CardContent></Card>}</div>}
 
-      {draft && <Modal title={draft.id ? "Edit template" : "Create template"} subtitle="Variables use double braces, for example {{client_name}}." onClose={() => setDraft(null)} footer={<><Button variant="outline" onClick={() => setDraft(null)}>Cancel</Button><Button onClick={saveTemplate} disabled={saving}><Save className="h-4 w-4" />Save template</Button></>}><div className="grid gap-4 md:grid-cols-2"><Field label="Template name"><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="control" /></Field><Field label="Category"><input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} className="control" /></Field><Field label="Layout"><select value={draft.layout} onChange={(event) => setDraft({ ...draft, layout: event.target.value as DocumentLayout })} className="control"><option value="proposal">Kretivco Proposal</option><option value="letterhead">Kretivco Letterhead</option><option value="commercial">Commercial Document</option><option value="report">Corporate Report</option><option value="plain">Clean Document</option></select></Field><Field label="Status"><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })} className="control"><option>Active</option><option>Draft</option><option>Archived</option></select></Field><Field label="Description" wide><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="textarea" /></Field><Field label="Markdown template content" wide><textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} className="min-h-[360px] w-full resize-y rounded-xl border bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42]" /></Field><div className="md:col-span-2 rounded-xl border bg-[#f7f4ed] p-4 text-xs text-muted-foreground">Detected variables: {variables(draft.content).length ? variables(draft.content).map((item) => `{{${item}}}`).join(", ") : "None"}</div></div></Modal>}
+      {draft && <Modal
+        title={draft.id ? "Edit template" : "Create template"}
+        subtitle="AI drafts remain editable. Variables use double braces, for example {{client_name}}."
+        onClose={() => setDraft(null)}
+        footer={<><Button variant="outline" onClick={() => setDraft(null)}>Cancel</Button><Button onClick={saveTemplate} disabled={saving || aiBusy === "template"}><Save className="h-4 w-4" />Save template</Button></>}
+      >
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2 rounded-2xl border border-[#d9b9a9] bg-[#fff8f4] p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ba5c42] text-white"><Sparkles className="h-4 w-4" /></div>
+              <div className="min-w-0 flex-1"><div className="text-sm font-semibold">AI document assistant</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Describe what this reusable document needs. AI creates editable Markdown and variables without inventing prices, dates or claims.</p></div>
+            </div>
+            <textarea value={templateBrief} onChange={(event) => setTemplateBrief(event.target.value)} className="textarea mt-4" placeholder="Example: Bilingual social media proposal for an F&B client, including objectives, scope, timeline, deliverables and approval section." />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" onClick={() => assistTemplate("draft_template")} disabled={aiBusy === "template" || templateBrief.trim().length < 8}>{aiBusy === "template" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Generate from brief</Button>
+              <Button type="button" variant="outline" className="bg-white" onClick={() => assistTemplate("improve_template")} disabled={aiBusy === "template" || draft.content.trim().length < 8}><Sparkles className="h-4 w-4" />Improve current template</Button>
+            </div>
+          </div>
+          <Field label="Template name"><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="control" /></Field>
+          <Field label="Category"><input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} className="control" /></Field>
+          <Field label="Layout"><select value={draft.layout} onChange={(event) => setDraft({ ...draft, layout: event.target.value as DocumentLayout })} className="control"><option value="proposal">Kretivco Proposal</option><option value="letterhead">Kretivco Letterhead</option><option value="commercial">Commercial Document</option><option value="report">Corporate Report</option><option value="plain">Clean Document</option></select></Field>
+          <Field label="Status"><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })} className="control"><option>Active</option><option>Draft</option><option>Archived</option></select></Field>
+          <Field label="Description" wide><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="textarea" /></Field>
+          <Field label="Markdown template content" wide><textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} className="min-h-[360px] w-full resize-y rounded-xl border bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42]" /></Field>
+          <div className="md:col-span-2 rounded-xl border bg-[#f7f4ed] p-4 text-xs text-muted-foreground">Detected variables: {variables(draft.content).length ? variables(draft.content).map((item) => `{{${item}}}`).join(", ") : "None"}</div>
+        </div>
+      </Modal>}
 
-      {setupOpen && templateForDocument && <Modal title={`Create from ${templateForDocument.name}`} subtitle="Choose the linked customer before opening the full document composer." onClose={() => setSetupOpen(false)} footer={<><Button variant="outline" onClick={() => setSetupOpen(false)}>Cancel</Button><Button onClick={openComposer}><Sparkles className="h-4 w-4" />Open composer</Button></>}><div className="space-y-4"><Field label="Customer / workspace"><select value={customerId} onChange={(event) => setCustomerId(event.target.value)} className="control"><option value="">Kretivco / Internal</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label="Document title"><input value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} className="control" /></Field><div className="rounded-xl border bg-[#f7f4ed] p-4 text-xs leading-6 text-muted-foreground">The document will be saved as a shared Neon record. The composer can still export PDF through the browser print dialog and Word-compatible .doc.</div></div></Modal>}
+      {setupOpen && templateForDocument && <Modal
+        title={`Create from ${templateForDocument.name}`}
+        subtitle="Use AI to fill verifiable fields from your brief, then review everything in the composer."
+        onClose={() => setSetupOpen(false)}
+        footer={<><Button variant="outline" onClick={() => setSetupOpen(false)}>Cancel</Button><Button onClick={openComposer} disabled={aiBusy === "document"}><Sparkles className="h-4 w-4" />Open composer</Button></>}
+      >
+        <div className="space-y-4">
+          <Field label="Customer / workspace"><select value={customerId} onChange={(event) => setCustomerId(event.target.value)} className="control"><option value="">Kretivco / Internal</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+          <Field label="Document title"><input value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} className="control" /></Field>
+          <div className="rounded-2xl border border-[#d9b9a9] bg-[#fff8f4] p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-[#ba5c42]" />AI-fill document</div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Paste the approved facts or rough brief. Unknown prices, dates, terms and reference numbers stay blank.</p>
+            <textarea value={documentBrief} onChange={(event) => setDocumentBrief(event.target.value)} className="textarea mt-3" placeholder="Example: Proposal for Chef Ammar marketplace launch. Scope includes product photography, Shopee and TikTok Shop setup, and monthly reporting. Timeline and fees are not confirmed yet." />
+            <Button type="button" className="mt-3" onClick={assistDocument} disabled={aiBusy === "document" || documentBrief.trim().length < 8}>{aiBusy === "document" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Fill verified fields with AI</Button>
+          </div>
+          <div className="rounded-xl border bg-[#f7f4ed] p-4 text-xs leading-6 text-muted-foreground">Nothing is saved or sent automatically. Review every AI-assisted field in the composer before saving to Neon or exporting.</div>
+        </div>
+      </Modal>}
 
       {composerOpen && templateForDocument && <DocumentComposer template={{ id: templateForDocument.id, name: templateForDocument.name, category: templateForDocument.category, content: templateForDocument.content }} variables={templateForDocument.variables} values={values} onValuesChange={setValues} documentTitle={documentTitle} onDocumentTitleChange={setDocumentTitle} generatedContent={replaceVariables(templateForDocument.content, values)} onClose={() => setComposerOpen(false)} onSave={saveGeneratedDocument} />}
 
