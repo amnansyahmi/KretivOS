@@ -95,6 +95,7 @@ The chatbot and every generator use the deployed `ai-nonymauz-cloud` service thr
 | `/api/storyboard/generate` | A shot-by-shot storyboard |
 | `/api/prompt/generate` | A model-specific image or video prompt |
 | `/api/funnels/generate` | A four-stage TOFU/MOFU/BOFU/retention funnel |
+| `/api/funnels/content` | Grounded hooks, copy, CTA, visual direction and channel versions for funnel activities |
 | `/api/ai/status` | Live Render health, model, RAG and image capability status |
 | `/api/ai/studio` | Shared AI conversations, prompt templates, outputs, feedback and usage |
 | `/api/ai/image` | Pollinations Flux image generation through ai-nonymauz-cloud |
@@ -122,6 +123,14 @@ human-reviewed draft package:
 
 The generator reads CRM, recent sales and delivery records, Brand DNA and linked
 knowledge. Saving is idempotent by package ID, and never approves or sends a document.
+
+### AI Funnel Content
+
+Each saved or sandbox funnel can generate an editable content draft for every activity.
+The generator reads the funnel objective, audience, offer, selected channels, Brand DNA
+and linked customer knowledge. It returns a hook, primary copy, CTA, visual direction,
+production notes and channel-specific versions. Nothing is saved or published until the
+operator reviews the full batch and chooses **Save all content drafts**.
 
 Apply `db/migrations/0004_ai_studio.sql` to Neon before opening the shared history workspace.
 

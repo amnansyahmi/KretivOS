@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDown, ArrowUp, Bot, ChevronLeft, FlaskConical, Layers3, List,
-  Pencil, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, X
+  Loader2, Pencil, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +50,19 @@ type Funnel = {
 };
 type CreateForm = { customerId: string; brandId: string; playbookKey: string; name: string; objective: string; audience: string; offer: string; useAI: boolean };
 type ActivityEditor = { stageKey: PlaybookStageKey; item: FunnelActivity; isNew: boolean } | null;
+type ChannelVersion = { channelId: string; channelName: string; copy: string };
+type GeneratedActivityContent = {
+  activityId: string;
+  stageKey: string;
+  title: string;
+  hook: string;
+  primaryCopy: string;
+  cta: string;
+  visualDirection: string;
+  productionNotes: string;
+  channelVersions: ChannelVersion[];
+};
+type ContentReview = { source: "ai-nonymauz-cloud" | "starter"; summary: string; contents: GeneratedActivityContent[] };
 
 type Mode = "production" | "sandbox";
 const CACHE_KEY = "kretivos-funnels-cache";
@@ -197,9 +210,11 @@ export default function FunnelLibraryPage() {
   const [editingDetails, setEditingDetails] = useState(false);
   const [detailDraft, setDetailDraft] = useState<Funnel | null>(null);
   const [activityEditor, setActivityEditor] = useState<ActivityEditor>(null);
+  const [contentReview, setContentReview] = useState<ContentReview | null>(null);
   const [form, setForm] = useState<CreateForm>({ customerId: "", brandId: "", playbookKey: FUNNEL_PLAYBOOKS[0].key, name: "", objective: "", audience: "", offer: "", useAI: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generatingContent, setGeneratingContent] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -472,6 +487,91 @@ export default function FunnelLibraryPage() {
     });
   }
 
+  function updateEditorContent(patch: Record<string, unknown>) {
+    if (!activityEditor) return;
+    setActivityEditor({
+      ...activityEditor,
+      item: { ...activityEditor.item, content: { ...activityEditor.item.content, ...patch } },
+    });
+  }
+
+  function updateEditorChannelVersion(index: number, copy: string) {
+    if (!activityEditor) return;
+    const versions = Array.isArray(activityEditor.item.content.channelVersions)
+      ? [...activityEditor.item.content.channelVersions as ChannelVersion[]]
+      : [];
+    if (!versions[index]) return;
+    versions[index] = { ...versions[index], copy };
+    updateEditorContent({ channelVersions: versions });
+  }
+
+  async function generateFunnelContent() {
+    if (!selected || !activityCount(selected)) { setError("Add at least one funnel activity first."); return; }
+    setGeneratingContent(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await jsonRequest("/api/funnels/content", {
+        method: "POST",
+        body: JSON.stringify({ funnel: selected, channels }),
+      });
+      setContentReview({ source: result.source, summary: result.summary, contents: result.contents || [] });
+    } catch (generationError) {
+      setError(generationError instanceof Error ? generationError.message : "Unable to generate funnel content.");
+    } finally { setGeneratingContent(false); }
+  }
+
+  function updateReviewItem(activityId: string, patch: Partial<GeneratedActivityContent>) {
+    setContentReview((current) => current ? {
+      ...current,
+      contents: current.contents.map((item) => item.activityId === activityId ? { ...item, ...patch } : item),
+    } : current);
+  }
+
+  function updateReviewChannel(activityId: string, channelId: string, copy: string) {
+    setContentReview((current) => current ? {
+      ...current,
+      contents: current.contents.map((item) => item.activityId !== activityId ? item : {
+        ...item,
+        channelVersions: item.channelVersions.map((version) => version.channelId === channelId ? { ...version, copy } : version),
+      }),
+    } : current);
+  }
+
+  async function saveGeneratedContent() {
+    if (!selected || !contentReview) return;
+    const contentByActivity = new Map(contentReview.contents.map((item) => [item.activityId, item]));
+    const generatedAt = now();
+    const next: Funnel = {
+      ...selected,
+      metadata: { ...selected.metadata, contentGeneratedAt: generatedAt, contentSource: contentReview.source },
+      stages: selected.stages.map((stage) => ({
+        ...stage,
+        items: stage.items.map((item) => {
+          const generated = contentByActivity.get(item.id);
+          if (!generated) return item;
+          return {
+            ...item,
+            cta: generated.cta,
+            content: {
+              ...item.content,
+              hook: generated.hook,
+              primaryCopy: generated.primaryCopy,
+              visualDirection: generated.visualDirection,
+              productionNotes: generated.productionNotes,
+              channelVersions: generated.channelVersions,
+              aiGenerated: true,
+              aiSource: contentReview.source,
+              generatedAt,
+            },
+          };
+        }),
+      })),
+    };
+    const saved = await persistFunnel(next, `Content drafts saved for ${contentReview.contents.length} funnel activities.`);
+    if (saved) setContentReview(null);
+  }
+
   return (
     <WorkspacePage eyebrow="Marketing journey system" title="Funnel Builder" description="Build shared customer funnels from approved playbooks, channels and content templates. Use Sandbox to experiment without creating a live client record." actions={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={() => loadData(false)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button><Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />{mode === "sandbox" ? "New sandbox" : "Add funnel"}</Button></div>}>
       {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
@@ -484,7 +584,7 @@ export default function FunnelLibraryPage() {
 
         <div className={cn("min-w-0", !mobileDetail && "hidden xl:block")}>
           {selected ? <div className="space-y-5">
-            <Card className="bg-white/80"><CardHeader className="border-b p-4 sm:p-6"><div className="flex items-start gap-3 xl:hidden"><button onClick={() => setMobileDetail(false)} className="flex h-9 w-9 items-center justify-center rounded-xl border bg-white"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-0 flex-1"><CardTitle className="line-clamp-2">{selected.name}</CardTitle><p className="mt-1 text-xs text-muted-foreground">{selected.sandbox ? "Sandbox experiment" : selected.client}</p></div></div><div className="hidden items-start justify-between gap-4 xl:flex"><div><div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]"><span>{selected.sandbox ? "Sandbox" : selected.client}</span>{selected.brandName && <><span>•</span><span>{selected.brandName}</span></>}<span>•</span><span>{selected.playbookKey}</span></div><CardTitle className="mt-2 text-2xl">{selected.name}</CardTitle><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{selected.summary}</p></div><Status value={selected.status} /></div><div className="mt-4 flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => { setDetailDraft(JSON.parse(JSON.stringify(selected))); setEditingDetails(true); }}><Pencil className="h-3.5 w-3.5" />Edit details</Button>{selected.sandbox && <Button variant="outline" size="sm" onClick={promoteSandbox}><Target className="h-3.5 w-3.5" />Promote to client</Button>}<Button variant="outline" size="sm" className="text-red-600" onClick={deleteFunnel}><Trash2 className="h-3.5 w-3.5" />Delete</Button></div></CardHeader><CardContent className="grid gap-3 p-4 sm:grid-cols-3 sm:p-6"><Mini label="Objective" value={selected.objective} /><Mini label="Audience" value={selected.audience || "Not defined"} /><Mini label="Offer" value={selected.offer || "Not defined"} /></CardContent></Card>
+            <Card className="bg-white/80"><CardHeader className="border-b p-4 sm:p-6"><div className="flex items-start gap-3 xl:hidden"><button onClick={() => setMobileDetail(false)} className="flex h-9 w-9 items-center justify-center rounded-xl border bg-white"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-0 flex-1"><CardTitle className="line-clamp-2">{selected.name}</CardTitle><p className="mt-1 text-xs text-muted-foreground">{selected.sandbox ? "Sandbox experiment" : selected.client}</p></div></div><div className="hidden items-start justify-between gap-4 xl:flex"><div><div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]"><span>{selected.sandbox ? "Sandbox" : selected.client}</span>{selected.brandName && <><span>•</span><span>{selected.brandName}</span></>}<span>•</span><span>{selected.playbookKey}</span></div><CardTitle className="mt-2 text-2xl">{selected.name}</CardTitle><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{selected.summary}</p></div><Status value={selected.status} /></div><div className="mt-4 flex flex-wrap gap-2"><Button size="sm" onClick={generateFunnelContent} disabled={generatingContent || saving || !activityCount(selected)}>{generatingContent ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{generatingContent ? "Generating content…" : "Generate funnel content"}</Button><Button variant="outline" size="sm" onClick={() => { setDetailDraft(JSON.parse(JSON.stringify(selected))); setEditingDetails(true); }}><Pencil className="h-3.5 w-3.5" />Edit details</Button>{selected.sandbox && <Button variant="outline" size="sm" onClick={promoteSandbox}><Target className="h-3.5 w-3.5" />Promote to client</Button>}<Button variant="outline" size="sm" className="text-red-600" onClick={deleteFunnel}><Trash2 className="h-3.5 w-3.5" />Delete</Button></div></CardHeader><CardContent className="grid gap-3 p-4 sm:grid-cols-3 sm:p-6"><Mini label="Objective" value={selected.objective} /><Mini label="Audience" value={selected.audience || "Not defined"} /><Mini label="Offer" value={selected.offer || "Not defined"} /></CardContent></Card>
 
             <div className="grid gap-4 2xl:grid-cols-2">{selected.stages.map((stage) => {
               const ready = stage.items.filter((item) => item.status === "Ready" || item.status === "Live").length;
@@ -540,8 +640,15 @@ export default function FunnelLibraryPage() {
         <div className="grid gap-4 md:grid-cols-2">{!detailDraft.sandbox && <><Field label="Customer"><select value={detailDraft.customerId} onChange={(event) => setDetailDraft({ ...detailDraft, customerId: event.target.value, brandId: "", brandName: "" })} className="control">{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label="Brand"><select value={detailDraft.brandId} onChange={(event) => setDetailDraft({ ...detailDraft, brandId: event.target.value })} className="control"><option value="">No specific brand</option>{editCustomerBrands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field></>}<Field label="Name"><input value={detailDraft.name} onChange={(event) => setDetailDraft({ ...detailDraft, name: event.target.value })} className="control" /></Field><Field label="Status"><select value={detailDraft.status} onChange={(event) => setDetailDraft({ ...detailDraft, status: event.target.value as Funnel["status"] })} className="control"><option>Draft</option><option>Review</option><option>Active</option><option>Completed</option></select></Field><Field label="Objective" wide><textarea value={detailDraft.objective} onChange={(event) => setDetailDraft({ ...detailDraft, objective: event.target.value })} className="textarea" /></Field><Field label="Audience"><textarea value={detailDraft.audience} onChange={(event) => setDetailDraft({ ...detailDraft, audience: event.target.value })} className="textarea" /></Field><Field label="Offer"><textarea value={detailDraft.offer} onChange={(event) => setDetailDraft({ ...detailDraft, offer: event.target.value })} className="textarea" /></Field><Field label="Summary" wide><textarea value={detailDraft.summary} onChange={(event) => setDetailDraft({ ...detailDraft, summary: event.target.value })} className="textarea min-h-28" /></Field></div>
       </Modal>}
 
+      {contentReview && <Modal title="Review AI funnel content" subtitle="Nothing is saved yet. Edit the drafts below, then save them into the existing funnel activities." onClose={() => setContentReview(null)} footer={<><Button variant="outline" onClick={() => setContentReview(null)}>Discard</Button><Button onClick={saveGeneratedContent} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? "Saving…" : "Save all content drafts"}</Button></>}>
+        <div className="mb-5 rounded-xl border bg-white p-4"><div className="flex items-center justify-between gap-3"><div className="text-sm font-semibold">{contentReview.summary}</div><span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[10px]", contentReview.source === "ai-nonymauz-cloud" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{contentReview.source}</span></div><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Verify claims, offers, links and dates before changing an activity to Ready.</p></div>
+        <div className="space-y-4">{contentReview.contents.map((item) => <Card key={item.activityId} className="overflow-hidden bg-white"><CardHeader className="border-b p-4"><div className="text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]">{item.stageKey}</div><CardTitle className="mt-1 text-base">{item.title}</CardTitle></CardHeader><CardContent className="grid gap-4 p-4 md:grid-cols-2"><Field label="Hook" wide><textarea value={item.hook} onChange={(event) => updateReviewItem(item.activityId, { hook: event.target.value })} className="textarea min-h-20" /></Field><Field label="Primary caption / copy" wide><textarea value={item.primaryCopy} onChange={(event) => updateReviewItem(item.activityId, { primaryCopy: event.target.value })} className="textarea min-h-32" /></Field><Field label="CTA"><input value={item.cta} onChange={(event) => updateReviewItem(item.activityId, { cta: event.target.value })} className="control" /></Field><Field label="Production notes"><textarea value={item.productionNotes} onChange={(event) => updateReviewItem(item.activityId, { productionNotes: event.target.value })} className="textarea min-h-20" /></Field><Field label="Visual direction" wide><textarea value={item.visualDirection} onChange={(event) => updateReviewItem(item.activityId, { visualDirection: event.target.value })} className="textarea min-h-24" /></Field>{item.channelVersions.length > 0 && <Field label="Channel-ready versions" wide><div className="space-y-3">{item.channelVersions.map((version) => <label key={version.channelId} className="block rounded-xl border bg-[#fbfaf7] p-3"><span className="text-[10px] font-semibold uppercase tracking-wider text-[#5d665f]">{version.channelName}</span><textarea value={version.copy} onChange={(event) => updateReviewChannel(item.activityId, version.channelId, event.target.value)} className="mt-2 min-h-24 w-full resize-y bg-transparent text-xs leading-5 outline-none" /></label>)}</div></Field>}</CardContent></Card>)}</div>
+      </Modal>}
+
       {activityEditor && <Modal title={activityEditor.isNew ? "Add funnel activity" : "Edit funnel activity"} subtitle={`Stage: ${activityEditor.stageKey}. Choose a reusable content template or create a custom activity.`} onClose={() => setActivityEditor(null)} footer={<><Button variant="outline" onClick={() => setActivityEditor(null)}>Cancel</Button><Button onClick={saveActivity} disabled={saving}><Save className="h-4 w-4" />Save activity</Button></>}>
-        <div className="space-y-4"><Field label="Content template"><select value={activityEditor.item.contentTemplateId} onChange={(event) => applyTemplate(event.target.value)} className="control"><option value="">Create custom activity</option>{contentTemplates.filter((item) => !item.stageKey || item.stageKey === activityEditor.stageKey).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.format}</option>)}</select></Field><Field label="Activity title"><input value={activityEditor.item.title} onChange={(event) => setActivityEditor({ ...activityEditor, item: { ...activityEditor.item, title: event.target.value } })} className="control" /></Field><div className="grid gap-4 md:grid-cols-2"><Field label="Format"><input value={activityEditor.item.format} onChange={(event) => setActivityEditor({ ...activityEditor, item: { ...activityEditor.item, format: event.target.value } })} className="control" placeholder="Video, carousel, email" /></Field><Field label="CTA"><input value={activityEditor.item.cta} onChange={(event) => setActivityEditor({ ...activityEditor, item: { ...activityEditor.item, cta: event.target.value } })} className="control" placeholder="Buy now, get directions" /></Field></div><Field label="Marketing channels"><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{channels.map((channel) => { const checked = activityEditor.item.marketingChannelIds.includes(channel.id); return <label key={channel.id} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border p-3", checked ? "border-[#ba5c42] bg-[#fff8f4]" : "bg-white")}><input type="checkbox" checked={checked} onChange={() => setActivityEditor({ ...activityEditor, item: { ...activityEditor.item, marketingChannelIds: checked ? activityEditor.item.marketingChannelIds.filter((id) => id !== channel.id) : [...activityEditor.item.marketingChannelIds, channel.id] } })} className="mt-0.5" /><span><span className="block text-sm font-medium">{channel.name}</span><span className="mt-1 block text-[10px] text-muted-foreground">{channel.category}</span></span></label>; })}</div></Field>{activityEditor.item.contentTemplateId && <div className="rounded-xl border bg-[#f7f4ed] p-4 text-xs leading-6 text-muted-foreground">Template outline: {String(activityEditor.item.content.outline || "")}</div>}</div>
+        <div className="space-y-4"><Field label="Content template"><select value={activityEditor.item.contentTemplateId} onChange={(event) => applyTemplate(event.target.value)} className="control"><option value="">Create custom activity</option>{contentTemplates.filter((item) => !item.stageKey || item.stageKey === activityEditor.stageKey).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.format}</option>)}</select></Field><Field label="Activity title"><input value={activityEditor.item.title} onChange={(event) => setActivityEditor({ ...activityEditor, item: { ...activityEditor.item, title: event.target.value } })} className="control" /></Field><div className="grid gap-4 md:grid-cols-2"><Field label="Format"><input value={activityEditor.item.format} onChange={(event) => setActivityEditor({ ...activityEditor, item: { ...activityEditor.item, format: event.target.value } })} className="control" placeholder="Video, carousel, email" /></Field><Field label="CTA"><input value={activityEditor.item.cta} onChange={(event) => setActivityEditor({ ...activityEditor, item: { ...activityEditor.item, cta: event.target.value } })} className="control" placeholder="Buy now, get directions" /></Field></div><Field label="Marketing channels"><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{channels.map((channel) => { const checked = activityEditor.item.marketingChannelIds.includes(channel.id); return <label key={channel.id} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border p-3", checked ? "border-[#ba5c42] bg-[#fff8f4]" : "bg-white")}><input type="checkbox" checked={checked} onChange={() => setActivityEditor({ ...activityEditor, item: { ...activityEditor.item, marketingChannelIds: checked ? activityEditor.item.marketingChannelIds.filter((id) => id !== channel.id) : [...activityEditor.item.marketingChannelIds, channel.id] } })} className="mt-0.5" /><span><span className="block text-sm font-medium">{channel.name}</span><span className="mt-1 block text-[10px] text-muted-foreground">{channel.category}</span></span></label>; })}</div></Field>{activityEditor.item.contentTemplateId && <div className="rounded-xl border bg-[#f7f4ed] p-4 text-xs leading-6 text-muted-foreground">Template outline: {String(activityEditor.item.content.outline || "")}</div>}
+          <div className="rounded-2xl border bg-white p-4"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-[#ba5c42]" /><div className="text-sm font-semibold">Content draft</div></div><p className="mt-1 text-[11px] text-muted-foreground">Generated content remains editable and does not publish automatically.</p><div className="mt-4 grid gap-4 md:grid-cols-2"><Field label="Hook" wide><textarea value={String(activityEditor.item.content.hook || "")} onChange={(event) => updateEditorContent({ hook: event.target.value })} className="textarea min-h-20" /></Field><Field label="Primary caption / copy" wide><textarea value={String(activityEditor.item.content.primaryCopy || "")} onChange={(event) => updateEditorContent({ primaryCopy: event.target.value })} className="textarea min-h-32" /></Field><Field label="Visual direction"><textarea value={String(activityEditor.item.content.visualDirection || "")} onChange={(event) => updateEditorContent({ visualDirection: event.target.value })} className="textarea min-h-24" /></Field><Field label="Production notes"><textarea value={String(activityEditor.item.content.productionNotes || "")} onChange={(event) => updateEditorContent({ productionNotes: event.target.value })} className="textarea min-h-24" /></Field>{Array.isArray(activityEditor.item.content.channelVersions) && (activityEditor.item.content.channelVersions as ChannelVersion[]).length > 0 && <Field label="Channel-ready versions" wide><div className="space-y-3">{(activityEditor.item.content.channelVersions as ChannelVersion[]).map((version, index) => <label key={version.channelId} className="block rounded-xl border bg-[#fbfaf7] p-3"><span className="text-[10px] font-semibold uppercase tracking-wider text-[#5d665f]">{version.channelName}</span><textarea value={version.copy} onChange={(event) => updateEditorChannelVersion(index, event.target.value)} className="mt-2 min-h-24 w-full resize-y bg-transparent text-xs leading-5 outline-none" /></label>)}</div></Field>}</div></div>
+        </div>
       </Modal>}
 
       <style jsx>{`
@@ -587,6 +694,8 @@ function ActivityCard({ item, index, total, stageKey, channelNames, busy, onEdit
   onMoveStage: (stage: PlaybookStageKey) => void;
   onCycleStatus: () => void;
 }) {
+  const hook = typeof item.content.hook === "string" ? item.content.hook : "";
+  const primaryCopy = typeof item.content.primaryCopy === "string" ? item.content.primaryCopy : "";
   return <div className="rounded-xl border bg-white p-3">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
@@ -609,6 +718,8 @@ function ActivityCard({ item, index, total, stageKey, channelNames, busy, onEdit
     </div>
 
     {item.cta && <div className="mt-3 text-xs"><span className="text-muted-foreground">CTA:</span> {item.cta}</div>}
+
+    {(hook || primaryCopy) && <div className="mt-3 rounded-lg border border-[#eee8dc] bg-[#fbfaf7] p-3"><div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[.14em] text-[#ba5c42]"><Sparkles className="h-3 w-3" />Content draft</div>{hook && <div className="mt-2 line-clamp-2 text-xs font-medium leading-5">{hook}</div>}{primaryCopy && <p className="mt-1 line-clamp-3 text-[11px] leading-5 text-muted-foreground">{primaryCopy}</p>}</div>}
 
     <div className="mt-3 flex items-center gap-1 border-t pt-2">
       <button onClick={() => onMove(-1)} disabled={busy || index === 0} className={actionClass} aria-label="Move activity up"><ArrowUp className="h-3.5 w-3.5" /></button>
