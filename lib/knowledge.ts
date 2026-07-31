@@ -1,4 +1,4 @@
-export type KnowledgeSource = "built-in" | "markdown" | "editor";
+export type KnowledgeSource = "built-in" | "markdown" | "editor" | "automation";
 
 export type KnowledgeEntry = {
   id: string;
@@ -11,6 +11,9 @@ export type KnowledgeEntry = {
   createdAt: string;
   updatedAt: string;
   source: KnowledgeSource;
+  customerId?: string;
+  brandId?: string;
+  brandName?: string;
 };
 
 export const KNOWLEDGE_STORAGE_KEY = "kretivos-knowledge";
@@ -90,7 +93,7 @@ Bring new customers into Chef Ammar USJ 4 and create additional table spend beyo
 - Next.js PWA
 - shadcn/ui-inspired interface
 - ai-nonymauz-cloud through server-side OpenAI-compatible routes
-- Browser persistence for prototype workspaces
+- Neon PostgreSQL for shared business records
 
 ## Production foundation
 
