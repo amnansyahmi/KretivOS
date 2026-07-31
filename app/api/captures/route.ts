@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { extractDocument, suggestAccountKey, type CaptureKind } from "@/lib/ocr";
 import { duplicateFingerprint, normaliseVendor } from "@/lib/ocr-parse";
+import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,6 +35,9 @@ function tablesMissing(error: unknown) {
 
 function failure(error: unknown) {
   console.error("Capture request failed", error);
+  if (error instanceof HRAuthError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
   const message = error instanceof Error ? error.message : "Capture request failed.";
   return NextResponse.json(
     {
@@ -80,6 +84,7 @@ function mapCapture(row: any) {
 
 export async function GET(request: NextRequest) {
   try {
+    await requireHRSession(["hr_admin", "finance"]);
     const sql = getDatabase();
     const id = clean(request.nextUrl.searchParams.get("id"), 100);
 
@@ -127,6 +132,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireHRSession(["hr_admin", "finance"]);
     const body = await request.json();
     const action = clean(body.action, 40) || "upload";
     const sql = getDatabase();
@@ -147,22 +153,24 @@ export async function POST(request: NextRequest) {
       const captureId = randomUUID();
       const bytes = Math.floor(match[2].length * 0.75);
 
-      await sql`
-        insert into assets (id, organization_id, name, asset_type, category, storage_url, mime_type, file_size, metadata)
-        values (
-          ${assetId}, ${ORGANIZATION_ID}, ${clean(body.filename, 200) || `${kind}-${captureId}`},
-          'finance_document', ${kind}, ${dataUrl}, ${match[1]}, ${bytes},
-          ${JSON.stringify({ captureId, uploadedAt: new Date().toISOString() })}::jsonb
-        )
-      `;
-      await sql`
-        insert into document_captures (
-          id, organization_id, kind, asset_id, original_filename, mime_type, file_size, status
-        ) values (
-          ${captureId}, ${ORGANIZATION_ID}, ${kind}, ${assetId},
-          ${clean(body.filename, 200)}, ${match[1]}, ${bytes}, 'Extracting'
-        )
-      `;
+      await sql.transaction([
+        sql`
+          insert into assets (id, organization_id, name, asset_type, category, storage_url, mime_type, file_size, metadata)
+          values (
+            ${assetId}, ${ORGANIZATION_ID}, ${clean(body.filename, 200) || `${kind}-${captureId}`},
+            'finance_document', ${kind}, ${dataUrl}, ${match[1]}, ${bytes},
+            ${JSON.stringify({ captureId, uploadedAt: new Date().toISOString() })}::jsonb
+          )
+        `,
+        sql`
+          insert into document_captures (
+            id, organization_id, kind, asset_id, original_filename, mime_type, file_size, status
+          ) values (
+            ${captureId}, ${ORGANIZATION_ID}, ${kind}, ${assetId},
+            ${clean(body.filename, 200)}, ${match[1]}, ${bytes}, 'Extracting'
+          )
+        `,
+      ]);
 
       // Extraction runs inline: the operator is watching the upload, and a
       // background job would need infrastructure this deployment does not have.
@@ -272,10 +280,16 @@ export async function POST(request: NextRequest) {
       const vendorName = clean(data.vendorName, 200);
       const total = data.total === null || data.total === "" ? null : num(data.total);
 
+      const vendorId = clean(data.vendorId, 100);
+      if (vendorId) {
+        const vendors = await sql`select id from vendors where id = ${vendorId} and organization_id = ${ORGANIZATION_ID}`;
+        if (!vendors.length) return NextResponse.json({ error: "Vendor was not found." }, { status: 404 });
+      }
+
       await sql`
         update document_captures set
           vendor_name = ${vendorName},
-          vendor_id = ${clean(data.vendorId, 100) || null},
+          vendor_id = ${vendorId || null},
           document_number = ${clean(data.documentNumber, 100)},
           document_date = ${/^\d{4}-\d{2}-\d{2}$/.test(documentDate) ? documentDate : null},
           subtotal = ${data.subtotal === null || data.subtotal === "" ? null : num(data.subtotal)},

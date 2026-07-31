@@ -324,6 +324,94 @@ create index if not exists payment_allocations_payment_idx on payment_allocation
 create index if not exists payment_allocations_bill_idx on payment_allocations(bill_id);
 create index if not exists payment_allocations_sales_idx on payment_allocations(sales_document_id);
 
+-- Allocation validation belongs in the database as well as the API. The API
+-- gives a friendly error before posting; this trigger protects the ledger when
+-- an import, admin query, or a concurrent request writes directly to Neon.
+create or replace function validate_payment_allocation() returns trigger as $$
+declare
+  payment_org text;
+  payment_direction text;
+  target_org text;
+  target_total numeric(14,2);
+  target_paid numeric(14,2);
+  already_allocated numeric(14,2);
+  target_status text;
+  payment_amount numeric(14,2);
+  payment_already_allocated numeric(14,2);
+begin
+  select organization_id, direction, amount
+    into payment_org, payment_direction, payment_amount
+    from payments where id = new.payment_id;
+  if payment_org is null then
+    raise exception 'Payment % was not found.', new.payment_id using errcode = 'foreign_key_violation';
+  end if;
+
+  select coalesce(sum(pa.amount), 0)
+    into payment_already_allocated
+    from payment_allocations pa
+    where pa.payment_id = new.payment_id and pa.id <> coalesce(new.id, '');
+  if new.amount > payment_amount - payment_already_allocated then
+    raise exception 'Allocations exceed the payment amount.' using errcode = 'check_violation';
+  end if;
+
+  if new.bill_id is not null then
+    if payment_direction <> 'out' then
+      raise exception 'Only money-out payments can be allocated to bills.' using errcode = 'check_violation';
+    end if;
+
+    select b.organization_id, b.total, b.amount_paid, b.status
+      into target_org, target_total, target_paid, target_status
+      from bills b
+      where b.id = new.bill_id;
+    if target_org is null or target_org <> payment_org then
+      raise exception 'Bill % does not belong to the payment organisation.', new.bill_id using errcode = 'check_violation';
+    end if;
+    if target_status in ('Void', 'Draft') then
+      raise exception 'Draft or void bills cannot receive payments.' using errcode = 'check_violation';
+    end if;
+
+    select coalesce(sum(pa.amount), 0)
+      into already_allocated
+      from payment_allocations pa
+      join payments p on p.id = pa.payment_id and p.organization_id = payment_org
+      where pa.bill_id = new.bill_id and pa.id <> coalesce(new.id, '');
+    if new.amount > target_total - greatest(coalesce(target_paid, 0), already_allocated) then
+      raise exception 'Allocation exceeds the bill outstanding balance.' using errcode = 'check_violation';
+    end if;
+  elsif new.sales_document_id is not null then
+    if payment_direction <> 'in' then
+      raise exception 'Only money-in payments can be allocated to sales invoices.' using errcode = 'check_violation';
+    end if;
+
+    select c.organization_id, d.value, d.status
+      into target_org, target_total, target_status
+      from sales_documents d join customers c on c.id = d.customer_id
+      where d.id = new.sales_document_id and d.type = 'Invoice';
+    if target_org is null or target_org <> payment_org then
+      raise exception 'Sales invoice % does not belong to the payment organisation.', new.sales_document_id using errcode = 'check_violation';
+    end if;
+    if target_status in ('Draft', 'Cancelled') then
+      raise exception 'Draft or cancelled invoices cannot receive payments.' using errcode = 'check_violation';
+    end if;
+
+    select coalesce(sum(pa.amount), 0)
+      into already_allocated
+      from payment_allocations pa
+      join payments p on p.id = pa.payment_id and p.organization_id = payment_org
+      where pa.sales_document_id = new.sales_document_id and pa.id <> coalesce(new.id, '');
+    if new.amount > target_total - already_allocated then
+      raise exception 'Allocation exceeds the sales invoice outstanding balance.' using errcode = 'check_violation';
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists payment_allocations_validate on payment_allocations;
+create trigger payment_allocations_validate
+  before insert or update on payment_allocations
+  for each row execute function validate_payment_allocation();
+
 -- ---------------------------------------------------------------------------
 -- Bank statement import and reconciliation
 -- ---------------------------------------------------------------------------

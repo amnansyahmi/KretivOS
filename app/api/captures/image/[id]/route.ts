@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
+import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,6 +17,7 @@ const ORGANIZATION_ID = "org-kretivco";
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    await requireHRSession(["hr_admin", "finance"]);
     const { id } = await context.params;
     const sql = getDatabase();
     const rows = await sql`
@@ -41,6 +43,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
     });
   } catch (error) {
     console.error("Capture image failed", error);
+    if (error instanceof HRAuthError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Unable to load the document." }, { status: 500 });
   }
 }

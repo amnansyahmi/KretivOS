@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { accountBalances, trialBalanceCheck } from "@/lib/accounting";
 import { agingBucket, fromCents, toCents } from "@/lib/accounting-math";
+import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -85,6 +86,7 @@ function balanceSheet(cumulative: Awaited<ReturnType<typeof accountBalances>>) {
 
 export async function GET(request: NextRequest) {
   try {
+    await requireHRSession(["hr_admin", "finance"]);
     const params = request.nextUrl.searchParams;
     const from = isDate(String(params.get("from"))) ? String(params.get("from")) : monthStart(-11);
     const to = isDate(String(params.get("to"))) ? String(params.get("to")) : new Date().toISOString().slice(0, 10);
@@ -102,10 +104,18 @@ export async function GET(request: NextRequest) {
           and b.total > b.amount_paid
       `,
       sql`
-        select d.id, d.reference, d.title, d.due_date, d.value, c.name as customer_name
+        select d.id, d.reference, d.title, d.due_date, d.value,
+          coalesce(a.amount_paid, 0) as amount_paid, c.name as customer_name
         from sales_documents d join customers c on c.id = d.customer_id
+        left join (
+          select pa.sales_document_id, sum(pa.amount) as amount_paid
+          from payment_allocations pa
+          join payments p on p.id = pa.payment_id and p.organization_id = ${ORGANIZATION_ID}
+          group by pa.sales_document_id
+        ) a on a.sales_document_id = d.id
         where c.organization_id = ${ORGANIZATION_ID}
-          and d.type = 'Invoice' and d.status in ('Sent', 'Approved', 'Overdue')
+          and d.type = 'Invoice' and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid')
+          and d.value > coalesce(a.amount_paid, 0)
       `,
       // Per-client profitability: an agency's most useful report, and the one
       // the single-entry cash log could never produce.
@@ -157,7 +167,7 @@ export async function GET(request: NextRequest) {
     );
     const receivable = bucketise(
       receivableRows,
-      (row) => Number(row.value),
+      (row) => Number(row.value) - Number(row.amount_paid || 0),
       (row) => (row.due_date ? String(row.due_date).slice(0, 10) : ""),
     );
 
@@ -192,6 +202,9 @@ export async function GET(request: NextRequest) {
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Accounting reports failed", error);
+    if (error instanceof HRAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "Reports are unavailable.";
     return NextResponse.json(
       {

@@ -102,12 +102,13 @@ export async function listAccounts(): Promise<LedgerAccount[]> {
  * Resolves the accounts an entry refers to, by id or by system key, in one
  * query rather than one per line.
  */
-async function resolveAccounts(lines: JournalLineInput[]) {
+type Database = ReturnType<typeof getDatabase>;
+
+async function resolveAccounts(lines: JournalLineInput[], sql = getDatabase()) {
   const ids = Array.from(new Set(lines.map((line) => line.accountId).filter(Boolean))) as string[];
   const keys = Array.from(new Set(lines.map((line) => line.accountKey).filter(Boolean))) as string[];
   if (!ids.length && !keys.length) throw new AccountingError("Every journal line needs an account.");
 
-  const sql = getDatabase();
   const rows = await sql`
     select id, code, name, coalesce(system_key, '') as system_key, is_active
     from ledger_accounts
@@ -139,9 +140,8 @@ function validate(input: JournalEntryInput) {
   return { debitCents: result.totalCents };
 }
 
-async function assertPeriodOpen(date: string) {
+async function assertPeriodOpen(date: string, sql = getDatabase()) {
   const [year, month] = date.split("-").map(Number);
-  const sql = getDatabase();
   const rows = await sql`
     select status from fiscal_periods
     where organization_id = ${ORGANIZATION_ID} and year = ${year} and month = ${month}
@@ -156,19 +156,28 @@ async function assertPeriodOpen(date: string) {
 
 export type PostedEntry = { id: string; date: string; total: number };
 
-/**
- * Writes a balanced entry and its lines in a single transaction.
- *
- * The balance trigger is deferred to commit time, so the entry and every line
- * must land in one transaction — inserting them across separate round trips
- * would trip the constraint on the first line.
- */
-export async function postEntry(input: JournalEntryInput): Promise<PostedEntry> {
-  const { debitCents } = validate(input);
-  await assertPeriodOpen(input.date);
-  const accounts = await resolveAccounts(input.lines);
+export type PreparedEntry = PostedEntry & {
+  /** Queries that must run in the caller's transaction with related records. */
+  statements: any[];
+};
 
-  const sql = getDatabase();
+export type EntryPreparationOptions = {
+  /** Use the same Neon client as the caller when composing a larger transaction. */
+  sql?: Database;
+};
+
+/**
+ * Validates an entry and composes its journal queries without executing them.
+ *
+ * This is intentionally public: a bill or payment must be able to commit its
+ * source row and its ledger posting in the same database transaction. Calling
+ * postEntry first would leave an orphaned journal entry if the source write
+ * then failed (or vice versa).
+ */
+export async function prepareEntry(input: JournalEntryInput, { sql = getDatabase() }: EntryPreparationOptions = {}): Promise<PreparedEntry> {
+  const { debitCents } = validate(input);
+  await assertPeriodOpen(input.date, sql);
+  const accounts = await resolveAccounts(input.lines, sql);
   const entryId = crypto.randomUUID();
 
   const statements: any[] = [
@@ -199,8 +208,16 @@ export async function postEntry(input: JournalEntryInput): Promise<PostedEntry> 
     `);
   });
 
-  await sql.transaction(statements);
-  return { id: entryId, date: input.date, total: fromCents(debitCents) };
+  return { id: entryId, date: input.date, total: fromCents(debitCents), statements };
+}
+
+export async function postEntry(input: JournalEntryInput): Promise<PostedEntry> {
+  const sql = getDatabase();
+  const prepared = await prepareEntry(input, { sql });
+  // The balance trigger is deferred to commit time, so the entry and every
+  // line must land in one transaction.
+  await sql.transaction(prepared.statements);
+  return { id: prepared.id, date: prepared.date, total: prepared.total };
 }
 
 /**

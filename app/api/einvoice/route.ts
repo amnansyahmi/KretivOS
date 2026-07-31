@@ -20,6 +20,7 @@ import {
   type EInvoiceParty,
 } from "@/lib/einvoice";
 import { lineAmount, type LineItem } from "@/lib/line-items";
+import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -90,6 +91,7 @@ function missingRequired(supplier: EInvoiceParty, buyer: EInvoiceParty) {
 export async function GET(request: NextRequest) {
   const config = eInvoiceConfig();
   try {
+    await requireHRSession(["hr_admin", "finance"]);
     const sql = getDatabase();
     const documentId = clean(request.nextUrl.searchParams.get("salesDocumentId"), 100);
 
@@ -130,6 +132,9 @@ export async function GET(request: NextRequest) {
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("e-Invoice listing failed", error);
+    if (error instanceof HRAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "Unable to load e-Invoice submissions.";
     return NextResponse.json({
       error: /einvoice_submissions/i.test(message)
@@ -142,10 +147,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const config = eInvoiceConfig();
-  if (!config) return notConfigured();
-
   try {
+    await requireHRSession(["hr_admin", "finance"]);
+    const config = eInvoiceConfig();
+    if (!config) return notConfigured();
     const body = await request.json();
     const action = clean(body.action, 40) || "submit";
     const sql = getDatabase();
@@ -352,6 +357,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unsupported e-Invoice action." }, { status: 400 });
   } catch (error) {
     console.error("e-Invoice request failed", error);
+    if (error instanceof HRAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "e-Invoice request failed." },
       { status: 500 },
