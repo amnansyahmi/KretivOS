@@ -15,7 +15,7 @@ export function WorkspacePage({
   children: React.ReactNode;
 }) {
   return (
-    <main className="min-h-screen bg-[#f4f1e8] px-4 py-6 text-[#202820] md:px-8 md:py-8">
+    <main className="min-h-screen bg-[#f4f1e8] px-4 pb-28 pt-6 text-[#202820] md:px-8 md:pb-24 md:pt-8">
       <div className="mx-auto max-w-[1500px]">
         <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
