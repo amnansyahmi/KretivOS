@@ -36,6 +36,7 @@ const navGroups: NavGroup[] = [
   ]},
   { label: "Business", items: [
     { name: "CRM & Pipeline", icon: Contact, href: "/business?tab=crm" },
+    { name: "AI Proposal Package", icon: Sparkles, href: "/document-ai" },
     { name: "Sales & Documents", icon: FileCheck2, href: "/business?tab=sales" },
     { name: "Finance", icon: CircleDollarSign, href: "/business?tab=finance" },
     { name: "Weekly Settlement", icon: HandCoins, href: "/business?tab=settlements" },

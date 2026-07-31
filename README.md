@@ -110,6 +110,19 @@ The chatbot and every generator use the deployed `ai-nonymauz-cloud` service thr
 - reusable executive, client, sales, marketing, research and content prompts
 - image generation using the deployed Pollinations Flux endpoint
 
+### AI Proposal Package
+
+`/document-ai` turns one selected customer and CRM opportunity into a linked,
+human-reviewed draft package:
+
+- a reusable Proposal document and matching Sales record
+- an editable line-item Quotation whose price is controlled by the operator, not AI
+- a Project Brief document plus a Planning-stage Project
+- a Not started Customer Onboarding record with an editable checklist
+
+The generator reads CRM, recent sales and delivery records, Brand DNA and linked
+knowledge. Saving is idempotent by package ID, and never approves or sends a document.
+
 Apply `db/migrations/0004_ai_studio.sql` to Neon before opening the shared history workspace.
 
 ### Grounding

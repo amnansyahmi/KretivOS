@@ -290,7 +290,7 @@ and
     layout: "report",
     content: `# VIDEO STORYBOARD — {{title}}
 
-**Client:** {{client_name}}  
+**Client:** {{client_name}}
 **Campaign:** {{campaign_name}}  
 **Duration:** {{duration}}  
 **Aspect Ratio:** {{aspect_ratio}}
@@ -318,6 +318,44 @@ and
 ## AI Generation Prompts
 
 {{ai_prompts}}`,
+  },
+  {
+    id: "tpl-project-brief",
+    name: "Project Brief",
+    category: "Delivery",
+    description: "Internal delivery brief generated from an approved client opportunity.",
+    layout: "report",
+    content: `# PROJECT BRIEF — {{project_name}}
+
+**Client:** {{client_name}} · **Date:** {{date}}
+
+## Background
+
+{{background}}
+
+## Objective
+
+{{objective}}
+
+## Deliverables
+
+{{deliverables}}
+
+## Timeline
+
+{{timeline}}
+
+## Responsibilities
+
+{{responsibilities}}
+
+## Risks and Dependencies
+
+{{risks}}
+
+## Success Metrics
+
+{{success_metrics}}`,
   },
 ];
 

@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 const items = [
   { href: "/", label: "KretivOS Home", icon: Home },
   { href: "/ai-studio", label: "Kretiv AI Studio", icon: Bot },
+  { href: "/document-ai", label: "AI Proposal Package", icon: FileText },
   { href: "/business", label: "Business Workspace", icon: BriefcaseBusiness },
   { href: "/hr", label: "HR & Team", icon: UsersRound },
   { href: "/hr/attendance-review", label: "Attendance Review", icon: ClipboardCheck },
