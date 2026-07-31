@@ -1,4 +1,4 @@
-const CACHE = "kretivos-v5";
+const CACHE = "kretivos-v6";
 const APP_SHELL = [
   "/",
   "/business",
@@ -32,11 +32,20 @@ self.addEventListener("activate", event =>
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
+
+  const url = new URL(event.request.url);
+
+  // Shared business, HR and AI responses are never cached: they are per-request
+  // data that must not be written to CacheStorage or replayed while offline.
+  if (url.origin === self.location.origin && url.pathname.startsWith("/api/")) return;
+
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        if (response.ok && response.type === "basic") {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        }
         return response;
       })
       .catch(() => caches.match(event.request).then(response => response || caches.match("/")))
