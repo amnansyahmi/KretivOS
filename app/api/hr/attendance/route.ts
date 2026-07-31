@@ -14,6 +14,10 @@ const MAX_CLOCK_DRIFT_SECONDS = 5 * 60;
 const clean = (value: unknown) => String(value ?? "").trim();
 const object = (value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 const array = (value: unknown) => Array.isArray(value) ? value : [];
+const finiteNumber = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
 
 const defaultOperations = {
   leaveRequests: [] as any[],
@@ -98,6 +102,26 @@ function photoPayload(value: unknown) {
   return { dataUrl, mimeType: match[1], estimatedBytes };
 }
 
+function locationPayload(value: unknown) {
+  const source = object(value);
+  const latitude = finiteNumber(source.latitude);
+  const longitude = finiteNumber(source.longitude);
+  const accuracy = finiteNumber(source.accuracy);
+  const capturedAt = clean(source.capturedAt);
+  const status = clean(source.status) || (latitude !== null && longitude !== null ? "captured" : "unavailable");
+  if (latitude === null || longitude === null) return { status, latitude: null, longitude: null, accuracy: null, capturedAt: capturedAt || null };
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return { status: "invalid", latitude: null, longitude: null, accuracy: null, capturedAt: capturedAt || null };
+  }
+  return {
+    status: "captured",
+    latitude,
+    longitude,
+    accuracy: accuracy !== null ? Math.max(0, Math.round(accuracy)) : null,
+    capturedAt: capturedAt || null,
+  };
+}
+
 async function audit(action: string, entityId: string, afterData: unknown) {
   try {
     const sql = getDatabase();
@@ -109,7 +133,7 @@ async function audit(action: string, entityId: string, afterData: unknown) {
       values (
         ${ORGANIZATION_ID}, ${action}, 'hr_attendance', ${entityId},
         ${JSON.stringify(withoutPhoto)}::jsonb,
-        ${JSON.stringify({ source: "photo-attendance-api", authentication: "skipped", containsBiometricLikePhoto: true })}::jsonb
+        ${JSON.stringify({ source: "photo-attendance-api", authentication: "skipped", containsBiometricLikePhoto: true, containsLocation: true })}::jsonb
       )
     `;
   } catch {}
@@ -129,6 +153,7 @@ async function insertPhoto(params: {
   captureMethod: string;
   verification: string;
   driftSeconds: number;
+  location: ReturnType<typeof locationPayload>;
 }) {
   const sql = getDatabase();
   const id = randomUUID();
@@ -152,6 +177,7 @@ async function insertPhoto(params: {
         captureMethod: params.captureMethod,
         verification: params.verification,
         driftSeconds: params.driftSeconds,
+        location: params.location,
       })}::jsonb
     )
   `;
@@ -168,6 +194,7 @@ export async function POST(request: NextRequest) {
     const note = clean(body.note);
     const captureMethod = clean(body.captureMethod) || "live_camera";
     const timezone = clean(body.timezone) || DEFAULT_TIMEZONE;
+    const location = locationPayload(body.location);
 
     if (!employeeId) throw new Error("Select a team member.");
     if (!["check_in", "check_out"].includes(action)) throw new Error("Unsupported attendance action.");
@@ -219,6 +246,7 @@ export async function POST(request: NextRequest) {
       captureMethod,
       verification,
       driftSeconds,
+      location,
     });
 
     const nowIso = serverReceivedAt.toISOString();
@@ -242,6 +270,7 @@ export async function POST(request: NextRequest) {
         checkInPhotoId: insertedPhotoId,
         checkInVerification: verification,
         checkInDriftSeconds: driftSeconds,
+        checkInLocation: location,
         checkOut: existing?.checkOut || "",
         note,
         lateMinutes,
@@ -263,6 +292,7 @@ export async function POST(request: NextRequest) {
         checkOutPhotoId: insertedPhotoId,
         checkOutVerification: verification,
         checkOutDriftSeconds: driftSeconds,
+        checkOutLocation: location,
         durationMinutes,
         note: note || existing.note || "",
         updatedAt: nowIso,
@@ -288,6 +318,7 @@ export async function POST(request: NextRequest) {
       officialDate: local.date,
       verification,
       driftSeconds,
+      location,
       photoUrl: `/api/hr/attendance/photo/${insertedPhotoId}`,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
