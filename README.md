@@ -24,6 +24,7 @@ Each of these owns real records and is reached from the sidebar as its own route
 | Automation Builder | `/automations` |
 | Approval Inbox | `/approvals` |
 | Documents and Reusable Templates | `/documents` |
+| Accounting | `/accounting` |
 
 ### HRMS
 
@@ -256,6 +257,82 @@ recipes wait in the Approval Inbox before their actions run.
 Vercel calls `/api/automations/cron` daily at `00:15 UTC` (`08:15` Malaysia time)
 to create non-duplicated reminders for overdue or upcoming records. Set
 `CRON_SECRET` in production if the route should reject unsigned manual calls.
+
+## Accounting
+
+`/accounting` is a double-entry ledger with a money-in / money-out interface.
+Debits and credits appear only in the Journal tab; everyone else records a bill,
+pays it, photographs a receipt and reads a report.
+
+### Why double-entry
+
+`finance_transactions` is a single-entry cash log — one row, one amount, a
+category string. It can answer "how much went out in July" and nothing else: no
+balance sheet, no statement of what is owed to whom, no concept of which bank
+account the money moved through. It is left in place and still works; accounting
+reads from the journal instead.
+
+Every movement posts through `postEntry` in `lib/accounting.ts`, which enforces:
+
+- debits equal credits, in integer cents
+- each line is one-sided
+- accounts exist and are active
+- the period is open
+- the entry and its lines commit together
+
+The database enforces the same rules through a deferred constraint trigger. That
+duplication is deliberate — an application check does not survive someone fixing
+data by hand, and an unbalanced entry silently corrupts every derived report.
+
+Money is handled in cents throughout. `0.1 + 0.2 !== 0.3` in floating point, and
+in a ledger that drift is the difference between a balanced entry and a rejected
+one.
+
+Corrections post a reversing entry rather than deleting: a posted entry is a
+historical assertion, and erasing it defeats the audit trail.
+
+### Document capture (OCR)
+
+Upload or photograph a receipt, supplier invoice or cheque. The image is stored
+**first** and read second, so an unavailable or failed extraction still leaves a
+filed document that can be keyed by hand.
+
+- Fields are re-parsed and re-checked by `lib/ocr-parse.ts` rather than trusted
+  as returned: amounts (`RM1,234.50`, `1.234,50`, trailing-minus negatives),
+  day-first Malaysian dates, and totals reconciled against each other.
+- Confidence is the **lowest** of the fields that must be right, not the average
+  — averaging hides exactly the case a reviewer needs to see first.
+- Duplicate detection fingerprints vendor + date + total, deliberately excluding
+  the document number, because the commonest duplicate is the same receipt
+  photographed twice by two people.
+- Nothing posts without a human confirming. The original image stays attached to
+  the transaction as evidence.
+
+`vision` was a declared mode on the AI service that had never been used, and
+`AiMessage.content` was a plain string, so the client could not send an image at
+all. It now accepts OpenAI-style content parts.
+
+### LHDN e-Invoice (MyInvois)
+
+**Untested against LHDN.** Submitting needs a client id and secret issued against
+a registered TIN, which were not available when this was written. The client
+follows the published API shape, and every submission stores the exact payload
+sent, because LHDN validates what was submitted and the document may since have
+been edited.
+
+Before going live, verify against the current MyInvois SDK docs:
+
+- the classification and tax-type code lists, which LHDN revises
+- required address and identity fields for your taxpayer profile
+- whether your submissions need the `onbehalfof` intermediary header
+
+Submission is asynchronous: `submit` returns once LHDN accepts the document for
+processing, then `refresh` polls for validation. A validated document can be
+cancelled for 72 hours; after that the route says to issue a credit note rather
+than letting the API reject it.
+
+Leave the `MYINVOIS_*` variables blank to disable submission — the accounting
+workspace works and reports e-Invoice as unconfigured.
 
 ## HRMS concurrency
 

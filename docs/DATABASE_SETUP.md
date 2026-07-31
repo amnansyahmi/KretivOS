@@ -35,10 +35,12 @@ Add `DATABASE_URL` to Vercel for Production, Preview, and Development, then rede
    | `0005_hrms_security.sql` | HRMS accounts and sessions (only when enabling HR login) |
    | `0006_knowledge_chunks.sql` | Chunked bilingual knowledge retrieval |
    | `0007_shared_planner_projection.sql` | Shared content plan and projection scenario |
+   | `0008_accounting_core.sql` | Double-entry ledger, vendors, bills, payments, bank import |
+   | `0009_capture_and_einvoice.sql` | OCR document capture and LHDN e-Invoice |
 
 4. Open `/api/db/health` on the deployed KretivOS URL.
 
-Migrations 0006 and 0007 are additive and safe to run on an existing database.
+Migrations 0006 through 0009 are additive and safe to run on an existing database.
 Until they are applied, knowledge retrieval falls back to the previous
 entry-level search, and the Content Planner and Financial Projection show a
 banner saying their inputs are not being shared.
