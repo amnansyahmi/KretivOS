@@ -6,8 +6,6 @@ type DatabaseHealthRow = {
   postgres_version: string;
 };
 
-let cachedSql: ReturnType<typeof neon> | null = null;
-
 export function getDatabase() {
   const connectionString = process.env.DATABASE_URL;
 
@@ -15,11 +13,7 @@ export function getDatabase() {
     throw new Error("DATABASE_URL is not configured.");
   }
 
-  if (!cachedSql) {
-    cachedSql = neon(connectionString);
-  }
-
-  return cachedSql;
+  return neon(connectionString);
 }
 
 export async function checkDatabaseConnection(): Promise<DatabaseHealthRow | undefined> {
