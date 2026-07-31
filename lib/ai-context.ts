@@ -316,9 +316,16 @@ export async function operationsSnapshot(): Promise<OperationsSnapshot | null> {
       sql`select p.status, p.progress, p.due_date
           from projects p left join customers c on c.id = p.customer_id
           where p.customer_id is null or c.organization_id = ${ORGANIZATION_ID}`,
-      sql`select f.type, f.amount, f.status
-          from finance_transactions f left join customers c on c.id = f.customer_id
-          where f.customer_id is null or c.organization_id = ${ORGANIZATION_ID}`,
+      // Income and expense come from the ledger, which is the source of truth
+      // now that invoices, bills, settlements and cash entries all post to it.
+      // `finance_transactions` is kept as readable history; reading it here as
+      // well would double-count everything posted since the ledger existed.
+      sql`select a.type, coalesce(sum(l.debit), 0) as debit, coalesce(sum(l.credit), 0) as credit
+          from ledger_accounts a
+          join journal_lines l on l.account_id = a.id
+          join journal_entries e on e.id = l.entry_id and e.status = 'Posted'
+          where a.organization_id = ${ORGANIZATION_ID} and a.type in ('income', 'expense')
+          group by a.type`,
     ]);
 
     const today = new Date();
@@ -330,8 +337,11 @@ export async function operationsSnapshot(): Promise<OperationsSnapshot | null> {
     const outstandingInvoices = documents.filter((row: any) => row.type === "Invoice" && ["Sent", "Approved", "Overdue"].includes(row.status));
     const overdueInvoices = outstandingInvoices.filter((row: any) => row.status === "Overdue" || isPast(row.due_date));
     const openSettlements = settlements.filter((row: any) => row.status !== "Paid");
-    const income = transactions.filter((row: any) => row.type === "Income" && row.status === "Cleared").reduce((sum: number, row: any) => sum + Number(row.amount), 0);
-    const expense = transactions.filter((row: any) => row.type === "Expense" && row.status === "Cleared").reduce((sum: number, row: any) => sum + Number(row.amount), 0);
+    // Income increases on the credit side, expenses on the debit side.
+    const ledgerTotal = (type: string, side: "debit" | "credit") =>
+      transactions.filter((row: any) => row.type === type).reduce((sum: number, row: any) => sum + Number(row[side] || 0), 0);
+    const income = ledgerTotal("income", "credit") - ledgerTotal("income", "debit");
+    const expense = ledgerTotal("expense", "debit") - ledgerTotal("expense", "credit");
 
     const snapshot: OperationsSnapshot = {
       customers: {

@@ -12,6 +12,7 @@ import { getDatabase } from "@/lib/db";
 import { AccountingError, listAccounts, postEntry, prepareEntry, voidEntry } from "@/lib/accounting";
 import { agingBucket, fromCents, lineTax, toCents } from "@/lib/accounting-math";
 import { backfillSalesInvoices, postSalesInvoice, unpostedInvoiceCount } from "@/lib/invoice-posting";
+import { backfillSettlements, postCashEntry, postSettlementPayment, unreconciledCashCount } from "@/lib/cash-posting";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +63,10 @@ function failure(error: unknown) {
 
 async function snapshot() {
   const sql = getDatabase();
-  const [accounts, vendors, bills, payments, periods, entries, unpostedInvoices] = await Promise.all([
+  const [
+    accounts, vendors, bills, payments, periods, entries,
+    unpostedInvoices, unreconciledCash, cashRows, settlementRows,
+  ] = await Promise.all([
     listAccounts(),
     sql`
       select v.*, a.name as default_account_name
@@ -107,6 +111,24 @@ async function snapshot() {
     // Surfaced so revenue the ledger cannot see is visible in the workspace
     // rather than silently missing from every report.
     unpostedInvoiceCount(),
+    unreconciledCashCount(),
+    sql`
+      select f.*, c.name as customer_name, b.name as bank_account_name, a.name as ledger_account_name
+      from finance_transactions f
+      left join customers c on c.id = f.customer_id
+      left join ledger_accounts b on b.id = f.bank_account_id
+      left join ledger_accounts a on a.id = f.ledger_account_id
+      where (f.customer_id is null or c.organization_id = ${ORGANIZATION_ID})
+      order by f.transaction_date desc, f.created_at desc
+      limit 200
+    `,
+    sql`
+      select s.*, c.name as customer_name
+      from settlements s join customers c on c.id = s.customer_id
+      where c.organization_id = ${ORGANIZATION_ID}
+      order by s.period_end desc
+      limit 100
+    `,
   ]);
 
   return {
@@ -151,6 +173,27 @@ async function snapshot() {
       status: row.status, total: Number(row.total),
     })),
     unpostedInvoices,
+    unreconciledCash,
+    transactions: cashRows.map((row: any) => ({
+      id: row.id, type: row.type, category: row.category,
+      amount: Number(row.amount), date: String(row.transaction_date).slice(0, 10),
+      status: row.status, reference: row.reference || "", notes: row.notes || "",
+      customerId: row.customer_id || "", customerName: row.customer_name || "",
+      bankAccountName: row.bank_account_name || "", ledgerAccountName: row.ledger_account_name || "",
+      sourceType: row.source_type || "",
+      // A row without an entry predates the ledger, or came from a path that no
+      // longer writes here. Shown so the difference is visible, not hidden.
+      onLedger: Boolean(row.journal_entry_id),
+    })),
+    settlements: settlementRows.map((row: any) => ({
+      id: row.id, customerId: row.customer_id, customerName: row.customer_name,
+      periodStart: String(row.period_start).slice(0, 10), periodEnd: String(row.period_end).slice(0, 10),
+      units: Number(row.units), feePerUnit: Number(row.fee_per_unit),
+      adReimbursement: Number(row.ad_reimbursement), incentive: Number(row.incentive),
+      total: Number(row.units) * Number(row.fee_per_unit) + Number(row.ad_reimbursement) + Number(row.incentive),
+      status: row.status, dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
+      onLedger: Boolean(row.journal_entry_id),
+    })),
   };
 }
 
@@ -643,6 +686,39 @@ export async function POST(request: NextRequest) {
         do update set status = ${status}, closed_at = ${closedAt}, closed_by = ${status === "Closed" ? session.userId : null}
       `;
       return NextResponse.json(await snapshot());
+    }
+
+    // ---- direct cash movements --------------------------------------------
+    if (resource === "cash" && operation === "create") {
+      const result = await postCashEntry({
+        direction: clean(data.direction, 5) === "in" ? "in" : "out",
+        date: clean(data.date, 10) || today(),
+        amount: num(data.amount),
+        bankAccountId: clean(data.bankAccountId, 100),
+        ledgerAccountId: clean(data.ledgerAccountId, 100),
+        reference: clean(data.reference, 100),
+        memo: clean(data.memo, 400),
+        customerId: clean(data.customerId, 100) || null,
+        vendorId: clean(data.vendorId, 100) || null,
+        createdBy: session.userId,
+      });
+      return NextResponse.json({ ...result, ...(await snapshot()) }, { status: 201 });
+    }
+
+    // ---- settlements ------------------------------------------------------
+    if (resource === "settlement") {
+      if (operation === "backfill") {
+        const result = await backfillSettlements({ createdBy: session.userId });
+        return NextResponse.json({ ...result, ...(await snapshot()) });
+      }
+      if (operation === "post") {
+        const outcome = await postSettlementPayment(clean(data.id, 100), {
+          createdBy: session.userId,
+          bankAccountId: clean(data.bankAccountId, 100),
+        });
+        if (outcome.status === "failed") return NextResponse.json({ error: outcome.reason }, { status: 400 });
+        return NextResponse.json({ ...outcome, ...(await snapshot()) });
+      }
     }
 
     // ---- invoices ---------------------------------------------------------

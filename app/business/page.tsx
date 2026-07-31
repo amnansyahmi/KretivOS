@@ -44,7 +44,7 @@ const tabs: { id: Tab; label: string; icon: any }[] = [
   { id: "channels", label: "Channels", icon: Megaphone },
   { id: "crm", label: "CRM", icon: Users },
   { id: "sales", label: "Sales", icon: FileText },
-  { id: "finance", label: "Finance", icon: CircleDollarSign },
+
   { id: "settlements", label: "Settlements", icon: HandCoins },
   { id: "projects", label: "Projects", icon: BriefcaseBusiness },
   { id: "onboarding", label: "Onboarding", icon: Check }
@@ -106,6 +106,10 @@ export default function BusinessOperationsPage() {
 
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("tab") as Tab | null;
+    // Finance moved into the Accounting app, where the same money is recorded
+    // once on a real ledger. Existing links and bookmarks follow it rather than
+    // landing on a tab that no longer exists.
+    if (requested === "finance") { window.location.replace("/accounting?tab=transactions"); return; }
     if (requested && tabs.some((item) => item.id === requested)) setTab(requested);
     void loadData();
   }, []);
