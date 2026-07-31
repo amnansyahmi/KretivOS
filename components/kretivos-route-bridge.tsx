@@ -20,6 +20,8 @@ const routes: Array<[string, string]> = [
   ["knowledge", "/knowledge"],
   ["funnel builder", "/funnels"],
   ["add funnel", "/funnels"],
+  ["brand & assets", "/brands"],
+  ["brand dna", "/brands"],
   ["automations", "/automations"],
   ["new automation", "/automations"],
   ["templates", "/templates"],
@@ -42,6 +44,10 @@ export function KretivOSRouteBridge() {
       }
       if (savedView === "Knowledge") {
         router.replace("/knowledge");
+        return;
+      }
+      if (savedView === "Brand & Assets") {
+        router.replace("/brands");
         return;
       }
     } catch {}
