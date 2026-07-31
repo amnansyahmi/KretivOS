@@ -1,5 +1,11 @@
 import { neon } from "@neondatabase/serverless";
 
+type DatabaseHealthRow = {
+  database_name: string;
+  server_time: string;
+  postgres_version: string;
+};
+
 let cachedSql: ReturnType<typeof neon> | null = null;
 
 export function getDatabase() {
@@ -10,28 +16,20 @@ export function getDatabase() {
   }
 
   if (!cachedSql) {
-    cachedSql = neon(connectionString, {
-      fetchOptions: {
-        cache: "no-store",
-      },
-    });
+    cachedSql = neon(connectionString);
   }
 
   return cachedSql;
 }
 
-export async function checkDatabaseConnection() {
+export async function checkDatabaseConnection(): Promise<DatabaseHealthRow | undefined> {
   const sql = getDatabase();
-  const [result] = await sql<{
-    database_name: string;
-    server_time: string;
-    postgres_version: string;
-  }[]>`
+  const rows = await sql`
     select
       current_database() as database_name,
       now()::text as server_time,
       version() as postgres_version
   `;
 
-  return result;
+  return rows[0] as DatabaseHealthRow | undefined;
 }
