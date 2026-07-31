@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { FlaskConical, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DateInput } from "@/components/date-input";
 
 type Employee = { id: string; name: string; status: string };
 type Attendance = { id: string; employeeId: string; date: string; checkIn?: string; checkOut?: string };
@@ -93,7 +94,7 @@ export function AttendanceTestSession() {
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-medium text-muted-foreground">Staff<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border bg-white px-3 text-sm text-foreground">{employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="text-xs font-medium text-muted-foreground">Date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-2 h-11 w-full rounded-xl border bg-white px-3 text-sm" /></label>
+          <label className="text-xs font-medium text-muted-foreground">Date<span className="mt-2 block"><DateInput value={date} onChange={(event) => setDate(event.target.value)} /></span></label>
         </div>
 
         <div className="mt-4 rounded-xl bg-white p-4"><div className="text-[10px] uppercase tracking-[.14em] text-muted-foreground">Current session</div><div className="mt-2 text-sm font-semibold">{record ? `${record.checkIn || "—"} – ${record.checkOut || "—"}` : "No attendance record found"}</div></div>

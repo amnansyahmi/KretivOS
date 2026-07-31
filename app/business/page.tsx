@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DateInput } from "@/components/date-input";
 import { WorkspacePage } from "@/components/workspace-page";
 import { BUSINESS_STORAGE_KEY, CUSTOMER_STORAGE_KEY, businessId } from "@/lib/business-data";
 import { INDUSTRY_GROUPS } from "@/lib/industries";
@@ -338,7 +339,7 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
       <Field label="Value"><input type="number" value={r.value} onChange={(event) => set("value", Number(event.target.value))} className={inputClass} /></Field>
       <Field label={`Probability: ${r.probability}%`}><input type="range" min="0" max="100" value={r.probability} onChange={(event) => set("probability", Number(event.target.value))} className="mt-4 w-full accent-[#ba5c42]" /></Field>
       <Field label="Next action"><input value={r.nextAction} onChange={(event) => set("nextAction", event.target.value)} className={inputClass} /></Field>
-      <Field label="Due date"><input type="date" value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} className={inputClass} /></Field>
+      <Field label="Due date"><DateInput value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} /></Field>
       <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
     </>}
 
@@ -348,8 +349,8 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
       <Field label="Title" wide><input value={r.title} onChange={(event) => set("title", event.target.value)} className={inputClass} /></Field>
       <Field label="Reference"><input value={r.reference} onChange={(event) => set("reference", event.target.value)} className={inputClass} /></Field>
       <Field label="Value"><input type="number" value={r.value} onChange={(event) => set("value", Number(event.target.value))} className={inputClass} /></Field>
-      <Field label="Issue date"><input type="date" value={r.issueDate} onChange={(event) => set("issueDate", event.target.value)} className={inputClass} /></Field>
-      <Field label="Due date"><input type="date" value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} className={inputClass} /></Field>
+      <Field label="Issue date"><DateInput value={r.issueDate} onChange={(event) => set("issueDate", event.target.value)} /></Field>
+      <Field label="Due date"><DateInput value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} /></Field>
       <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
     </>}
 
@@ -358,20 +359,20 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
       <Field label="Status"><select value={r.status} onChange={(event) => set("status", event.target.value)} className={selectClass}><option>Pending</option><option>Cleared</option></select></Field>
       <Field label="Category"><input value={r.category} onChange={(event) => set("category", event.target.value)} className={inputClass} /></Field>
       <Field label="Amount"><input type="number" value={r.amount} onChange={(event) => set("amount", Number(event.target.value))} className={inputClass} /></Field>
-      <Field label="Date"><input type="date" value={r.date} onChange={(event) => set("date", event.target.value)} className={inputClass} /></Field>
+      <Field label="Date"><DateInput value={r.date} onChange={(event) => set("date", event.target.value)} /></Field>
       <Field label="Reference"><input value={r.reference} onChange={(event) => set("reference", event.target.value)} className={inputClass} /></Field>
       <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
     </>}
 
     {editor.tab === "settlements" && <>
-      <Field label="Period start"><input type="date" value={r.periodStart} onChange={(event) => set("periodStart", event.target.value)} className={inputClass} /></Field>
-      <Field label="Period end"><input type="date" value={r.periodEnd} onChange={(event) => set("periodEnd", event.target.value)} className={inputClass} /></Field>
+      <Field label="Period start"><DateInput value={r.periodStart} onChange={(event) => set("periodStart", event.target.value)} /></Field>
+      <Field label="Period end"><DateInput value={r.periodEnd} onChange={(event) => set("periodEnd", event.target.value)} /></Field>
       <Field label="Units"><input type="number" value={r.units} onChange={(event) => set("units", Number(event.target.value))} className={inputClass} /></Field>
       <Field label="Fee per unit"><input type="number" step="0.01" value={r.feePerUnit} onChange={(event) => set("feePerUnit", Number(event.target.value))} className={inputClass} /></Field>
       <Field label="Ad reimbursement"><input type="number" value={r.adReimbursement} onChange={(event) => set("adReimbursement", Number(event.target.value))} className={inputClass} /></Field>
       <Field label="Incentive"><input type="number" value={r.incentive} onChange={(event) => set("incentive", Number(event.target.value))} className={inputClass} /></Field>
       <Field label="Status"><select value={r.status} onChange={(event) => set("status", event.target.value)} className={selectClass}>{["Draft", "Verified", "Invoiced", "Paid"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label="Due date"><input type="date" value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} className={inputClass} /></Field>
+      <Field label="Due date"><DateInput value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} /></Field>
       <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
     </>}
 
@@ -380,7 +381,7 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
       <Field label="Status"><select value={r.status} onChange={(event) => set("status", event.target.value)} className={selectClass}>{["Planning", "Active", "Review", "Completed", "On hold"].map((value) => <option key={value}>{value}</option>)}</select></Field>
       <Field label={`Progress: ${r.progress}%`}><input type="range" min="0" max="100" value={r.progress} onChange={(event) => set("progress", Number(event.target.value))} className="mt-4 w-full accent-[#ba5c42]" /></Field>
       <Field label="Budget"><input type="number" value={r.budget} onChange={(event) => set("budget", Number(event.target.value))} className={inputClass} /></Field>
-      <Field label="Due date"><input type="date" value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} className={inputClass} /></Field>
+      <Field label="Due date"><DateInput value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} /></Field>
       <Field label="Owner"><input value={r.owner} onChange={(event) => set("owner", event.target.value)} className={inputClass} /></Field>
       <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
     </>}
@@ -388,7 +389,7 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
     {editor.tab === "onboarding" && <>
       <Field label="Blueprint"><select value={r.blueprint} onChange={(event) => set("blueprint", event.target.value)} className={selectClass}>{["General Client Onboarding", "E-commerce & Marketplace", "Website Development", "Marketing Campaign", "AI / Software Product", "Retainer Service"].map((value) => <option key={value}>{value}</option>)}</select></Field>
       <Field label="Status"><select value={r.status} onChange={(event) => set("status", event.target.value)} className={selectClass}>{["Not started", "In progress", "Ready", "Completed"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label="Target launch"><input type="date" value={r.targetLaunch} onChange={(event) => set("targetLaunch", event.target.value)} className={inputClass} /></Field>
+      <Field label="Target launch"><DateInput value={r.targetLaunch} onChange={(event) => set("targetLaunch", event.target.value)} /></Field>
       <Field label="Checklist" wide><div className="space-y-2">{r.steps.map((step: any, index: number) => <div key={step.id} className="flex items-center gap-2"><input type="checkbox" checked={step.done} onChange={(event) => set("steps", r.steps.map((item: any) => item.id === step.id ? { ...item, done: event.target.checked } : item))} className="h-4 w-4 accent-[#ba5c42]" /><input value={step.label} onChange={(event) => set("steps", r.steps.map((item: any) => item.id === step.id ? { ...item, label: event.target.value } : item))} className={inputClass} /><Button variant="outline" size="icon" onClick={() => set("steps", r.steps.filter((item: any) => item.id !== step.id))}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>)}<Button type="button" variant="outline" onClick={() => set("steps", [...r.steps, { id: businessId("step"), label: "New step", done: false }])}><Plus className="h-4 w-4" />Add step</Button></div></Field>
       <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
     </>}

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { DateInput } from "@/components/date-input";
 import { cn } from "@/lib/utils";
 
 type Employee = {
@@ -222,8 +223,8 @@ export default function AttendanceReviewPage() {
           <label className="relative"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="h-11 w-full rounded-xl border bg-white pl-10 pr-3 text-sm outline-none focus:border-[#ba5c42]" placeholder="Search staff, date, note…" /></label>
           <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} className="h-11 rounded-xl border bg-white px-3 text-sm outline-none"><option value="all">All staff</option>{data.employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select>
           <select value={review} onChange={(event) => setReview(event.target.value as ReviewFilter)} className="h-11 rounded-xl border bg-white px-3 text-sm outline-none"><option value="all">All verification</option><option value="verified">Verified</option><option value="review">Needs review</option><option value="missing_photo">Missing photo</option></select>
-          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="h-11 rounded-xl border bg-white px-3 text-sm outline-none" aria-label="Date from" />
-          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="h-11 rounded-xl border bg-white px-3 text-sm outline-none" aria-label="Date to" />
+          <DateInput value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="Date from" />
+          <DateInput value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="Date to" />
         </div>
       </CardContent></Card>
 

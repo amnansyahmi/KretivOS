@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DateInput } from "@/components/date-input";
 import { WorkspacePage } from "@/components/workspace-page";
 import { cn } from "@/lib/utils";
 
@@ -128,7 +129,7 @@ export default function DocumentAiPage() {
         <Field label="Objective"><textarea value={form.objectives} onChange={(event) => setForm({ ...form, objectives: event.target.value })} className="textarea" placeholder="One objective per line" /></Field>
         <Field label="Known scope"><textarea value={form.scopeNotes} onChange={(event) => setForm({ ...form, scopeNotes: event.target.value })} className="textarea min-h-28" placeholder="Only confirmed deliverables and constraints" /></Field>
         <div className="grid grid-cols-2 gap-3"><Field label="Service fee (RM)"><input type="number" min="0" step="0.01" value={form.budget} onChange={(event) => setForm({ ...form, budget: event.target.value })} className="control" /></Field><Field label="Media budget (RM)"><input type="number" min="0" step="0.01" value={form.mediaBudget} onChange={(event) => setForm({ ...form, mediaBudget: event.target.value })} className="control" /></Field></div>
-        <div className="grid grid-cols-2 gap-3"><Field label="Target launch"><input type="date" value={form.targetLaunch} onChange={(event) => setForm({ ...form, targetLaunch: event.target.value })} className="control" /></Field><Field label="Quote validity"><select value={form.validityDays} onChange={(event) => setForm({ ...form, validityDays: event.target.value })} className="control"><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></Field></div>
+        <div className="grid grid-cols-2 gap-3"><Field label="Target launch"><DateInput value={form.targetLaunch} onChange={(event) => setForm({ ...form, targetLaunch: event.target.value })} /></Field><Field label="Quote validity"><select value={form.validityDays} onChange={(event) => setForm({ ...form, validityDays: event.target.value })} className="control"><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></Field></div>
         <div className="rounded-xl border bg-[#f7f4ed] p-3"><div className="text-[10px] uppercase tracking-wider text-muted-foreground">Commercial total</div><div className="mt-1 text-xl font-semibold">{money(total)}</div><div className="mt-1 text-[10px] text-muted-foreground">AI cannot change this amount.</div></div>
         <Button className="w-full" onClick={generate} disabled={generating || loading || !form.customerId}>{generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{generating ? "Building grounded package…" : "Generate proposal package"}</Button>
         {selectedCustomer && <div className="text-[10px] leading-5 text-muted-foreground">Context: {selectedCustomer.name}{selectedCustomer.industry ? ` · ${selectedCustomer.industry}` : ""}{selectedOpportunity ? ` · ${selectedOpportunity.stage} opportunity at ${selectedOpportunity.probability}%` : ""}</div>}
