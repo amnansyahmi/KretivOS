@@ -25,6 +25,10 @@ export type KnowledgeMatch = {
   customerName: string;
   excerpt: string;
   rank: number;
+  owner: string;
+  sourceUrl: string;
+  nextReviewAt: string;
+  freshnessStatus: "Current" | "Review soon" | "Overdue" | "Unscheduled";
 };
 
 export type OperationsSnapshot = {
@@ -81,7 +85,7 @@ export async function searchKnowledge(question: string, limit = 5): Promise<Know
     const tsquery = terms.join(" | ");
 
     const ranked = await sql`
-      select k.id, k.title, k.category, k.content, c.name as customer_name,
+      select k.id, k.title, k.category, k.content, k.metadata, c.name as customer_name,
              ts_rank(
                to_tsvector('english', coalesce(k.title, '') || ' ' || coalesce(k.content, '')),
                to_tsquery('english', ${tsquery})
@@ -100,7 +104,7 @@ export async function searchKnowledge(question: string, limit = 5): Promise<Know
     // Nothing matched the parsed query, so try the raw keywords instead.
     const pattern = `%${terms.join("%")}%`;
     const loose = await sql`
-      select k.id, k.title, k.category, k.content, c.name as customer_name, 0::float as rank
+      select k.id, k.title, k.category, k.content, k.metadata, c.name as customer_name, 0::float as rank
       from knowledge_entries k
       left join customers c on c.id = k.customer_id
       where k.organization_id = ${ORGANIZATION_ID}
@@ -117,6 +121,17 @@ export async function searchKnowledge(question: string, limit = 5): Promise<Know
 }
 
 function toMatch(row: any): KnowledgeMatch {
+  const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
+  const nextReviewAt = String(metadata.nextReviewAt || "").slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const soon = new Date(`${today}T00:00:00Z`);
+  soon.setUTCDate(soon.getUTCDate() + 14);
+  const soonDate = soon.toISOString().slice(0, 10);
+  const freshnessStatus = !nextReviewAt
+    ? "Unscheduled"
+    : nextReviewAt < today
+      ? "Overdue"
+      : nextReviewAt <= soonDate ? "Review soon" : "Current";
   return {
     id: row.id,
     title: row.title,
@@ -124,6 +139,10 @@ function toMatch(row: any): KnowledgeMatch {
     customerName: row.customer_name ?? "",
     excerpt: excerpt(row.content),
     rank: Number(row.rank) || 0,
+    owner: String(metadata.owner || "Kretivco Team"),
+    sourceUrl: String(metadata.sourceUrl || ""),
+    nextReviewAt,
+    freshnessStatus,
   };
 }
 

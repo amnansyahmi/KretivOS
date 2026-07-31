@@ -1,4 +1,5 @@
 export type KnowledgeSource = "built-in" | "markdown" | "editor" | "automation";
+export type KnowledgeFreshness = "Current" | "Review soon" | "Overdue" | "Unscheduled";
 
 export type KnowledgeEntry = {
   id: string;
@@ -14,6 +15,12 @@ export type KnowledgeEntry = {
   customerId?: string;
   brandId?: string;
   brandName?: string;
+  owner?: string;
+  sourceUrl?: string;
+  reviewIntervalDays?: number;
+  lastReviewedAt?: string;
+  nextReviewAt?: string;
+  freshnessStatus?: KnowledgeFreshness;
 };
 
 export const KNOWLEDGE_STORAGE_KEY = "kretivos-knowledge";

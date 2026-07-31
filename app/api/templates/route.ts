@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
+import { dispatchAutomationEvent } from "@/lib/automation-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -515,6 +516,11 @@ export async function POST(request: NextRequest) {
       `;
       const document = mapDocument(documentRows[0] ?? rows[0]);
       await audit("create", "generated_document", id, document);
+      try {
+        await dispatchAutomationEvent("document.generated", "generated_document", id, document, "detected", "created");
+      } catch (error) {
+        console.error("Document automation dispatch failed", error);
+      }
       return NextResponse.json({ document }, { status: 201 });
     }
 

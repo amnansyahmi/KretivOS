@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
+import { dispatchAutomationEvent } from "@/lib/automation-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -251,6 +252,14 @@ export async function POST(request: NextRequest) {
     const data = await listData();
     const funnel = data.funnels.find((item: any) => item.id === createdId);
     await audit("create", createdId, funnel);
+    if (funnel) {
+      try {
+        await dispatchAutomationEvent("funnel.created", "funnel", createdId, funnel, "detected", "created");
+        if (funnel.status === "Active") await dispatchAutomationEvent("funnel.activated", "funnel", createdId, funnel, "detected", "active");
+      } catch (error) {
+        console.error("Funnel automation dispatch failed", error);
+      }
+    }
     return NextResponse.json({ funnel, contentTemplates: data.contentTemplates }, { status: 201 });
   } catch (error) {
     if (createdId) {
@@ -288,6 +297,13 @@ export async function PATCH(request: NextRequest) {
     const data = await listData();
     const funnel = data.funnels.find((item: any) => item.id === id);
     await audit("update", id, funnel);
+    if (funnel?.status === "Active") {
+      try {
+        await dispatchAutomationEvent("funnel.activated", "funnel", id, funnel, "detected", "active");
+      } catch (error) {
+        console.error("Funnel automation dispatch failed", error);
+      }
+    }
     return NextResponse.json({ funnel, contentTemplates: data.contentTemplates });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update funnel." }, { status: 500 });

@@ -22,7 +22,8 @@ Each of these owns real records and is reached from the sidebar as its own route
 | TOFU / MOFU / BOFU Funnel Builder | `/funnels` |
 | Knowledge Library | `/knowledge` |
 | Automation Builder | `/automations` |
-| Reusable Templates | `/templates` |
+| Approval Inbox | `/approvals` |
+| Documents and Reusable Templates | `/documents` |
 
 #### Commercial documents with line items
 
@@ -50,7 +51,7 @@ the status chip. Each stage header shows how many of its activities are ready.
 ### Rendered in the app shell
 
 - Company Command Centre — live figures read from `/api/business`
-- Shared Approval Queue — open sales documents, settlements and HR leave in one queue
+- Approval Inbox — Sales, Settlement, HR, Automation, Brand DNA, Documents and overdue Knowledge reviews in one queue
 - Chef Ammar 12-Month Financial Projection — an editable scenario model, deliberately separate from actual sales
 - Marketing Plan Builder, Storyboard Studio, AI Prompt Lab — AI generation backed by `/api/*/generate`
 - Content Planner — weekly plan held in local storage
@@ -65,7 +66,7 @@ the status chip. Each stage header shows how many of its activities are ready.
 - Service worker with app-shell caching
 - Responsive mobile navigation
 - Safe-area compatible viewport
-- Local persistence for active view, onboarding progress, approvals and financial scenario inputs
+- Local persistence for active view and financial scenario inputs; operational records remain shared in Neon
 - 192px and 512px maskable application icons
 
 ## Chef Ammar model included
@@ -144,7 +145,9 @@ to guess. It provides two things:
   a natural-language question nearly always contains a word the document does not
   use ("payment" against a document saying "payable"), and under AND that returns
   nothing at all. `ts_rank` still orders by match quality, and an ILIKE keyword scan
-  covers anything the English dictionary stems awkwardly.
+  covers anything the English dictionary stems awkwardly. Every result also carries
+  its owner and review schedule; overdue or unscheduled sources are disclosed to the
+  model so current strategy, pricing or policy is not silently treated as fresh.
 - **An operations snapshot** — pipeline, receivables, settlements, delivery and
   cleared cash rolled up from the shared tables, plus a list of concrete items
   needing attention.
@@ -173,6 +176,17 @@ AI_NONYMAUZ_MODEL=
 ```
 
 The browser never receives the API key.
+
+## Server automations
+
+Automation recipes, events, approvals, runs and notifications are stored in Neon.
+Business, funnel, document and knowledge writes dispatch stable server events, and
+idempotency keys prevent the same recipe/event pair from executing twice. Sensitive
+recipes wait in the Approval Inbox before their actions run.
+
+Vercel calls `/api/automations/cron` daily at `00:15 UTC` (`08:15` Malaysia time)
+to create non-duplicated reminders for overdue or upcoming records. Set
+`CRON_SECRET` in production if the route should reject unsigned manual calls.
 
 ## Run locally
 

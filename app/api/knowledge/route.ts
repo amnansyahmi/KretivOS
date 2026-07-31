@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { builtInKnowledge } from "@/lib/knowledge";
+import { dispatchAutomationEvent } from "@/lib/automation-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,7 +13,37 @@ const clean = (value: unknown) => String(value ?? "").trim();
 const optional = (value: unknown) => clean(value) || null;
 const stringArray = (value: unknown) => Array.isArray(value) ? value.map(clean).filter(Boolean) : [];
 
+function addDays(input: string, days: number) {
+  const next = new Date(input);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+function freshness(metadata: Record<string, any>) {
+  const nextReview = clean(metadata.nextReviewAt);
+  if (!nextReview) return "Unscheduled";
+  const today = new Date().toISOString().slice(0, 10);
+  if (nextReview < today) return "Overdue";
+  return nextReview <= addDays(`${today}T00:00:00Z`, 14) ? "Review soon" : "Current";
+}
+
+function metadataFor(body: any, current: Record<string, any> = {}) {
+  const interval = Math.max(7, Math.min(730, Number(body.reviewIntervalDays || current.reviewIntervalDays || 90)));
+  const lastReviewedAt = clean(body.lastReviewedAt || current.lastReviewedAt) || new Date().toISOString();
+  const nextReviewAt = clean(body.nextReviewAt) || clean(current.nextReviewAt) || addDays(lastReviewedAt, interval);
+  return {
+    ...current,
+    ...(body.metadata && typeof body.metadata === "object" ? body.metadata : {}),
+    owner: clean(body.owner || current.owner) || "Kretivco Team",
+    sourceUrl: clean(body.sourceUrl || current.sourceUrl),
+    reviewIntervalDays: interval,
+    lastReviewedAt,
+    nextReviewAt,
+  };
+}
+
 function mapEntry(row: any) {
+  const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
   return {
     id: row.id,
     title: row.title,
@@ -25,6 +56,12 @@ function mapEntry(row: any) {
     content: row.content,
     filename: row.filename ?? "knowledge.md",
     source: row.source,
+    owner: clean(metadata.owner) || "Kretivco Team",
+    sourceUrl: clean(metadata.sourceUrl),
+    reviewIntervalDays: Number(metadata.reviewIntervalDays || 90),
+    lastReviewedAt: clean(metadata.lastReviewedAt),
+    nextReviewAt: clean(metadata.nextReviewAt),
+    freshnessStatus: freshness(metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -89,12 +126,24 @@ async function syncBuiltInKnowledge() {
         ${entry.id}, ${ORGANIZATION_ID}, ${customerId}, null, ${entry.title}, ${entry.filename},
         ${entry.category},
         array(select jsonb_array_elements_text(${JSON.stringify(entry.tags)}::jsonb)),
-        ${entry.content}, ${entry.source}, ${JSON.stringify({ seeded: true })}::jsonb,
+        ${entry.content}, ${entry.source}, ${JSON.stringify({ seeded: true, owner: "Kretivco Team", reviewIntervalDays: 90, lastReviewedAt: entry.updatedAt, nextReviewAt: addDays(entry.updatedAt, 90) })}::jsonb,
         ${entry.createdAt}, ${entry.updatedAt}
       )
       on conflict (id) do nothing
     `;
   }
+
+  await sql`
+    update knowledge_entries
+    set metadata = metadata || jsonb_build_object(
+      'owner', coalesce(nullif(metadata->>'owner', ''), 'Kretivco Team'),
+      'reviewIntervalDays', case when metadata->>'reviewIntervalDays' ~ '^[0-9]+$' then (metadata->>'reviewIntervalDays')::int else 90 end,
+      'lastReviewedAt', coalesce(nullif(metadata->>'lastReviewedAt', ''), updated_at::text),
+      'nextReviewAt', coalesce(nullif(metadata->>'nextReviewAt', ''), ((updated_at at time zone 'UTC')::date + 90)::text)
+    )
+    where organization_id = ${ORGANIZATION_ID}
+      and (metadata->>'owner' is null or metadata->>'nextReviewAt' is null)
+  `;
 }
 
 async function listEntries() {
@@ -152,7 +201,7 @@ export async function POST(request: NextRequest) {
         ${optional(body.filename)}, ${clean(body.category) || "General"},
         array(select jsonb_array_elements_text(${JSON.stringify(tags)}::jsonb)),
         ${content}, ${clean(body.source) || "editor"},
-        ${JSON.stringify(body.metadata && typeof body.metadata === "object" ? body.metadata : {})}::jsonb
+        ${JSON.stringify(metadataFor(body))}::jsonb
       )
       returning *
     `;
@@ -166,6 +215,11 @@ export async function POST(request: NextRequest) {
     `;
     const entry = mapEntry(resultRows[0] ?? rows[0]);
     await audit("create", id, entry);
+    try {
+      await dispatchAutomationEvent("knowledge.created", "knowledge", id, entry, "detected", "created");
+    } catch (error) {
+      console.error("Knowledge automation dispatch failed", error);
+    }
     return NextResponse.json({ entry }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
@@ -189,6 +243,8 @@ export async function PATCH(request: NextRequest) {
 
     const tags = stringArray(body.tags);
     const sql = getDatabase();
+    const currentRows = await sql`select metadata from knowledge_entries where id = ${id} and organization_id = ${ORGANIZATION_ID}`;
+    const metadata = metadataFor(body, (currentRows[0]?.metadata as Record<string, any>) || {});
     const rows = await sql`
       update knowledge_entries
       set
@@ -200,7 +256,7 @@ export async function PATCH(request: NextRequest) {
         tags = array(select jsonb_array_elements_text(${JSON.stringify(tags)}::jsonb)),
         content = ${content},
         source = ${clean(body.source) || "editor"},
-        metadata = ${JSON.stringify(body.metadata && typeof body.metadata === "object" ? body.metadata : {})}::jsonb
+        metadata = ${JSON.stringify(metadata)}::jsonb
       where id = ${id} and organization_id = ${ORGANIZATION_ID}
       returning id
     `;

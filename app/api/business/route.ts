@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
+import { dispatchAutomationEvent } from "@/lib/automation-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -188,6 +189,29 @@ async function audit(action: string, entityType: string, entityId: string | null
     `;
   } catch {
     // A failed audit write must not invalidate the primary business operation.
+  }
+}
+
+async function dispatchBusinessAutomation(operation: string, resource: string, action: string, result: any) {
+  try {
+    const record = result?.document || result?.settlement || result;
+    const id = text(record?.id);
+    if (!id) return;
+    if (operation === "create" && resource === "customers") {
+      await dispatchAutomationEvent("customer.created", "customer", id, record, "detected", "created");
+    } else if (resource === "crm" && text(record.stage) === "Won") {
+      await dispatchAutomationEvent("opportunity.won", "opportunity", id, record, "detected", "won");
+    } else if ((resource === "sales" || action === "mark-invoice-paid") && text(record.type) === "Invoice" && text(record.status) === "Paid") {
+      await dispatchAutomationEvent("invoice.paid", "invoice", id, record, "detected", "paid");
+    } else if ((resource === "settlements" || action === "mark-settlement-paid") && text(record.status) === "Paid") {
+      await dispatchAutomationEvent("settlement.paid", "settlement", id, record, "detected", "paid");
+    } else if (resource === "onboarding" && text(record.status) === "Completed") {
+      await dispatchAutomationEvent("onboarding.completed", "onboarding", id, record, "detected", "completed");
+    } else if (resource === "projects" && text(record.status) === "Completed") {
+      await dispatchAutomationEvent("project.completed", "project", id, record, "detected", "completed");
+    }
+  } catch (error) {
+    console.error("Business automation dispatch failed", error);
   }
 }
 
@@ -496,6 +520,7 @@ export async function POST(request: NextRequest) {
     else throw new Error("Unsupported operation.");
 
     await audit(operation === "action" ? text(body.action) : operation, resource || "business", id || (result as any)?.id || null, result);
+    await dispatchBusinessAutomation(operation, resource, text(body.action), result);
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     return NextResponse.json(

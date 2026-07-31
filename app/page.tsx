@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AIWritingButton } from "@/components/ai-writing-button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,7 +33,7 @@ const navGroups: NavGroup[] = [
     { name: "Client Workspaces", icon: Building2, href: "/business?tab=customers" },
     { name: "Customer Onboarding", icon: Rocket, href: "/business?tab=onboarding" },
     { name: "HR & Team", icon: UsersRound, href: "/hr" },
-    { name: "Approvals", icon: ClipboardCheck, view: "Approvals" },
+    { name: "Approval Inbox", icon: ClipboardCheck, href: "/approvals" },
   ]},
   { label: "Business", items: [
     { name: "CRM & Pipeline", icon: Contact, href: "/business?tab=crm" },
@@ -708,36 +709,9 @@ function imageOutputTarget(model: string, ratio: string, resolution: string) {
   return pixels;
 }
 
-function ImproveWritingButton({ value, field, context, onApply }: { value: string; field: string; context: string; onApply: (value: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const improve = async () => {
-    if (busy || value.trim().length < 3) return;
-    setBusy(true);
-    setError("");
-    try {
-      const response = await fetch("/api/writing/improve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: value, field, context }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Unable to improve writing.");
-      onApply(String(payload.improved || value));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to improve writing.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return <span className="inline-flex items-center gap-1.5"><button type="button" onClick={improve} disabled={busy || value.trim().length < 3} className="inline-flex h-7 items-center gap-1 rounded-md border bg-white px-2 text-[10px] font-medium text-[#5d655e] transition hover:border-[#ba5c42] hover:text-[#ba5c42] disabled:cursor-not-allowed disabled:opacity-40">{busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}{busy ? "Improving…" : "Improve with AI"}</button>{error && <span className="text-[10px] text-red-600" title={error}>!</span>}</span>;
-}
-
 function PromptWritingControl({ label, value, onChange, context, placeholder = "", multiline = true, className = "" }: { label: string; value: string; onChange: (value: string) => void; context: string; placeholder?: string; multiline?: boolean; className?: string }) {
   return <div>
-    <div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">{label}</span><ImproveWritingButton value={value} field={label} context={context} onApply={onChange} /></div>
+    <div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">{label}</span><AIWritingButton value={value} field={label} context={context} onApply={onChange} /></div>
     {multiline
       ? <textarea value={value} onChange={event => onChange(event.target.value)} className={cn("mt-2 min-h-20 w-full resize-y rounded-lg border bg-white p-3 text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10", className)} placeholder={placeholder} />
       : <input value={value} onChange={event => onChange(event.target.value)} className={cn(inputClass, "mt-2", className)} placeholder={placeholder} />}

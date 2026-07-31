@@ -14,6 +14,7 @@ const items = [
   { href: "/ai-studio", label: "Kretiv AI Studio", icon: Bot },
   { href: "/document-ai", label: "AI Proposal Package", icon: FileText },
   { href: "/business", label: "Business Workspace", icon: BriefcaseBusiness },
+  { href: "/approvals", label: "Approval Inbox", icon: ClipboardCheck },
   { href: "/hr", label: "HR & Team", icon: UsersRound },
   { href: "/hr/attendance-review", label: "Attendance Review", icon: ClipboardCheck },
   { href: "/brands", label: "Brand DNA", icon: Palette },

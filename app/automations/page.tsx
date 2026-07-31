@@ -1,21 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { isValidElement, useEffect, useMemo, useState } from "react";
 import {
   Activity, Bell, Check, ChevronRight, CircleAlert, Clock, List, Pause,
   Pencil, Play, Plus, Save, Search, ShieldCheck, Trash2, Workflow, X, Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AIWritingButton } from "@/components/ai-writing-button";
 import { WorkspacePage } from "@/components/workspace-page";
 import {
   ACTION_CATALOG,
-  AUTOMATION_APPROVAL_KEY,
-  AUTOMATION_APPROVAL_REQUEST,
-  AUTOMATION_DATA_UPDATED,
   AUTOMATION_RECIPE_KEY,
-  AUTOMATION_RUN_KEY,
-  AUTOMATION_RUN_REQUEST,
   AutomationAction,
   AutomationApproval,
   AutomationRecipe,
@@ -23,7 +19,6 @@ import {
   AutomationTrigger,
   DEFAULT_AUTOMATION_RECIPES,
   KretivNotification,
-  NOTIFICATION_KEY,
   TRIGGER_CATALOG,
   actionLabel,
   automationId,
@@ -34,6 +29,7 @@ import { cn } from "@/lib/utils";
 type ViewTab = "workflows" | "approvals" | "notifications" | "runs";
 
 type Draft = AutomationRecipe;
+const SERVER_MIGRATED_KEY = "kretivos-automations-neon-migrated";
 
 function parse<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
@@ -44,7 +40,7 @@ function parse<T>(value: string | null, fallback: T): T {
   }
 }
 
-function loadRecipes() {
+function loadLegacyRecipes() {
   const saved = parse<AutomationRecipe[]>(localStorage.getItem(AUTOMATION_RECIPE_KEY), []);
   if (!saved.length) return DEFAULT_AUTOMATION_RECIPES;
   const savedById = new Map(saved.map((item) => [item.id, item]));
@@ -100,33 +96,48 @@ export default function AutomationsPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [notice, setNotice] = useState("");
-  const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  function refresh() {
-    const nextRecipes = loadRecipes();
-    setRecipes(nextRecipes);
-    setSelectedId((current) => nextRecipes.some((item) => item.id === current) ? current : nextRecipes[0]?.id || "");
-    setRuns(parse<AutomationRun[]>(localStorage.getItem(AUTOMATION_RUN_KEY), []));
-    setApprovals(parse<AutomationApproval[]>(localStorage.getItem(AUTOMATION_APPROVAL_KEY), []));
-    setNotifications(parse<KretivNotification[]>(localStorage.getItem(NOTIFICATION_KEY), []));
+  async function request(url: string, init?: RequestInit) {
+    const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Automation request failed.");
+    return data;
+  }
+
+  async function refresh(showLoading = false) {
+    if (showLoading) setLoading(true);
+    try {
+      const data = await request("/api/automations", { cache: "no-store" });
+      const nextRecipes = data.recipes as AutomationRecipe[];
+      setRecipes(nextRecipes);
+      setSelectedId((current) => nextRecipes.some((item) => item.id === current) ? current : nextRecipes[0]?.id || "");
+      setRuns(data.runs || []);
+      setApprovals(data.approvals || []);
+      setNotifications(data.notifications || []);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load server automations.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    refresh();
-    setMounted(true);
-    const update = () => refresh();
-    window.addEventListener(AUTOMATION_DATA_UPDATED, update);
-    const interval = window.setInterval(refresh, 1500);
-    return () => {
-      window.removeEventListener(AUTOMATION_DATA_UPDATED, update);
-      window.clearInterval(interval);
+    const start = async () => {
+      if (!localStorage.getItem(SERVER_MIGRATED_KEY)) {
+        try {
+          await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "migrate", recipes: loadLegacyRecipes() }) });
+          localStorage.setItem(SERVER_MIGRATED_KEY, "true");
+        } catch {}
+      }
+      await refresh(true);
     };
+    void start();
+    const interval = window.setInterval(() => void refresh(false), 5000);
+    return () => window.clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    localStorage.setItem(AUTOMATION_RECIPE_KEY, JSON.stringify(recipes));
-  }, [recipes, mounted]);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -156,7 +167,7 @@ export default function AutomationsPage() {
     setEditorOpen(true);
   }
 
-  function saveRecipe() {
+  async function saveRecipe() {
     if (!draft.name.trim() || !draft.actions.length) {
       setNotice("Automation name and at least one action are required.");
       return;
@@ -171,61 +182,76 @@ export default function AutomationsPage() {
       updatedAt: stamp
     };
 
-    if (clean.id) {
-      setRecipes((current) => current.map((item) => item.id === clean.id ? clean : item));
-      setNotice("Automation updated.");
-    } else {
-      const created = { ...clean, id: automationId("recipe"), createdAt: stamp, runCount: 0, system: false };
-      setRecipes((current) => [created, ...current]);
-      setSelectedId(created.id);
+    try {
+      const creating = !clean.id;
+      const recipe = creating ? { ...clean, id: automationId("recipe"), createdAt: stamp, runCount: 0, system: false } : clean;
+      const data = await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "save", recipe }) });
+      await refresh(false);
+      setSelectedId(data.recipe.id);
       setShowList(false);
-      setNotice("Automation created and activated.");
+      setNotice(creating ? "Server automation created and activated." : "Server automation updated.");
+      setEditorOpen(false);
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Automation could not be saved.");
     }
-    setEditorOpen(false);
   }
 
-  function deleteRecipe() {
+  async function deleteRecipe() {
     if (!selected || !window.confirm(`Delete “${selected.name}”?`)) return;
-    const remaining = recipes.filter((item) => item.id !== selected.id);
-    setRecipes(remaining);
-    setSelectedId(remaining[0]?.id || "");
-    setShowList(true);
-    setNotice("Automation deleted.");
+    try {
+      await request(`/api/automations?id=${encodeURIComponent(selected.id)}`, { method: "DELETE" });
+      await refresh(false);
+      setShowList(true);
+      setNotice("Automation deleted from Neon.");
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Automation could not be deleted.");
+    }
   }
 
-  function toggleStatus() {
+  async function toggleStatus() {
     if (!selected) return;
-    const stamp = new Date().toISOString();
-    setRecipes((current) => current.map((item) => item.id === selected.id
-      ? { ...item, status: item.status === "Active" ? "Paused" : "Active", updatedAt: stamp }
-      : item));
+    try {
+      await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "save", recipe: { ...selected, status: selected.status === "Active" ? "Paused" : "Active" } }) });
+      await refresh(false);
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Automation status could not be changed.");
+    }
   }
 
-  function runNow() {
+  async function runNow() {
     if (!selected) return;
     if (selected.status === "Paused") {
       setNotice("Activate this workflow before running it.");
       return;
     }
-    window.dispatchEvent(new CustomEvent(AUTOMATION_RUN_REQUEST, { detail: { recipeId: selected.id } }));
-    setNotice(selected.approvalRequired ? "Automation sent to approval queue." : "Automation started using the latest matching record.");
+    try {
+      await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "run", recipeId: selected.id }) });
+      await refresh(false);
+      setNotice(selected.approvalRequired ? "Automation sent to the server approval queue." : "Server automation completed using the latest matching record.");
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Automation could not run.");
+    }
   }
 
-  function resolveApproval(approvalId: string, decision: "Approved" | "Rejected") {
-    window.dispatchEvent(new CustomEvent(AUTOMATION_APPROVAL_REQUEST, { detail: { approvalId, decision } }));
-    setNotice(decision === "Approved" ? "Automation approved and execution started." : "Automation rejected.");
+  async function resolveApproval(approvalId: string, decision: "Approved" | "Rejected") {
+    try {
+      await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "resolve", approvalId, decision }) });
+      await refresh(false);
+      setNotice(decision === "Approved" ? "Automation approved and executed on the server." : "Automation rejected.");
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "Approval could not be resolved.");
+    }
   }
 
-  function markNotificationRead(id: string) {
-    const next = notifications.map((item) => item.id === id ? { ...item, read: true } : item);
-    setNotifications(next);
-    localStorage.setItem(NOTIFICATION_KEY, JSON.stringify(next));
+  async function markNotificationRead(id: string) {
+    await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "notification", id, read: true }) });
+    await refresh(false);
   }
 
-  function clearReadNotifications() {
-    const next = notifications.filter((item) => !item.read);
-    setNotifications(next);
-    localStorage.setItem(NOTIFICATION_KEY, JSON.stringify(next));
+  async function clearReadNotifications() {
+    const data = await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "clear_read" }) });
+    await refresh(false);
+    setNotice(`${data.archived || 0} read notification${data.archived === 1 ? "" : "s"} archived.`);
   }
 
   function changeTrigger(trigger: AutomationTrigger) {
@@ -260,10 +286,11 @@ export default function AutomationsPage() {
     <WorkspacePage
       eyebrow="Cross-module workflow engine"
       title="Automations"
-      description="KretivOS detects business and marketing events, executes safe actions automatically, sends higher-risk actions for approval, prevents duplicate records and keeps an execution audit trail."
-      actions={<div className="flex flex-wrap gap-2"><button onClick={() => setShowList((value) => !value)} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium xl:hidden"><List className="h-4 w-4" />{showList ? "Hide list" : "Show list"}</button><Button onClick={openCreate}><Plus className="h-4 w-4" />New automation</Button></div>}
+      description="Neon-backed workflows run on the server, continue when the browser is closed, queue higher-risk actions for approval and keep a shared execution audit trail."
+      actions={<div className="flex flex-wrap gap-2"><Button variant="outline" className="bg-white" onClick={() => void refresh(true)} disabled={loading}><Activity className={cn("h-4 w-4", loading && "animate-pulse")} />Sync server</Button><button onClick={() => setShowList((value) => !value)} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium xl:hidden"><List className="h-4 w-4" />{showList ? "Hide list" : "Show list"}</button><Button onClick={openCreate}><Plus className="h-4 w-4" />New automation</Button></div>}
     >
       {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
+      {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
 
       <div className="mb-5 overflow-x-auto rounded-xl border bg-white/70 p-1.5">
         <div className="flex min-w-max gap-1">{tabs.map(({ id, label, count, icon: Icon }) => <button key={id} onClick={() => setTab(id)} className={cn("flex min-h-11 items-center gap-2 rounded-lg px-4 text-sm font-medium transition", tab === id ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}><Icon className="h-4 w-4" />{label}{typeof count === "number" && <span className={cn("rounded-full px-2 py-0.5 text-[10px]", tab === id ? "bg-white/15" : "bg-[#eeeae0]")}>{count}</span>}</button>)}</div>
@@ -314,5 +341,8 @@ function EmptyCard({ icon, title, description, action }: { icon: any; title: str
 }
 
 function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
-  return <label className={cn("block text-xs font-medium", wide && "sm:col-span-2")}>{label}<div className="mt-2">{children}</div></label>;
+  const control = isValidElement<{ value?: unknown; onChange?: (event: any) => void }>(children) ? children : null;
+  const value = typeof control?.props.value === "string" ? control.props.value : "";
+  const canImprove = control?.type === "textarea" && typeof control.props.onChange === "function";
+  return <div className={cn("block text-xs font-medium", wide && "sm:col-span-2")}><div className="flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS server automation. State the trigger, action and intended business outcome plainly." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div><div className="mt-2">{children}</div></div>;
 }

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { isValidElement, useEffect, useMemo, useState } from "react";
 import {
   ArrowDown, ArrowUp, Bot, ChevronLeft, FlaskConical, Layers3, List,
   Loader2, Pencil, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AIWritingButton } from "@/components/ai-writing-button";
 import { WorkspacePage } from "@/components/workspace-page";
 import { FUNNEL_PLAYBOOKS, FunnelPlaybook, PlaybookStageKey } from "@/lib/funnel-playbooks";
 import { cn } from "@/lib/utils";
@@ -665,7 +666,10 @@ function Modal({ title, subtitle, onClose, footer, children }: { title: string; 
 }
 
 function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
-  return <label className={cn("block text-xs font-medium text-[#4e5a52]", wide && "md:col-span-2")}>{label}<div className="mt-2">{children}</div></label>;
+  const control = isValidElement<{ value?: unknown; onChange?: (event: any) => void }>(children) ? children : null;
+  const value = typeof control?.props.value === "string" ? control.props.value : "";
+  const canImprove = control?.type === "textarea" && typeof control.props.onChange === "function";
+  return <div className={cn("block text-xs font-medium text-[#4e5a52]", wide && "md:col-span-2")}><div className="flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS marketing funnel. Keep the offer, audience, channel, CTA and approved claims accurate." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div><div className="mt-2">{children}</div></div>;
 }
 
 function Mini({ label, value }: { label: string; value: string }) {

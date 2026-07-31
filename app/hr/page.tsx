@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { isValidElement, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft, BookOpenCheck, BriefcaseBusiness, CalendarCheck, Check, ChevronRight,
   Clock3, GraduationCap, LayoutDashboard, Pencil, Plus, ReceiptText, RefreshCw,
@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { AIWritingButton } from "@/components/ai-writing-button";
 import { DateInput } from "@/components/date-input";
 import { HRPhotoAttendance } from "@/components/hr-photo-attendance";
 import { HRPayslipSetup } from "@/components/hr-payslip-setup";
@@ -270,7 +271,12 @@ function EditorDialog({ editor, setEditor, data, saving, onSave }: any) {
 }
 
 function resourceLabel(resource: Resource) { return ({ employees: "team member", leave: "leave request", attendance: "attendance record", goals: "goal", learning: "learning record" } as Record<Resource, string>)[resource]; }
-function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) { return <label className={cn("block text-xs font-medium text-[#4e5a52]", wide && "sm:col-span-2")}>{label}<div className="mt-2">{children}</div></label>; }
+function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
+  const control = isValidElement<{ value?: unknown; onChange?: (event: any) => void }>(children) ? children : null;
+  const value = typeof control?.props.value === "string" ? control.props.value : "";
+  const canImprove = control?.type === "textarea" && typeof control.props.onChange === "function";
+  return <div className={cn("block text-xs font-medium text-[#4e5a52]", wide && "sm:col-span-2")}><div className="flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS HR record. Keep dates, people, leave details, goals and employment facts unchanged." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div><div className="mt-2">{children}</div></div>;
+}
 function Stat({ label, value, note }: any) { return <Card className="border-black/8 bg-white/90"><CardContent className="p-4"><div className="text-xs text-muted-foreground">{label}</div><div className="mt-2 text-2xl font-semibold">{value}</div><div className="mt-1 text-[10px] text-muted-foreground">{note}</div></CardContent></Card>; }
 function Mini({ label, value }: any) { return <div className="rounded-xl bg-[#f7f4ed] p-3"><div className="text-[10px] text-muted-foreground">{label}</div><div className="mt-1 truncate text-xs font-medium">{value || "—"}</div></div>; }
 function Status({ value }: { value: string }) { const lower = String(value).toLowerCase(); const tone = lower.includes("active") || lower.includes("approved") || lower.includes("completed") || lower === "present" ? "bg-emerald-50 text-emerald-700" : lower.includes("pending") || lower.includes("progress") || lower.includes("planned") || lower.includes("wfh") ? "bg-amber-50 text-amber-700" : lower.includes("reject") || lower.includes("absent") || lower.includes("risk") ? "bg-red-50 text-red-700" : "bg-[#eeeae0] text-[#5a605a]"; return <span className={cn("inline-flex shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium", tone)}>{value}</span>; }

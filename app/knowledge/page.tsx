@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, Bot, CalendarDays, ChevronLeft, ChevronRight, Download,
+  ArrowLeft, Bot, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Download, ExternalLink,
   FileCode2, Library, Pencil, Plus, RefreshCw, Save, Search, Send,
   SlidersHorizontal, Sparkles, Tag, Trash2, Upload, X
 } from "lucide-react";
@@ -36,8 +36,22 @@ function excerpt(content: string) {
     .slice(0, 180);
 }
 
-function formatDate(value: string) {
+function formatDate(value?: string) {
+  if (!value) return "Not scheduled";
   return new Date(value).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" });
+}
+
+const freshnessOptions = ["All freshness", "Current", "Review soon", "Overdue", "Unscheduled"];
+
+function freshnessTone(status?: KnowledgeEntry["freshnessStatus"]) {
+  if (status === "Current") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "Review soon") return "bg-amber-50 text-amber-700 border-amber-200";
+  if (status === "Overdue") return "bg-red-50 text-red-700 border-red-200";
+  return "bg-[#eeeae0] text-[#5a605a] border-black/5";
+}
+
+function FreshnessBadge({ status }: { status?: KnowledgeEntry["freshnessStatus"] }) {
+  return <span className={cn("inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold", freshnessTone(status))}>{status || "Unscheduled"}</span>;
 }
 
 function sourceLabel(source: KnowledgeEntry["source"]) {
@@ -63,13 +77,14 @@ export default function KnowledgeLibraryPage() {
   const [query, setQuery] = useState("");
   const [client, setClient] = useState("All clients");
   const [category, setCategory] = useState("All");
+  const [freshnessFilter, setFreshnessFilter] = useState("All freshness");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState<KnowledgeEntry | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [ask, setAsk] = useState("");
   const [answer, setAnswer] = useState("");
-  const [answerSources, setAnswerSources] = useState<{ index: number; id: string; title: string; category: string; customerName: string }[]>([]);
+  const [answerSources, setAnswerSources] = useState<{ index: number; id: string; title: string; category: string; customerName: string; freshnessStatus?: KnowledgeEntry["freshnessStatus"]; nextReviewAt?: string; sourceUrl?: string }[]>([]);
   const [asking, setAsking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -128,10 +143,11 @@ export default function KnowledgeLibraryPage() {
     return entries.filter((entry) => {
       const clientMatch = client === "All clients" || entry.client === client;
       const categoryMatch = category === "All" || entry.category === category;
+      const freshnessMatch = freshnessFilter === "All freshness" || entry.freshnessStatus === freshnessFilter;
       const haystack = [entry.title, entry.client, entry.brandName, entry.category, entry.tags.join(" "), entry.content].join(" ").toLowerCase();
-      return clientMatch && categoryMatch && (!term || haystack.includes(term));
+      return clientMatch && categoryMatch && freshnessMatch && (!term || haystack.includes(term));
     });
-  }, [entries, query, client, category]);
+  }, [entries, query, client, category, freshnessFilter]);
 
   const selected = entries.find((entry) => entry.id === selectedId) || filtered[0] || entries[0];
   const draftBrands = brands.filter((brand) => brand.customerId === editDraft?.customerId);
@@ -169,6 +185,27 @@ export default function KnowledgeLibraryPage() {
       setNotice("Knowledge updated in Neon.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save knowledge.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function markReviewed() {
+    if (!selected) return;
+    setSyncing(true);
+    setError("");
+    try {
+      const reviewedAt = new Date().toISOString();
+      const next = new Date(reviewedAt);
+      next.setUTCDate(next.getUTCDate() + Number(selected.reviewIntervalDays || 90));
+      const data = await jsonRequest("/api/knowledge", {
+        method: "PATCH",
+        body: JSON.stringify({ ...selected, lastReviewedAt: reviewedAt, nextReviewAt: next.toISOString().slice(0, 10) }),
+      });
+      setEntries((current) => current.map((entry) => entry.id === data.entry.id ? data.entry : entry));
+      setNotice(`Knowledge reviewed. Next review: ${formatDate(data.entry.nextReviewAt)}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to mark this knowledge as reviewed.");
     } finally {
       setSyncing(false);
     }
@@ -236,7 +273,7 @@ export default function KnowledgeLibraryPage() {
           <div className="min-w-0 flex-1">
             <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] md:block">Shared company memory</div>
             <h1 className="truncate text-lg font-semibold tracking-tight md:mt-1 md:text-3xl">Knowledge</h1>
-            <p className="mt-1 hidden max-w-3xl text-sm leading-6 text-[#687169] md:block">Shared Markdown knowledge from Neon, grounded AI answers and mobile-first document maintenance.</p>
+            <p className="mt-1 hidden max-w-3xl text-sm leading-6 text-[#687169] md:block">Shared Markdown knowledge from Neon with owners, source links, review schedules and freshness-aware AI answers.</p>
           </div>
           <Button variant="outline" size="icon" className="bg-white" onClick={() => loadData(false)} disabled={syncing} aria-label="Refresh knowledge"><RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} /></Button>
           <Button variant="outline" size="icon" className="bg-white md:hidden" onClick={() => setAiOpen(true)} aria-label="Ask Kretiv AI"><Bot className="h-4 w-4" /></Button>
@@ -257,15 +294,15 @@ export default function KnowledgeLibraryPage() {
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <input value={query} onChange={(event) => setQuery(event.target.value)} className="h-11 w-full rounded-xl border bg-[#fbfaf7] pl-10 pr-12 text-sm outline-none transition focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10" placeholder="Search knowledge..." />
-                  <button onClick={() => setFiltersOpen((value) => !value)} className={cn("absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg", filtersOpen || client !== "All clients" ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-black/5")} aria-label="Show filters"><SlidersHorizontal className="h-4 w-4" /></button>
+                  <button onClick={() => setFiltersOpen((value) => !value)} className={cn("absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg", filtersOpen || client !== "All clients" || freshnessFilter !== "All freshness" ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-black/5")} aria-label="Show filters"><SlidersHorizontal className="h-4 w-4" /></button>
                 </div>
                 <div className="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-none">{categories.map((item) => <button key={item} onClick={() => setCategory(item)} className={cn("shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition", category === item ? "border-[#202c25] bg-[#202c25] text-white" : "border-black/8 bg-white text-[#667067] hover:bg-[#f3efe7]")}>{item}</button>)}</div>
-                {filtersOpen && <div className="mt-3 rounded-xl border bg-[#fbfaf7] p-3"><label className="text-xs font-medium text-[#4e5a52]">Client / workspace</label><select value={client} onChange={(event) => setClient(event.target.value)} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm outline-none focus:border-[#ba5c42]">{clients.map((name) => <option key={name}>{name}</option>)}</select></div>}
-                <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading…" : `${filtered.length} of ${entries.length} files`}</span>{(query || client !== "All clients" || category !== "All") && <button onClick={() => { setQuery(""); setClient("All clients"); setCategory("All"); }} className="font-medium text-[#ba5c42]">Clear filters</button>}</div>
+                {filtersOpen && <div className="mt-3 grid gap-3 rounded-xl border bg-[#fbfaf7] p-3 sm:grid-cols-2 lg:grid-cols-1"><label className="text-xs font-medium text-[#4e5a52]">Client / workspace<select value={client} onChange={(event) => setClient(event.target.value)} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm outline-none focus:border-[#ba5c42]">{clients.map((name) => <option key={name}>{name}</option>)}</select></label><label className="text-xs font-medium text-[#4e5a52]">Freshness<select value={freshnessFilter} onChange={(event) => setFreshnessFilter(event.target.value)} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm outline-none focus:border-[#ba5c42]">{freshnessOptions.map((name) => <option key={name}>{name}</option>)}</select></label></div>}
+                <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground"><span>{loading ? "Loading…" : `${filtered.length} of ${entries.length} files`}</span>{(query || client !== "All clients" || category !== "All" || freshnessFilter !== "All freshness") && <button onClick={() => { setQuery(""); setClient("All clients"); setCategory("All"); setFreshnessFilter("All freshness"); }} className="font-medium text-[#ba5c42]">Clear filters</button>}</div>
               </div>
               <div className="space-y-2 p-3 lg:max-h-[calc(100vh-270px)] lg:overflow-y-auto">
                 {filtered.map((entry) => <button key={entry.id} onClick={() => openEntry(entry.id)} className={cn("group w-full rounded-2xl border p-3.5 text-left transition", selected?.id === entry.id ? "border-[#d07155] bg-[#fff8f3] shadow-sm" : "border-black/8 bg-white hover:border-black/15 hover:bg-[#fbfaf7]")}>
-                  <div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f1ece2] text-[#9b4a36]"><FileCode2 className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><h2 className="line-clamp-2 text-sm font-semibold leading-5 text-[#202820]">{entry.title}</h2><ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5" /></div><div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"><span>{entry.client}</span>{entry.brandName && <><span>•</span><span>{entry.brandName}</span></>}<span>•</span><span>{entry.category}</span></div><p className="mt-2 line-clamp-2 text-xs leading-5 text-[#6a746d]">{excerpt(entry.content) || "No summary available."}</p><div className="mt-2.5 text-[10px] text-muted-foreground">Updated {formatDate(entry.updatedAt)}</div></div></div>
+                  <div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f1ece2] text-[#9b4a36]"><FileCode2 className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><h2 className="line-clamp-2 text-sm font-semibold leading-5 text-[#202820]">{entry.title}</h2><ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5" /></div><div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground"><span>{entry.client}</span>{entry.brandName && <><span>•</span><span>{entry.brandName}</span></>}<span>•</span><span>{entry.category}</span></div><p className="mt-2 line-clamp-2 text-xs leading-5 text-[#6a746d]">{excerpt(entry.content) || "No summary available."}</p><div className="mt-2.5 flex items-center justify-between gap-2"><span className="text-[10px] text-muted-foreground">Updated {formatDate(entry.updatedAt)}</span><FreshnessBadge status={entry.freshnessStatus} /></div></div></div>
                 </button>)}
                 {!filtered.length && <div className="rounded-2xl border border-dashed p-8 text-center"><Search className="mx-auto h-6 w-6 text-muted-foreground" /><div className="mt-3 text-sm font-medium">No matching knowledge</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Try a different keyword, client or category.</p></div>}
               </div>
@@ -279,6 +316,7 @@ export default function KnowledgeLibraryPage() {
                   <div className="flex items-start gap-3 lg:hidden"><button onClick={() => setScreen("library")} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-white" aria-label="Back to knowledge list"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-0 flex-1"><div className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#ba5c42]">{selected.category}</div><h2 className="mt-1 line-clamp-2 text-lg font-semibold leading-6">{selected.title}</h2></div></div>
                   <div className="hidden items-start justify-between gap-6 lg:flex"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[.16em] text-[#ba5c42]"><span>{selected.client}</span>{selected.brandName && <><span>•</span><span>{selected.brandName}</span></>}<span>•</span><span>{selected.category}</span></div><h2 className="mt-2 break-words text-3xl font-semibold tracking-tight">{selected.title}</h2><div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5" />Updated {formatDate(selected.updatedAt)}</span><span>{sourceLabel(selected.source)}</span><span>{selected.filename}</span></div></div><div className="flex shrink-0 gap-2"><Button variant="outline" size="sm" onClick={downloadEntry}><Download className="h-3.5 w-3.5" />Download</Button><Button variant="outline" size="sm" onClick={beginEdit}><Pencil className="h-3.5 w-3.5" />Edit</Button><Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={deleteEntry}><Trash2 className="h-3.5 w-3.5" />Delete</Button></div></div>
                   <div className="mt-4 flex flex-wrap gap-2">{selected.tags.map((item) => <span key={item} className="inline-flex items-center gap-1 rounded-full border border-black/5 bg-white px-2.5 py-1 text-[10px] text-[#5a645d]"><Tag className="h-3 w-3" />{item}</span>)}</div>
+                  <div className="mt-4 flex flex-col justify-between gap-3 rounded-2xl border bg-white p-3 sm:flex-row sm:items-center"><div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground"><FreshnessBadge status={selected.freshnessStatus} /><span>Owner: <strong className="font-medium text-[#39433c]">{selected.owner || "Unassigned"}</strong></span><span>Next review: <strong className="font-medium text-[#39433c]">{formatDate(selected.nextReviewAt)}</strong></span>{selected.sourceUrl && <a href={selected.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-[#ba5c42] hover:underline">Open source<ExternalLink className="h-3 w-3" /></a>}</div><Button variant="outline" size="sm" onClick={markReviewed} disabled={syncing}><CheckCircle2 className="h-3.5 w-3.5" />Mark reviewed</Button></div>
                   <div className="mt-4 grid grid-cols-3 gap-2 lg:hidden"><Button variant="outline" size="sm" onClick={downloadEntry}><Download className="h-3.5 w-3.5" />Download</Button><Button variant="outline" size="sm" onClick={beginEdit}><Pencil className="h-3.5 w-3.5" />Edit</Button><Button variant="outline" size="sm" onClick={() => setAiOpen(true)}><Bot className="h-3.5 w-3.5" />Ask AI</Button></div>
                 </div>
                 <CardContent className="p-4 md:p-7">
@@ -290,6 +328,10 @@ export default function KnowledgeLibraryPage() {
                       <Field label="Brand"><select value={editDraft.brandId || ""} onChange={(event) => { const brand = draftBrands.find((item) => item.id === event.target.value); setEditDraft({ ...editDraft, brandId: brand?.id, brandName: brand?.name }); }} className="field-control" disabled={!editDraft.customerId}><option value="">No specific brand</option>{draftBrands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
                       <Field label="Category"><input value={editDraft.category} onChange={(event) => setEditDraft({ ...editDraft, category: event.target.value })} className="field-control" /></Field>
                       <Field label="Tags (comma separated)"><input value={editDraft.tags.join(", ")} onChange={(event) => setEditDraft({ ...editDraft, tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} className="field-control" /></Field>
+                      <Field label="Knowledge owner"><input value={editDraft.owner || ""} onChange={(event) => setEditDraft({ ...editDraft, owner: event.target.value })} className="field-control" placeholder="Person or team responsible" /></Field>
+                      <Field label="Source URL"><input type="url" value={editDraft.sourceUrl || ""} onChange={(event) => setEditDraft({ ...editDraft, sourceUrl: event.target.value })} className="field-control" placeholder="https://…" /></Field>
+                      <Field label="Review interval"><select value={String(editDraft.reviewIntervalDays || 90)} onChange={(event) => setEditDraft({ ...editDraft, reviewIntervalDays: Number(event.target.value) })} className="field-control"><option value="30">Every 30 days</option><option value="60">Every 60 days</option><option value="90">Every 90 days</option><option value="180">Every 180 days</option><option value="365">Every year</option></select></Field>
+                      <Field label="Next review"><input type="date" value={editDraft.nextReviewAt?.slice(0, 10) || ""} onChange={(event) => setEditDraft({ ...editDraft, nextReviewAt: event.target.value })} className="field-control" /></Field>
                     </div>
                     <Field label="Markdown content"><textarea value={editDraft.content} onChange={(event) => setEditDraft({ ...editDraft, content: event.target.value })} className="min-h-[52vh] w-full resize-y rounded-xl border bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10 md:min-h-[520px]" /></Field>
                     <div className="sticky bottom-3 flex justify-end gap-2 rounded-2xl border bg-white/95 p-3 shadow-lg backdrop-blur"><Button variant="outline" onClick={() => { setEditing(false); setEditDraft(null); }}>Cancel</Button><Button onClick={saveEdit} disabled={syncing}><Save className="h-4 w-4" />Save changes</Button></div>

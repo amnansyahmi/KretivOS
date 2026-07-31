@@ -23,6 +23,9 @@ export async function POST(request: NextRequest) {
       title: match.title,
       category: match.category,
       customerName: match.customerName,
+      freshnessStatus: match.freshnessStatus,
+      nextReviewAt: match.nextReviewAt,
+      sourceUrl: match.sourceUrl,
     }));
 
     if (!matches.length) {
@@ -34,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const context = matches
-      .map((match, index) => `[${index + 1}] ${match.title}${match.customerName ? ` · ${match.customerName}` : ""} · ${match.category}\n${match.excerpt}`)
+      .map((match, index) => `[${index + 1}] ${match.title}${match.customerName ? ` · ${match.customerName}` : ""} · ${match.category}\nFreshness: ${match.freshnessStatus}${match.nextReviewAt ? ` · next review ${match.nextReviewAt}` : ""}\n${match.excerpt}`)
       .join("\n\n");
 
     const result = await aiNonymauzChat({
@@ -47,6 +50,8 @@ export async function POST(request: NextRequest) {
         "Cite every claim with the bracket number of its source, for example [1].",
         "If the extracts do not contain the answer, say exactly what is missing instead of guessing.",
         "Never invent a figure, clause, date, client or commitment.",
+        "Treat an Overdue source as potentially stale: flag that limitation in the answer and recommend verification before action.",
+        "Treat an Unscheduled source as lacking a freshness guarantee when the question depends on current strategy, pricing, policy or platform behaviour.",
         "Answer in at most four sentences unless the question needs a short list.",
         "",
         "KNOWLEDGE EXTRACTS:",

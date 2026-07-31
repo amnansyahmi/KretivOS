@@ -44,6 +44,9 @@ export default function AddKnowledgePage() {
   const [category, setCategory] = useState("General");
   const [tags, setTags] = useState("");
   const [filename, setFilename] = useState("new-knowledge.md");
+  const [owner, setOwner] = useState("Kretivco Team");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [reviewIntervalDays, setReviewIntervalDays] = useState("90");
   const [content, setContent] = useState(starterContent);
   const [tab, setTab] = useState<"editor" | "preview">("editor");
   const [savedEntry, setSavedEntry] = useState<KnowledgeEntry | null>(null);
@@ -106,6 +109,10 @@ export default function AddKnowledgePage() {
           content,
           filename: filename.trim().endsWith(".md") ? filename.trim() : `${filename.trim() || slugifyFilename(title)}.md`,
           source: filename !== slugifyFilename(title) ? "markdown" : "editor",
+          owner,
+          sourceUrl,
+          reviewIntervalDays: Number(reviewIntervalDays),
+          lastReviewedAt: new Date().toISOString(),
         }),
       });
       setSavedEntry(data.entry);
@@ -128,6 +135,9 @@ export default function AddKnowledgePage() {
     setCategory("General");
     setTags("");
     setFilename("new-knowledge.md");
+    setOwner("Kretivco Team");
+    setSourceUrl("");
+    setReviewIntervalDays("90");
     setContent(starterContent);
     setTab("editor");
     setSavedEntry(null);
@@ -162,6 +172,9 @@ export default function AddKnowledgePage() {
               <Field label="Category"><select value={category} onChange={(event) => { setCategory(event.target.value); setSavedEntry(null); }} className="field-control">{categoryOptions.map((name) => <option key={name}>{name}</option>)}</select></Field>
               <Field label="Tags"><input value={tags} onChange={(event) => { setTags(event.target.value); setSavedEntry(null); }} className="field-control" placeholder="campaign, SOP, finance" /></Field>
               <Field label="Filename"><input value={filename} onChange={(event) => { setFilename(event.target.value); setSavedEntry(null); }} className="field-control" /></Field>
+              <Field label="Knowledge owner"><input value={owner} onChange={(event) => { setOwner(event.target.value); setSavedEntry(null); }} className="field-control" placeholder="Marketing, Finance or a team member" /></Field>
+              <Field label="Original source URL"><input type="url" value={sourceUrl} onChange={(event) => { setSourceUrl(event.target.value); setSavedEntry(null); }} className="field-control" placeholder="https://…" /></Field>
+              <Field label="Review every"><select value={reviewIntervalDays} onChange={(event) => { setReviewIntervalDays(event.target.value); setSavedEntry(null); }} className="field-control"><option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option><option value="180">180 days</option><option value="365">365 days</option></select></Field>
               <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#f7f4ed] p-3 text-xs"><div><div className="text-muted-foreground">Words</div><div className="mt-1 font-semibold">{wordCount}</div></div><div><div className="text-muted-foreground">Storage</div><div className="mt-1 font-semibold">Neon</div></div></div>
             </CardContent></Card>
           </aside>

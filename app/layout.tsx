@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { KretivOSToolsNav } from "@/components/kretivos-tools-nav";
-import { AutomationRuntime } from "@/components/automation-runtime";
 import { AttendanceTestSession } from "@/components/attendance-test-session";
 
 export const metadata: Metadata = {
@@ -24,7 +23,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en">
       <body>
         {children}
-        <AutomationRuntime />
         <KretivOSToolsNav />
         <AttendanceTestSession />
       </body>

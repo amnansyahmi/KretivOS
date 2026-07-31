@@ -824,28 +824,28 @@ Invoice marked paid
 
 Current working capabilities include:
 
-- Add, edit and delete automation definitions
+- Neon-backed automation definitions, events, approvals, runs and notifications
+- Add, edit and delete custom automation definitions
 - Add and remove actions
 - Activate or pause
-- Manual run
-- Local execution history
+- Manual and daily scheduled runs
+- Server-side internal record actions with idempotency keys
+- Human approval before higher-risk recipes execute
+- Shared execution history and failure detail
 
 Current limitation:
 
-- Actions are simulated locally
-- Real integrations and background execution are not implemented
+- External connector actions are not implemented
+- Execution runs inside request/cron invocations rather than a durable worker queue
 
 Still required:
 
 - Durable job queue
 - Retry policy
-- Idempotency
-- Failure handling
 - Secrets management
-- Scheduled triggers
 - Webhook triggers
 - Real connector actions
-- Execution logs and alerts
+- Alert delivery outside KretivOS
 
 ---
 
@@ -873,8 +873,10 @@ Purpose:
 
 Current status:
 
-- Basic local approve interaction exists
-- Production approval policies, comments, signatures and audit records are not complete
+- Central Neon-backed inbox combines Sales, Settlement, HR, Automation, Brand DNA,
+  generated Documents and overdue Knowledge reviews
+- Decisions write back to the owning shared record and automation approvals execute server-side
+- Production role policies, comments and signatures are not complete
 
 ---
 
@@ -916,7 +918,7 @@ The following capabilities are interactive in the current PWA prototype:
 - Knowledge Markdown upload and editing
 - Knowledge search and filtering
 - Knowledge AI question flow
-- Automation definition CRUD and local runs
+- Automation definition CRUD, server runs, approval gates and daily scan
 - Template CRUD and Markdown document generation
 - Basic customer and business-record CRUD
 - CRM opportunity records
