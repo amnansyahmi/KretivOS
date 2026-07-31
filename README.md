@@ -344,6 +344,34 @@ and the receipt that clears it into the default bank account. Recording the
 receipt in the Payments screen instead lets the operator choose the account, and
 the Sales action skips anything already allocated there.
 
+### AI in the accounting workspace
+
+Two rules shape all of it:
+
+1. **The model never produces a figure that enters the books.** Amounts, totals,
+   variances and duplicate matches are computed in `lib/accounting-signals.ts`.
+   The model reads those and explains them.
+2. **The model never invents an account.** Classification is a choice from a
+   supplied list of real codes, and a reply outside that list is discarded
+   rather than created.
+
+A model asked to spot a duplicate payment will occasionally invent one, and an
+invented duplicate in a month-end review is worse than no review.
+
+| Feature | How it works |
+| --- | --- |
+| **Cost classification** | The keyword table answers instantly for suppliers Kretivco already uses. The model is consulted only when that misses, so a known vendor never waits on a network call and an unknown one still gets a suggestion the reviewer can change. |
+| **Month-end review** | Duplicates, spend spikes, missing recurring bills, uncategorised cost, stale receivables and unposted documents are all detected deterministically. The model ranks them and writes the plain-English summary. |
+| **Receipt reading** | Vision extraction, with every field re-parsed and confidence-scored before a human confirms it. |
+
+Detection is tested against the cases it is meant to catch *and* the ones it must
+not flag: a monthly retainer is not a duplicate, a first-ever month is not a
+spike, and a supplier who stopped six months ago is not a missing bill. Those
+false positives are what make a review get ignored.
+
+Every AI path degrades to a deterministic answer, so the review still lists the
+same items when the service is unavailable — it just describes them more plainly.
+
 ### What a complete accounting system still needs
 
 Present: chart of accounts with management, double-entry journal, bank and cash

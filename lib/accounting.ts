@@ -283,6 +283,8 @@ export type AccountBalance = {
   name: string;
   type: AccountType;
   subtype: string;
+  /** Role key, so callers can find an account without hardcoding its code. */
+  systemKey: string;
   debit: number;
   credit: number;
   /** Positive means "more of what this account normally holds". */
@@ -293,7 +295,7 @@ export type AccountBalance = {
 export async function accountBalances({ from, to }: { from?: string; to?: string } = {}): Promise<AccountBalance[]> {
   const sql = getDatabase();
   const rows = await sql`
-    select a.id, a.code, a.name, a.type, a.subtype,
+    select a.id, a.code, a.name, a.type, a.subtype, coalesce(a.system_key, '') as system_key,
            coalesce(sum(l.debit), 0) as debit,
            coalesce(sum(l.credit), 0) as credit
     from ledger_accounts a
@@ -303,7 +305,7 @@ export async function accountBalances({ from, to }: { from?: string; to?: string
       and (${to ?? null}::date is null or e.entry_date <= ${to ?? null}::date)
     where a.organization_id = ${ORGANIZATION_ID}
       and (l.id is null or e.id is not null)
-    group by a.id, a.code, a.name, a.type, a.subtype
+    group by a.id, a.code, a.name, a.type, a.subtype, a.system_key
     order by a.code
   `;
 
@@ -316,6 +318,7 @@ export async function accountBalances({ from, to }: { from?: string; to?: string
       name: row.name,
       type: row.type as AccountType,
       subtype: row.subtype,
+      systemKey: row.system_key,
       debit: fromCents(debit),
       credit: fromCents(credit),
       balance: fromCents(signedBalance(row.type as AccountType, debit, credit)),
