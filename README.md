@@ -257,6 +257,35 @@ Vercel calls `/api/automations/cron` daily at `00:15 UTC` (`08:15` Malaysia time
 to create non-duplicated reminders for overdue or upcoming records. Set
 `CRON_SECRET` in production if the route should reject unsigned manual calls.
 
+## HRMS concurrency
+
+The whole HR record set — employees, leave, claims, payroll, attendance, goals,
+learning and settings — lives in one `workspace_state` row. Both `/api/hr` and
+`/api/hr/attendance` write to it, across roughly a dozen paths.
+
+Those writes used to be unconditional:
+
+```sql
+do update set data = excluded.data, version = workspace_state.version + 1
+```
+
+The `version` column was read on load and ignored on save, which made every write
+a lost update. Two people clocking in at the same time both loaded v5; the second
+commit was built from a snapshot that predated the first, and silently erased it.
+No error, and nothing in the audit log.
+
+`lib/workspace-state.ts` now guards the write on the version it read and re-runs
+the mutation against fresh state when that guard fails. Because a mutation can
+run more than once, it must be free of side effects — notifications and audit
+entries are queued and flushed only after the state commits (`deferredEffects()`
+in `app/api/hr/route.ts`). Re-running also means balance and duplicate checks are
+decided against committed state rather than a stale read. After the retries are
+exhausted the request returns **409**, not 400: the write is valid, just contended.
+
+Neon's HTTP driver gives each query its own connection, so session-scoped
+`pg_advisory_lock` is not available; compare-and-swap is what works over that
+transport.
+
 ## Run locally
 
 ```bash
@@ -266,6 +295,15 @@ npm run dev
 
 Then open `http://localhost:3000`.
 
+```bash
+npm test        # node test runner, no framework
+npm run lint    # tsc --noEmit
+```
+
+`npm run lint` previously invoked `next lint`, which has no config in this repo
+and drops into an interactive setup prompt; it is now the type check that
+actually runs.
+
 ## Production foundation still required
 
 The commercial record set now runs on Neon PostgreSQL with audit-log writes. Before
@@ -274,11 +312,15 @@ using KretivOS as the company system of record, still connect:
 - Authentication and session handling outside `/hr`. HRMS routes already use
   opaque HTTP-only sessions, PIN hashes, role permissions and user-attributed audit logs;
   the remaining workspaces still need the same identity layer.
-- Object storage for files
 - Server-side document/PDF generation
 - Scheduled workers for Tuesday and monthly settlements
 - Live integrations for Google, GitHub, payment, marketplace and advertising platforms
-- Automated tests, linting and a deployment pipeline
+- Object storage for attendance photos and HR files. Both are stored as base64
+  data URLs in `assets.storage_url`, one row per file. They do not sit inside the
+  HR blob, so they neither bloat it nor affect the concurrency above — but a text
+  column is still the wrong home for binary.
+- Broader test coverage and a CI pipeline. `npm test` currently covers the
+  workspace-state concurrency logic only.
 - **Dark mode.** `tailwind.config.ts` sets `darkMode: ["class"]` and `globals.css`
   defines the HSL token set, but roughly 500 hardcoded hex values across the
   workspace pages bypass both. Converting them needs a per-usage decision rather

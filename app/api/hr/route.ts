@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { createPinCredential, HRAuthError, publicSession, requireHRSession, roleFromMetadata, type HRSession } from "@/lib/hr-auth";
+import { mutateWorkspaceState, WorkspaceConflictError } from "@/lib/workspace-state";
+import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -116,37 +118,19 @@ async function seedEmployees() {
   }
 }
 
-async function loadOperations() {
-  const sql = getDatabase();
-  const rows = await sql`
-    select data, version from workspace_state
-    where organization_id = ${ORGANIZATION_ID} and scope = ${SCOPE}
-    limit 1
-  `;
-  if (rows.length) {
-    const data = { ...defaultOperations, ...object(rows[0].data) };
-    data.settings = { ...defaultOperations.settings, ...object(data.settings) };
-    return { data, version: Number(rows[0].version || 1) };
-  }
+const operationsStore = neonWorkspaceStore<Record<string, any>>(SCOPE);
 
-  const created = await sql`
-    insert into workspace_state (organization_id, scope, version, data)
-    values (${ORGANIZATION_ID}, ${SCOPE}, 1, ${JSON.stringify(defaultOperations)}::jsonb)
-    returning data, version
-  `;
-  return { data: created[0].data, version: Number(created[0].version) };
+/** Fills in defaults the stored blob may predate, without writing them back. */
+function withDefaults(data: Record<string, any>): Record<string, any> {
+  const next = { ...defaultOperations, ...object(data) };
+  next.settings = { ...defaultOperations.settings, ...object(next.settings) };
+  return next;
 }
 
-async function saveOperations(data: Record<string, any>) {
-  const sql = getDatabase();
-  const rows = await sql`
-    insert into workspace_state (organization_id, scope, version, data)
-    values (${ORGANIZATION_ID}, ${SCOPE}, 1, ${JSON.stringify(data)}::jsonb)
-    on conflict (organization_id, scope)
-    do update set data = excluded.data, version = workspace_state.version + 1, updated_at = now()
-    returning version
-  `;
-  return Number(rows[0].version);
+/** Read-only load, for the snapshot the GET/POST responses return. */
+async function loadOperations() {
+  const snapshot = (await operationsStore.load()) ?? (await operationsStore.create({ ...defaultOperations }));
+  return { data: withDefaults(snapshot.data), version: snapshot.version };
 }
 
 async function audit(action: string, entityType: string, entityId: string | null, afterData?: unknown, userId?: string) {
@@ -171,6 +155,33 @@ async function notify(title: string, body: string, entityType: string, entityId:
       values (${ORGANIZATION_ID}, ${userId || null}, ${title}, ${body}, 'hr', 'Unread', ${entityType}, ${entityId})
     `;
   } catch {}
+}
+
+/**
+ * Queues the write-side effects of a state mutation.
+ *
+ * A mutation passed to `mutateWorkspaceState` can be executed more than once
+ * when another request commits first, so it must not notify or audit directly —
+ * a retried leave request would otherwise send two notifications and write two
+ * audit entries. Effects are collected here and flushed once, after the state
+ * has actually committed. A mutation that throws flushes nothing, which also
+ * fixes the older bug where validation failing *after* `notify()` left a stray
+ * notification for a request that was rejected.
+ */
+function deferredEffects() {
+  let audits: Parameters<typeof audit>[] = [];
+  let notifications: Parameters<typeof notify>[] = [];
+
+  return {
+    audit: (...args: Parameters<typeof audit>) => { audits.push(args); },
+    notify: (...args: Parameters<typeof notify>) => { notifications.push(args); },
+    /** Called at the start of every attempt so a discarded attempt leaves nothing behind. */
+    reset() { audits = []; notifications = []; },
+    async flush() {
+      for (const args of audits) await audit(...args);
+      for (const args of notifications) await notify(...args);
+    },
+  };
 }
 
 function scopedSnapshot(value: Record<string, any>, session: HRSession) {
@@ -390,247 +401,252 @@ export async function POST(request: NextRequest) {
         requireRole(session, ["hr_admin"]);
         if (id === session.userId) throw new HRAuthError("You cannot delete your active administrator account.", 400);
         await sql`delete from users where id = ${id} and organization_id = ${ORGANIZATION_ID}`;
-        const operations = await loadOperations();
-        const next = { ...operations.data };
-        for (const key of ["leaveRequests", "attendance", "attendanceCorrections", "goals", "learning", "claims", "payroll", "lifecycle"]) next[key] = array(next[key]).filter((item: any) => item.employeeId !== id);
-        next.documents = array(next.documents).map((item: any) => item.employeeId === id ? { ...item, employeeId: "" } : item);
-        await saveOperations(next);
+        await mutateWorkspaceState(operationsStore, () => ({ ...defaultOperations }), (next) => {
+          for (const key of ["leaveRequests", "attendance", "attendanceCorrections", "goals", "learning", "claims", "payroll", "lifecycle"]) next[key] = array(next[key]).filter((item: any) => item.employeeId !== id);
+          next.documents = array(next.documents).map((item: any) => item.employeeId === id ? { ...item, employeeId: "" } : item);
+        });
         await audit("hr.employee.deleted", "employee", id, undefined, session.userId);
       } else throw new Error("Unsupported employee operation.");
       return NextResponse.json(await snapshot(session));
     }
 
-    const operations = await loadOperations();
-    const state = operations.data;
+    const defer = deferredEffects();
+    // Re-run against fresh state if anyone commits first. Everything inside is
+    // side-effect free: notifications and audits are queued, and the read-only
+    // `select users` lookups are safe to repeat.
+    await mutateWorkspaceState(operationsStore, () => ({ ...defaultOperations }), async (raw) => {
+      defer.reset();
+      // `state` must BE the stored object, not a copy: the branches below rebind
+      // whole collections (`state.leaveRequests = [...]`) rather than mutating
+      // them, so a copy would take the writes and the committed blob would not.
+      const state = Object.assign(raw, withDefaults(raw));
 
-    if (resource === "settings") {
-      requireRole(session, ["hr_admin"]);
-      if (operation !== "update") throw new Error("Unsupported HR settings operation.");
-      const uniqueList = (value: unknown, fallback: string[]) => {
-        const values = array(value).map(clean).filter(Boolean).slice(0, 50);
-        return values.length ? Array.from(new Set(values)) : fallback;
+      if (resource === "settings") {
+        requireRole(session, ["hr_admin"]);
+        if (operation !== "update") throw new Error("Unsupported HR settings operation.");
+        const uniqueList = (value: unknown, fallback: string[]) => {
+          const values = array(value).map(clean).filter(Boolean).slice(0, 50);
+          return values.length ? Array.from(new Set(values)) : fallback;
+        };
+        const attendance = object(data.attendance);
+        const leavePolicy = object(data.leavePolicy);
+        state.settings = {
+          ...object(state.settings),
+          departments: uniqueList(data.departments, defaultOperations.settings.departments),
+          leaveTypes: uniqueList(data.leaveTypes, defaultOperations.settings.leaveTypes),
+          workModes: uniqueList(data.workModes, defaultOperations.settings.workModes),
+          attendance: {
+            timezone: clean(attendance.timezone) || "Asia/Kuala_Lumpur",
+            shiftStart: /^\d{2}:\d{2}$/.test(clean(attendance.shiftStart)) ? clean(attendance.shiftStart) : "09:00",
+            shiftEnd: /^\d{2}:\d{2}$/.test(clean(attendance.shiftEnd)) ? clean(attendance.shiftEnd) : "18:00",
+            graceMinutes: Math.max(0, Math.min(180, number(attendance.graceMinutes))),
+            overtimeAfterMinutes: Math.max(60, Math.min(1440, number(attendance.overtimeAfterMinutes || 540))),
+          },
+          leavePolicy: {
+            annualAccrual: ["annual", "monthly"].includes(clean(leavePolicy.annualAccrual)) ? clean(leavePolicy.annualAccrual) : "annual",
+            carryForwardDays: Math.max(0, Math.min(30, number(leavePolicy.carryForwardDays))),
+            carryForwardExpiryMonth: Math.max(1, Math.min(12, number(leavePolicy.carryForwardExpiryMonth || 3))),
+            prorateNewJoiner: bool(leavePolicy.prorateNewJoiner),
+          },
+          publicHolidays: array(data.publicHolidays).map((item: any) => ({ date: clean(item.date), name: clean(item.name) })).filter((item: any) => item.date && item.name).slice(0, 100),
+          statutoryProfiles: array(data.statutoryProfiles).map((item: any) => ({
+            id: clean(item.id) || randomUUID(), name: clean(item.name), effectiveFrom: clean(item.effectiveFrom),
+            epfEmployeeRate: number(item.epfEmployeeRate), epfEmployerRate: number(item.epfEmployerRate),
+            eisEmployeeRate: number(item.eisEmployeeRate), eisEmployerRate: number(item.eisEmployerRate), notes: clean(item.notes),
+          })).filter((item: any) => item.name && item.effectiveFrom).slice(0, 20),
+        };
+        defer.audit("hr.settings.updated", "hr_settings", ORGANIZATION_ID, state.settings, session.userId);
+        return NextResponse.json(await snapshot(session));
+      }
+
+      const keyMap: Record<string, string> = {
+        leave: "leaveRequests", attendance: "attendance", attendance_corrections: "attendanceCorrections",
+        goals: "goals", learning: "learning", documents: "documents", claims: "claims", payroll: "payroll", lifecycle: "lifecycle",
       };
-      const attendance = object(data.attendance);
-      const leavePolicy = object(data.leavePolicy);
-      state.settings = {
-        ...object(state.settings),
-        departments: uniqueList(data.departments, defaultOperations.settings.departments),
-        leaveTypes: uniqueList(data.leaveTypes, defaultOperations.settings.leaveTypes),
-        workModes: uniqueList(data.workModes, defaultOperations.settings.workModes),
-        attendance: {
-          timezone: clean(attendance.timezone) || "Asia/Kuala_Lumpur",
-          shiftStart: /^\d{2}:\d{2}$/.test(clean(attendance.shiftStart)) ? clean(attendance.shiftStart) : "09:00",
-          shiftEnd: /^\d{2}:\d{2}$/.test(clean(attendance.shiftEnd)) ? clean(attendance.shiftEnd) : "18:00",
-          graceMinutes: Math.max(0, Math.min(180, number(attendance.graceMinutes))),
-          overtimeAfterMinutes: Math.max(60, Math.min(1440, number(attendance.overtimeAfterMinutes || 540))),
-        },
-        leavePolicy: {
-          annualAccrual: ["annual", "monthly"].includes(clean(leavePolicy.annualAccrual)) ? clean(leavePolicy.annualAccrual) : "annual",
-          carryForwardDays: Math.max(0, Math.min(30, number(leavePolicy.carryForwardDays))),
-          carryForwardExpiryMonth: Math.max(1, Math.min(12, number(leavePolicy.carryForwardExpiryMonth || 3))),
-          prorateNewJoiner: bool(leavePolicy.prorateNewJoiner),
-        },
-        publicHolidays: array(data.publicHolidays).map((item: any) => ({ date: clean(item.date), name: clean(item.name) })).filter((item: any) => item.date && item.name).slice(0, 100),
-        statutoryProfiles: array(data.statutoryProfiles).map((item: any) => ({
-          id: clean(item.id) || randomUUID(), name: clean(item.name), effectiveFrom: clean(item.effectiveFrom),
-          epfEmployeeRate: number(item.epfEmployeeRate), epfEmployerRate: number(item.epfEmployerRate),
-          eisEmployeeRate: number(item.eisEmployeeRate), eisEmployerRate: number(item.eisEmployerRate), notes: clean(item.notes),
-        })).filter((item: any) => item.name && item.effectiveFrom).slice(0, 20),
-      };
-      await saveOperations(state);
-      await audit("hr.settings.updated", "hr_settings", ORGANIZATION_ID, state.settings, session.userId);
-      return NextResponse.json(await snapshot(session));
-    }
+      const key = keyMap[resource];
+      if (!key) throw new Error("Unsupported HR resource.");
+      const list = array(state[key]);
+      const existing = list.find((item: any) => item.id === id);
+      const managers = ["hr_admin", "manager"].includes(session.role);
+      const payrollUsers = ["hr_admin", "finance"].includes(session.role);
 
-    const keyMap: Record<string, string> = {
-      leave: "leaveRequests", attendance: "attendance", attendance_corrections: "attendanceCorrections",
-      goals: "goals", learning: "learning", documents: "documents", claims: "claims", payroll: "payroll", lifecycle: "lifecycle",
-    };
-    const key = keyMap[resource];
-    if (!key) throw new Error("Unsupported HR resource.");
-    const list = array(state[key]);
-    const existing = list.find((item: any) => item.id === id);
-    const managers = ["hr_admin", "manager"].includes(session.role);
-    const payrollUsers = ["hr_admin", "finance"].includes(session.role);
-
-    if (operation === "create") {
-      if (["documents", "attendance"].includes(resource)) requireRole(session, ["hr_admin"]);
-      if (["goals", "learning", "lifecycle"].includes(resource)) requireRole(session, ["hr_admin", "manager"]);
-      if (resource === "payroll") requireRole(session, ["hr_admin", "finance"]);
-      const recordId = clean(data.id) || randomUUID();
-      const employeeId = session.role === "employee" ? session.userId : clean(data.employeeId);
-      let record: any = { ...data, employeeId, id: recordId, createdBy: session.userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-      if (resource === "leave") {
-        const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-        const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));
-        record = { ...record, type: clean(data.type) || "Annual Leave", startDate: clean(data.startDate), endDate: clean(data.endDate), days: data.halfDay ? 0.5 : dates.length, halfDay: bool(data.halfDay), status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
-        if (!employeeId || !record.startDate || !record.endDate || record.days <= 0) throw new Error("Employee and valid leave dates are required.");
-        if (record.endDate < record.startDate) throw new Error("Leave end date cannot be before the start date.");
-        if (record.halfDay && record.startDate !== record.endDate) throw new Error("Half-day leave must use the same start and end date.");
-        if (["Annual Leave", "Medical Leave"].includes(record.type)) {
-          const employeeRows = await sql`select * from users where id = ${employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
+      if (operation === "create") {
+        if (["documents", "attendance"].includes(resource)) requireRole(session, ["hr_admin"]);
+        if (["goals", "learning", "lifecycle"].includes(resource)) requireRole(session, ["hr_admin", "manager"]);
+        if (resource === "payroll") requireRole(session, ["hr_admin", "finance"]);
+        const recordId = clean(data.id) || randomUUID();
+        const employeeId = session.role === "employee" ? session.userId : clean(data.employeeId);
+        let record: any = { ...data, employeeId, id: recordId, createdBy: session.userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        if (resource === "leave") {
+          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
+          const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));
+          record = { ...record, type: clean(data.type) || "Annual Leave", startDate: clean(data.startDate), endDate: clean(data.endDate), days: data.halfDay ? 0.5 : dates.length, halfDay: bool(data.halfDay), status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
+          if (!employeeId || !record.startDate || !record.endDate || record.days <= 0) throw new Error("Employee and valid leave dates are required.");
+          if (record.endDate < record.startDate) throw new Error("Leave end date cannot be before the start date.");
+          if (record.halfDay && record.startDate !== record.endDate) throw new Error("Half-day leave must use the same start and end date.");
+          if (["Annual Leave", "Medical Leave"].includes(record.type)) {
+            const employeeRows = await sql`select * from users where id = ${employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
+            if (!employeeRows.length) throw new Error("Employee was not found.");
+            const employee = mapEmployee(employeeRows[0]);
+            const policy = { ...defaultOperations.settings.leavePolicy, ...object(state.settings?.leavePolicy) };
+            const year = Number(record.startDate.slice(0, 4));
+            const requestMonth = Number(record.startDate.slice(5, 7));
+            let entitlement = record.type === "Annual Leave" ? employee.annualLeaveBalance : employee.medicalLeaveBalance;
+            if (record.type === "Annual Leave" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
+              const joinMonth = Number(employee.startDate.slice(5, 7));
+              entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
+            }
+            if (record.type === "Annual Leave" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
+            if (record.type === "Annual Leave" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
+            const committed = array(state.leaveRequests).filter((item: any) => item.employeeId === employeeId && item.type === record.type && clean(item.startDate).startsWith(String(year)) && ["Pending", "Approved"].includes(item.status)).reduce((sum: number, item: any) => sum + number(item.days), 0);
+            const available = Math.max(0, entitlement - committed);
+            if (record.days > available) throw new Error(`${record.type} balance is insufficient. Available: ${available} day(s).`);
+            record.entitlementAtRequest = entitlement;
+            record.balanceAfterRequest = Math.max(0, available - record.days);
+          }
+          defer.notify("New leave request", `${record.type} request requires review.`, "hr_leave", recordId);
+        } else if (resource === "claims") {
+          record = { ...record, claimDate: clean(data.claimDate), category: clean(data.category) || "General", amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), status: "Pending", financeStatus: "Unpaid", approverNote: "" };
+          if (!employeeId || !record.claimDate || record.amount <= 0 || !record.description) throw new Error("Claim date, amount and description are required.");
+          defer.notify("New expense claim", `${record.category} claim requires review.`, "hr_claim", recordId);
+        } else if (resource === "payroll") {
+          record = { ...record, ...payrollRecord(data), status: "Draft", paidAt: null };
+          if (!record.employeeId || !record.period) throw new Error("Employee and payroll period are required.");
+          if (list.some((item: any) => item.employeeId === record.employeeId && item.period === record.period)) throw new Error("A payroll record already exists for this employee and period.");
+          defer.notify("Payroll draft created", `Payroll for ${record.period} is being prepared.`, "hr_payroll", recordId, employeeId);
+        } else if (resource === "lifecycle") {
+          record = { ...record, type: clean(data.type) || "Onboarding", title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || "Open", notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label) };
+          if (!employeeId || !record.title) throw new Error("Employee and lifecycle title are required.");
+          defer.notify("Employee lifecycle update", `${record.title} has been added with a due date of ${record.dueDate || "not set"}.`, "hr_lifecycle", recordId, employeeId);
+        } else if (resource === "attendance_corrections") {
+          record = { ...record, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), status: "Pending", reviewerNote: "" };
+          if (!employeeId || !record.date || !record.reason) throw new Error("Attendance date and correction reason are required.");
+          defer.notify("Attendance correction requested", `A correction for ${record.date} requires review.`, "hr_attendance_correction", recordId);
+        } else if (resource === "documents") {
+          record = { ...record, title: clean(data.title), category: clean(data.category) || "Policy", reference: clean(data.reference), expiryDate: clean(data.expiryDate), status: clean(data.status) || "Active", notes: clean(data.notes) };
+          if (!record.title) throw new Error("Document title is required.");
+        }
+        state[key] = [record, ...list];
+        defer.audit(`hr.${resource}.created`, `hr_${resource}`, recordId, record, session.userId);
+      } else if (operation === "update") {
+        if (!existing) throw new Error("HR record was not found.");
+        const ownerEditable = owns(existing, session) && ["leave", "claims", "attendance_corrections"].includes(resource) && ["Pending", "Rejected"].includes(existing.status);
+        const progressEditable = owns(existing, session) && ["goals", "learning"].includes(resource);
+        if (resource === "payroll" && !payrollUsers) throw new HRAuthError("Only HR Admin or Finance can update payroll.", 403);
+        if (resource === "documents") requireRole(session, ["hr_admin"]);
+        if (resource === "attendance") requireRole(session, ["hr_admin"]);
+        if (resource === "lifecycle" && !managers) throw new HRAuthError("Only HR Admin or Manager can update lifecycle records.", 403);
+        if (!["payroll", "documents", "attendance", "lifecycle"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
+        const now = new Date().toISOString();
+        let updated: any;
+        if (resource === "payroll") updated = { ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now };
+        else if (resource === "leave") {
+          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
+          const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));
+          const days = bool(data.halfDay) ? 0.5 : dates.length;
+          if (!clean(data.startDate) || !clean(data.endDate) || clean(data.endDate) < clean(data.startDate) || days <= 0) throw new Error("Valid leave dates are required.");
+          if (bool(data.halfDay) && clean(data.startDate) !== clean(data.endDate)) throw new Error("Half-day leave must use the same start and end date.");
+          updated = { ...existing, type: clean(data.type) || existing.type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
+        } else if (resource === "claims") updated = { ...existing, claimDate: clean(data.claimDate), category: clean(data.category) || existing.category, amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), id, updatedAt: now };
+        else if (resource === "attendance_corrections") updated = { ...existing, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), id, updatedAt: now };
+        else if (resource === "lifecycle") updated = { ...existing, type: clean(data.type) || existing.type, title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || existing.status, notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label), id, updatedAt: now };
+        else if (resource === "documents") updated = { ...existing, title: clean(data.title), category: clean(data.category) || existing.category, employeeId: clean(data.employeeId), reference: clean(data.reference), expiryDate: clean(data.expiryDate), status: clean(data.status) || existing.status, notes: clean(data.notes), assetId: clean(data.assetId), id, updatedAt: now };
+        else updated = { ...existing, ...data, id, employeeId: existing.employeeId, updatedAt: now };
+        if (resource === "leave" && ["Annual Leave", "Medical Leave"].includes(updated.type)) {
+          const employeeRows = await sql`select * from users where id = ${existing.employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
           if (!employeeRows.length) throw new Error("Employee was not found.");
           const employee = mapEmployee(employeeRows[0]);
           const policy = { ...defaultOperations.settings.leavePolicy, ...object(state.settings?.leavePolicy) };
-          const year = Number(record.startDate.slice(0, 4));
-          const requestMonth = Number(record.startDate.slice(5, 7));
-          let entitlement = record.type === "Annual Leave" ? employee.annualLeaveBalance : employee.medicalLeaveBalance;
-          if (record.type === "Annual Leave" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
+          const year = Number(updated.startDate.slice(0, 4));
+          const requestMonth = Number(updated.startDate.slice(5, 7));
+          let entitlement = updated.type === "Annual Leave" ? employee.annualLeaveBalance : employee.medicalLeaveBalance;
+          if (updated.type === "Annual Leave" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
             const joinMonth = Number(employee.startDate.slice(5, 7));
             entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
           }
-          if (record.type === "Annual Leave" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
-          if (record.type === "Annual Leave" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
-          const committed = array(state.leaveRequests).filter((item: any) => item.employeeId === employeeId && item.type === record.type && clean(item.startDate).startsWith(String(year)) && ["Pending", "Approved"].includes(item.status)).reduce((sum: number, item: any) => sum + number(item.days), 0);
+          if (updated.type === "Annual Leave" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
+          if (updated.type === "Annual Leave" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
+          const committed = array(state.leaveRequests).filter((item: any) => item.id !== id && item.employeeId === existing.employeeId && item.type === updated.type && clean(item.startDate).startsWith(String(year)) && ["Pending", "Approved"].includes(item.status)).reduce((sum: number, item: any) => sum + number(item.days), 0);
           const available = Math.max(0, entitlement - committed);
-          if (record.days > available) throw new Error(`${record.type} balance is insufficient. Available: ${available} day(s).`);
-          record.entitlementAtRequest = entitlement;
-          record.balanceAfterRequest = Math.max(0, available - record.days);
+          if (updated.days > available) throw new Error(`${updated.type} balance is insufficient. Available: ${available} day(s).`);
+          updated.entitlementAtRequest = entitlement;
+          updated.balanceAfterRequest = Math.max(0, available - updated.days);
         }
-        await notify("New leave request", `${record.type} request requires review.`, "hr_leave", recordId);
-      } else if (resource === "claims") {
-        record = { ...record, claimDate: clean(data.claimDate), category: clean(data.category) || "General", amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), status: "Pending", financeStatus: "Unpaid", approverNote: "" };
-        if (!employeeId || !record.claimDate || record.amount <= 0 || !record.description) throw new Error("Claim date, amount and description are required.");
-        await notify("New expense claim", `${record.category} claim requires review.`, "hr_claim", recordId);
-      } else if (resource === "payroll") {
-        record = { ...record, ...payrollRecord(data), status: "Draft", paidAt: null };
-        if (!record.employeeId || !record.period) throw new Error("Employee and payroll period are required.");
-        if (list.some((item: any) => item.employeeId === record.employeeId && item.period === record.period)) throw new Error("A payroll record already exists for this employee and period.");
-        await notify("Payroll draft created", `Payroll for ${record.period} is being prepared.`, "hr_payroll", recordId, employeeId);
-      } else if (resource === "lifecycle") {
-        record = { ...record, type: clean(data.type) || "Onboarding", title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || "Open", notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label) };
-        if (!employeeId || !record.title) throw new Error("Employee and lifecycle title are required.");
-        await notify("Employee lifecycle update", `${record.title} has been added with a due date of ${record.dueDate || "not set"}.`, "hr_lifecycle", recordId, employeeId);
-      } else if (resource === "attendance_corrections") {
-        record = { ...record, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), status: "Pending", reviewerNote: "" };
-        if (!employeeId || !record.date || !record.reason) throw new Error("Attendance date and correction reason are required.");
-        await notify("Attendance correction requested", `A correction for ${record.date} requires review.`, "hr_attendance_correction", recordId);
-      } else if (resource === "documents") {
-        record = { ...record, title: clean(data.title), category: clean(data.category) || "Policy", reference: clean(data.reference), expiryDate: clean(data.expiryDate), status: clean(data.status) || "Active", notes: clean(data.notes) };
-        if (!record.title) throw new Error("Document title is required.");
-      }
-      state[key] = [record, ...list];
-      await saveOperations(state);
-      await audit(`hr.${resource}.created`, `hr_${resource}`, recordId, record, session.userId);
-    } else if (operation === "update") {
-      if (!existing) throw new Error("HR record was not found.");
-      const ownerEditable = owns(existing, session) && ["leave", "claims", "attendance_corrections"].includes(resource) && ["Pending", "Rejected"].includes(existing.status);
-      const progressEditable = owns(existing, session) && ["goals", "learning"].includes(resource);
-      if (resource === "payroll" && !payrollUsers) throw new HRAuthError("Only HR Admin or Finance can update payroll.", 403);
-      if (resource === "documents") requireRole(session, ["hr_admin"]);
-      if (resource === "attendance") requireRole(session, ["hr_admin"]);
-      if (resource === "lifecycle" && !managers) throw new HRAuthError("Only HR Admin or Manager can update lifecycle records.", 403);
-      if (!["payroll", "documents", "attendance", "lifecycle"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
-      const now = new Date().toISOString();
-      let updated: any;
-      if (resource === "payroll") updated = { ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now };
-      else if (resource === "leave") {
-        const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-        const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));
-        const days = bool(data.halfDay) ? 0.5 : dates.length;
-        if (!clean(data.startDate) || !clean(data.endDate) || clean(data.endDate) < clean(data.startDate) || days <= 0) throw new Error("Valid leave dates are required.");
-        if (bool(data.halfDay) && clean(data.startDate) !== clean(data.endDate)) throw new Error("Half-day leave must use the same start and end date.");
-        updated = { ...existing, type: clean(data.type) || existing.type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
-      } else if (resource === "claims") updated = { ...existing, claimDate: clean(data.claimDate), category: clean(data.category) || existing.category, amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), id, updatedAt: now };
-      else if (resource === "attendance_corrections") updated = { ...existing, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), id, updatedAt: now };
-      else if (resource === "lifecycle") updated = { ...existing, type: clean(data.type) || existing.type, title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || existing.status, notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label), id, updatedAt: now };
-      else if (resource === "documents") updated = { ...existing, title: clean(data.title), category: clean(data.category) || existing.category, employeeId: clean(data.employeeId), reference: clean(data.reference), expiryDate: clean(data.expiryDate), status: clean(data.status) || existing.status, notes: clean(data.notes), assetId: clean(data.assetId), id, updatedAt: now };
-      else updated = { ...existing, ...data, id, employeeId: existing.employeeId, updatedAt: now };
-      if (resource === "leave" && ["Annual Leave", "Medical Leave"].includes(updated.type)) {
-        const employeeRows = await sql`select * from users where id = ${existing.employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
-        if (!employeeRows.length) throw new Error("Employee was not found.");
-        const employee = mapEmployee(employeeRows[0]);
-        const policy = { ...defaultOperations.settings.leavePolicy, ...object(state.settings?.leavePolicy) };
-        const year = Number(updated.startDate.slice(0, 4));
-        const requestMonth = Number(updated.startDate.slice(5, 7));
-        let entitlement = updated.type === "Annual Leave" ? employee.annualLeaveBalance : employee.medicalLeaveBalance;
-        if (updated.type === "Annual Leave" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
-          const joinMonth = Number(employee.startDate.slice(5, 7));
-          entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
+        state[key] = list.map((item: any) => item.id === id ? updated : item);
+        defer.audit(`hr.${resource}.updated`, `hr_${resource}`, id, updated, session.userId);
+      } else if (operation === "delete") {
+        if (!existing) throw new Error("HR record was not found.");
+        const ownerDraft = owns(existing, session) && ["leave", "claims", "attendance_corrections"].includes(resource) && ["Pending", "Rejected"].includes(existing.status);
+        const managerOwnedResource = session.role === "manager" && ["goals", "learning", "lifecycle"].includes(resource);
+        if (session.role !== "hr_admin" && !ownerDraft && !managerOwnedResource) throw new HRAuthError("You cannot delete this HR record.", 403);
+        state[key] = list.filter((item: any) => item.id !== id);
+        defer.audit(`hr.${resource}.deleted`, `hr_${resource}`, id, undefined, session.userId);
+      } else if (operation === "action" && resource === "leave") {
+        if (!existing) throw new Error("Leave request was not found.");
+        if (action === "cancel") {
+          if (!owns(existing, session) && session.role !== "hr_admin") throw new HRAuthError("Only the requester or HR Admin can cancel leave.", 403);
+        } else requireRole(session, ["hr_admin", "manager"]);
+        if (!["approve", "reject", "cancel"].includes(action)) throw new Error("Unsupported leave action.");
+        if (["approve", "reject"].includes(action) && existing.status !== "Pending") throw new Error("Only pending leave can be approved or rejected.");
+        if (action === "cancel" && !["Pending", "Approved"].includes(existing.status)) throw new Error("Only pending or approved leave can be cancelled.");
+        const status = action === "approve" ? "Approved" : action === "reject" ? "Rejected" : "Cancelled";
+        const updated = { ...existing, status, approverId: session.userId, approverNote: clean(data.approverNote), updatedAt: new Date().toISOString() };
+        state.leaveRequests = list.map((item: any) => item.id === id ? updated : item);
+        if (action === "approve") {
+          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
+          const generated = leaveDates(existing.startDate, existing.endDate).filter((date) => !holidays.has(date)).map((date) => ({ id: `leave-${id}-${date}`, employeeId: existing.employeeId, date, status: "Leave", checkIn: "", checkOut: "", note: `${existing.type}${existing.halfDay ? " (half day)" : ""} · generated from approved leave`, sourceId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+          const generatedIds = new Set(generated.map((item) => item.id));
+          state.attendance = [...generated, ...array(state.attendance).filter((item: any) => !generatedIds.has(item.id))];
+        } else state.attendance = array(state.attendance).filter((item: any) => item.sourceId !== id);
+        defer.audit(`hr.leave.${action}d`, "hr_leave", id, updated, session.userId);
+        defer.notify(`Leave ${status.toLowerCase()}`, `${existing.type} request is now ${status.toLowerCase()}.`, "hr_leave", id, existing.employeeId);
+      } else if (operation === "action" && resource === "claims") {
+        if (!existing) throw new Error("Claim was not found.");
+        if (["approve", "reject"].includes(action)) requireRole(session, ["hr_admin", "manager"]);
+        if (action === "mark_paid") requireRole(session, ["hr_admin", "finance"]);
+        if (!["approve", "reject", "mark_paid"].includes(action)) throw new Error("Unsupported claim action.");
+        if (["approve", "reject"].includes(action) && existing.status !== "Pending") throw new Error("Only pending claims can be approved or rejected.");
+        if (action === "mark_paid" && (existing.status !== "Approved" || existing.financeStatus === "Paid")) throw new Error("Only an approved unpaid claim can be marked paid.");
+        const updated = { ...existing, status: action === "approve" ? "Approved" : action === "reject" ? "Rejected" : existing.status, financeStatus: action === "mark_paid" ? "Paid" : existing.financeStatus, approverId: ["approve", "reject"].includes(action) ? session.userId : existing.approverId, paidAt: action === "mark_paid" ? new Date().toISOString() : existing.paidAt, approverNote: clean(data.approverNote || existing.approverNote), updatedAt: new Date().toISOString() };
+        state.claims = list.map((item: any) => item.id === id ? updated : item);
+        defer.audit(`hr.claim.${action}`, "hr_claim", id, updated, session.userId);
+        defer.notify(action === "mark_paid" ? "Claim paid" : `Claim ${updated.status.toLowerCase()}`, `${existing.category} claim is now ${action === "mark_paid" ? "paid" : updated.status.toLowerCase()}.`, "hr_claim", id, existing.employeeId);
+      } else if (operation === "action" && resource === "attendance_corrections") {
+        requireRole(session, ["hr_admin", "manager"]);
+        if (!existing) throw new Error("Attendance correction was not found.");
+        if (!["approve", "reject"].includes(action)) throw new Error("Unsupported correction action.");
+        if (existing.status !== "Pending") throw new Error("Only pending correction requests can be reviewed.");
+        const updated = { ...existing, status: action === "approve" ? "Approved" : "Rejected", reviewerId: session.userId, reviewerNote: clean(data.reviewerNote), updatedAt: new Date().toISOString() };
+        state.attendanceCorrections = list.map((item: any) => item.id === id ? updated : item);
+        if (action === "approve") {
+          state.attendance = array(state.attendance).map((item: any) => item.id === existing.attendanceId || (item.employeeId === existing.employeeId && item.date === existing.date) ? { ...item, checkIn: existing.requestedCheckIn || item.checkIn, checkOut: existing.requestedCheckOut || item.checkOut, correctionId: id, correctedBy: session.userId, correctedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : item);
         }
-        if (updated.type === "Annual Leave" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
-        if (updated.type === "Annual Leave" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
-        const committed = array(state.leaveRequests).filter((item: any) => item.id !== id && item.employeeId === existing.employeeId && item.type === updated.type && clean(item.startDate).startsWith(String(year)) && ["Pending", "Approved"].includes(item.status)).reduce((sum: number, item: any) => sum + number(item.days), 0);
-        const available = Math.max(0, entitlement - committed);
-        if (updated.days > available) throw new Error(`${updated.type} balance is insufficient. Available: ${available} day(s).`);
-        updated.entitlementAtRequest = entitlement;
-        updated.balanceAfterRequest = Math.max(0, available - updated.days);
-      }
-      state[key] = list.map((item: any) => item.id === id ? updated : item);
-      await saveOperations(state);
-      await audit(`hr.${resource}.updated`, `hr_${resource}`, id, updated, session.userId);
-    } else if (operation === "delete") {
-      if (!existing) throw new Error("HR record was not found.");
-      const ownerDraft = owns(existing, session) && ["leave", "claims", "attendance_corrections"].includes(resource) && ["Pending", "Rejected"].includes(existing.status);
-      const managerOwnedResource = session.role === "manager" && ["goals", "learning", "lifecycle"].includes(resource);
-      if (session.role !== "hr_admin" && !ownerDraft && !managerOwnedResource) throw new HRAuthError("You cannot delete this HR record.", 403);
-      state[key] = list.filter((item: any) => item.id !== id);
-      await saveOperations(state);
-      await audit(`hr.${resource}.deleted`, `hr_${resource}`, id, undefined, session.userId);
-    } else if (operation === "action" && resource === "leave") {
-      if (!existing) throw new Error("Leave request was not found.");
-      if (action === "cancel") {
-        if (!owns(existing, session) && session.role !== "hr_admin") throw new HRAuthError("Only the requester or HR Admin can cancel leave.", 403);
-      } else requireRole(session, ["hr_admin", "manager"]);
-      if (!["approve", "reject", "cancel"].includes(action)) throw new Error("Unsupported leave action.");
-      if (["approve", "reject"].includes(action) && existing.status !== "Pending") throw new Error("Only pending leave can be approved or rejected.");
-      if (action === "cancel" && !["Pending", "Approved"].includes(existing.status)) throw new Error("Only pending or approved leave can be cancelled.");
-      const status = action === "approve" ? "Approved" : action === "reject" ? "Rejected" : "Cancelled";
-      const updated = { ...existing, status, approverId: session.userId, approverNote: clean(data.approverNote), updatedAt: new Date().toISOString() };
-      state.leaveRequests = list.map((item: any) => item.id === id ? updated : item);
-      if (action === "approve") {
-        const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-        const generated = leaveDates(existing.startDate, existing.endDate).filter((date) => !holidays.has(date)).map((date) => ({ id: `leave-${id}-${date}`, employeeId: existing.employeeId, date, status: "Leave", checkIn: "", checkOut: "", note: `${existing.type}${existing.halfDay ? " (half day)" : ""} · generated from approved leave`, sourceId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
-        const generatedIds = new Set(generated.map((item) => item.id));
-        state.attendance = [...generated, ...array(state.attendance).filter((item: any) => !generatedIds.has(item.id))];
-      } else state.attendance = array(state.attendance).filter((item: any) => item.sourceId !== id);
-      await saveOperations(state);
-      await audit(`hr.leave.${action}d`, "hr_leave", id, updated, session.userId);
-      await notify(`Leave ${status.toLowerCase()}`, `${existing.type} request is now ${status.toLowerCase()}.`, "hr_leave", id, existing.employeeId);
-    } else if (operation === "action" && resource === "claims") {
-      if (!existing) throw new Error("Claim was not found.");
-      if (["approve", "reject"].includes(action)) requireRole(session, ["hr_admin", "manager"]);
-      if (action === "mark_paid") requireRole(session, ["hr_admin", "finance"]);
-      if (!["approve", "reject", "mark_paid"].includes(action)) throw new Error("Unsupported claim action.");
-      if (["approve", "reject"].includes(action) && existing.status !== "Pending") throw new Error("Only pending claims can be approved or rejected.");
-      if (action === "mark_paid" && (existing.status !== "Approved" || existing.financeStatus === "Paid")) throw new Error("Only an approved unpaid claim can be marked paid.");
-      const updated = { ...existing, status: action === "approve" ? "Approved" : action === "reject" ? "Rejected" : existing.status, financeStatus: action === "mark_paid" ? "Paid" : existing.financeStatus, approverId: ["approve", "reject"].includes(action) ? session.userId : existing.approverId, paidAt: action === "mark_paid" ? new Date().toISOString() : existing.paidAt, approverNote: clean(data.approverNote || existing.approverNote), updatedAt: new Date().toISOString() };
-      state.claims = list.map((item: any) => item.id === id ? updated : item);
-      await saveOperations(state);
-      await audit(`hr.claim.${action}`, "hr_claim", id, updated, session.userId);
-      await notify(action === "mark_paid" ? "Claim paid" : `Claim ${updated.status.toLowerCase()}`, `${existing.category} claim is now ${action === "mark_paid" ? "paid" : updated.status.toLowerCase()}.`, "hr_claim", id, existing.employeeId);
-    } else if (operation === "action" && resource === "attendance_corrections") {
-      requireRole(session, ["hr_admin", "manager"]);
-      if (!existing) throw new Error("Attendance correction was not found.");
-      if (!["approve", "reject"].includes(action)) throw new Error("Unsupported correction action.");
-      if (existing.status !== "Pending") throw new Error("Only pending correction requests can be reviewed.");
-      const updated = { ...existing, status: action === "approve" ? "Approved" : "Rejected", reviewerId: session.userId, reviewerNote: clean(data.reviewerNote), updatedAt: new Date().toISOString() };
-      state.attendanceCorrections = list.map((item: any) => item.id === id ? updated : item);
-      if (action === "approve") {
-        state.attendance = array(state.attendance).map((item: any) => item.id === existing.attendanceId || (item.employeeId === existing.employeeId && item.date === existing.date) ? { ...item, checkIn: existing.requestedCheckIn || item.checkIn, checkOut: existing.requestedCheckOut || item.checkOut, correctionId: id, correctedBy: session.userId, correctedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : item);
-      }
-      await saveOperations(state);
-      await audit(`hr.attendance_correction.${action}d`, "hr_attendance_correction", id, updated, session.userId);
-      await notify(`Attendance correction ${updated.status.toLowerCase()}`, `Your correction request for ${existing.date} is now ${updated.status.toLowerCase()}.`, "hr_attendance_correction", id, existing.employeeId);
-    } else if (operation === "action" && resource === "payroll") {
-      requireRole(session, ["hr_admin", "finance"]);
-      if (!existing) throw new Error("Payroll record was not found.");
-      if (!["close", "reopen", "mark_paid"].includes(action)) throw new Error("Unsupported payroll action.");
-      if (action === "close" && existing.status !== "Draft") throw new Error("Only draft payroll can be closed.");
-      if (action === "close" && !clean(existing.verificationNote)) throw new Error("Add a statutory verification note before closing payroll.");
-      if (action === "mark_paid" && existing.status !== "Closed") throw new Error("Only closed payroll can be marked paid.");
-      if (action === "reopen" && !["Closed", "Paid"].includes(existing.status)) throw new Error("Only closed or paid payroll can be reopened.");
-      const updated = { ...existing, status: action === "close" ? "Closed" : action === "reopen" ? "Draft" : "Paid", paidAt: action === "mark_paid" ? new Date().toISOString() : existing.paidAt, updatedAt: new Date().toISOString() };
-      state.payroll = list.map((item: any) => item.id === id ? updated : item);
-      await saveOperations(state);
-      await audit(`hr.payroll.${action}`, "hr_payroll", id, updated, session.userId);
-      await notify(action === "mark_paid" ? "Payroll marked paid" : `Payroll ${updated.status.toLowerCase()}`, `Payroll for ${existing.period} is now ${updated.status.toLowerCase()}.`, "hr_payroll", id, existing.employeeId);
-    } else throw new Error("Unsupported HR operation.");
+        defer.audit(`hr.attendance_correction.${action}d`, "hr_attendance_correction", id, updated, session.userId);
+        defer.notify(`Attendance correction ${updated.status.toLowerCase()}`, `Your correction request for ${existing.date} is now ${updated.status.toLowerCase()}.`, "hr_attendance_correction", id, existing.employeeId);
+      } else if (operation === "action" && resource === "payroll") {
+        requireRole(session, ["hr_admin", "finance"]);
+        if (!existing) throw new Error("Payroll record was not found.");
+        if (!["close", "reopen", "mark_paid"].includes(action)) throw new Error("Unsupported payroll action.");
+        if (action === "close" && existing.status !== "Draft") throw new Error("Only draft payroll can be closed.");
+        if (action === "close" && !clean(existing.verificationNote)) throw new Error("Add a statutory verification note before closing payroll.");
+        if (action === "mark_paid" && existing.status !== "Closed") throw new Error("Only closed payroll can be marked paid.");
+        if (action === "reopen" && !["Closed", "Paid"].includes(existing.status)) throw new Error("Only closed or paid payroll can be reopened.");
+        const updated = { ...existing, status: action === "close" ? "Closed" : action === "reopen" ? "Draft" : "Paid", paidAt: action === "mark_paid" ? new Date().toISOString() : existing.paidAt, updatedAt: new Date().toISOString() };
+        state.payroll = list.map((item: any) => item.id === id ? updated : item);
+        defer.audit(`hr.payroll.${action}`, "hr_payroll", id, updated, session.userId);
+        defer.notify(action === "mark_paid" ? "Payroll marked paid" : `Payroll ${updated.status.toLowerCase()}`, `Payroll for ${existing.period} is now ${updated.status.toLowerCase()}.`, "hr_payroll", id, existing.employeeId);
+      } else throw new Error("Unsupported HR operation.");
+    });
+    await defer.flush();
 
     return NextResponse.json(await snapshot(session));
   } catch (error) {
     const message = error instanceof Error ? error.message : "HR operation failed.";
-    const status = error instanceof HRAuthError ? error.status : message.includes("not found") ? 404 : 400;
+    // A conflict means the write is still valid, just contended — 409 tells the
+    // client to retry rather than reporting the request as malformed.
+    const status = error instanceof HRAuthError ? error.status
+      : error instanceof WorkspaceConflictError ? 409
+        : message.includes("not found") ? 404 : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }
