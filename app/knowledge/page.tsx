@@ -69,6 +69,7 @@ export default function KnowledgeLibraryPage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [ask, setAsk] = useState("");
   const [answer, setAnswer] = useState("");
+  const [answerSources, setAnswerSources] = useState<{ index: number; id: string; title: string; category: string; customerName: string }[]>([]);
   const [asking, setAsking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -204,21 +205,22 @@ export default function KnowledgeLibraryPage() {
     URL.revokeObjectURL(url);
   }
 
+  /**
+   * Retrieval runs server-side across the whole library rather than over whatever
+   * happens to be filtered on screen, and returns the entries it cited.
+   */
   async function askKnowledge() {
     if (!ask.trim() || asking) return;
     setAsking(true);
     setAnswer("");
+    setAnswerSources([]);
     try {
-      const contextEntries = selected ? [selected, ...filtered.filter((entry) => entry.id !== selected.id).slice(0, 3)] : filtered.slice(0, 4);
-      const context = contextEntries.map((entry) => `SOURCE: ${entry.title}\nCLIENT: ${entry.client}\n${entry.content.slice(0, 6000)}`).join("\n\n---\n\n");
-      const data = await jsonRequest("/api/ai", {
+      const data = await jsonRequest("/api/knowledge/ask", {
         method: "POST",
-        body: JSON.stringify({
-          module: "Knowledge Library",
-          messages: [{ role: "user", content: `Answer only from the supplied KretivOS knowledge. Name the source titles used. If the answer is not present, say so.\n\nQUESTION:\n${ask}\n\nKNOWLEDGE:\n${context}` }],
-        }),
+        body: JSON.stringify({ question: ask }),
       });
-      setAnswer(data.content);
+      setAnswer(data.answer);
+      setAnswerSources(data.sources || []);
     } catch (askError) {
       setAnswer(askError instanceof Error ? askError.message : "AI is unavailable.");
     } finally {
@@ -302,7 +304,7 @@ export default function KnowledgeLibraryPage() {
 
       {aiOpen && <div className="fixed inset-0 z-[140]"><button className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" onClick={() => setAiOpen(false)} aria-label="Close AI drawer" /><section role="dialog" aria-modal="true" aria-label="Ask Kretiv AI" className="absolute inset-x-0 bottom-0 flex max-h-[88dvh] flex-col overflow-hidden rounded-t-3xl bg-[#f7f4ed] shadow-2xl md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-[470px] md:rounded-none">
         <div className="flex items-start justify-between border-b bg-white/70 p-4 md:p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#26342b] text-white"><Bot className="h-5 w-5" /></div><div><h2 className="font-semibold">Ask Kretiv AI</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Grounded in {selected ? `“${selected.title}”` : "the filtered library"}.</p></div></div><button onClick={() => setAiOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-black/5" aria-label="Close"><X className="h-4 w-4" /></button></div>
-        <div className="flex-1 overflow-y-auto p-4 md:p-5">{!answer && <div className="rounded-2xl border bg-white p-4"><div className="flex items-center gap-2 text-sm font-medium"><Sparkles className="h-4 w-4 text-[#ba5c42]" />Suggested questions</div><div className="mt-3 space-y-2">{["Summarise the key decisions.", "What actions or deadlines are mentioned?", "Which commercial terms should the team remember?"].map((prompt) => <button key={prompt} onClick={() => setAsk(prompt)} className="w-full rounded-xl border bg-[#fbfaf7] px-3 py-3 text-left text-xs leading-5 hover:border-[#ba5c42]/40 hover:bg-[#fff8f3]">{prompt}</button>)}</div></div>}{answer && <div className="whitespace-pre-wrap rounded-2xl border bg-white p-4 text-sm leading-7 text-[#4c574f]">{answer}</div>}</div>
+        <div className="flex-1 overflow-y-auto p-4 md:p-5">{!answer && <div className="rounded-2xl border bg-white p-4"><div className="flex items-center gap-2 text-sm font-medium"><Sparkles className="h-4 w-4 text-[#ba5c42]" />Suggested questions</div><div className="mt-3 space-y-2">{["Summarise the key decisions.", "What actions or deadlines are mentioned?", "Which commercial terms should the team remember?"].map((prompt) => <button key={prompt} onClick={() => setAsk(prompt)} className="w-full rounded-xl border bg-[#fbfaf7] px-3 py-3 text-left text-xs leading-5 hover:border-[#ba5c42]/40 hover:bg-[#fff8f3]">{prompt}</button>)}</div></div>}{answer && <div className="space-y-3"><div className="whitespace-pre-wrap rounded-2xl border bg-white p-4 text-sm leading-7 text-[#4c574f]">{answer}</div>{answerSources.length > 0 && <div className="rounded-2xl border bg-white p-3"><div className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Sources used</div><div className="space-y-1.5">{answerSources.map((source) => <button key={source.index} onClick={() => { openEntry(source.id); setAiOpen(false); }} className="flex w-full items-start gap-2 rounded-lg border bg-[#fbfaf7] px-2.5 py-2 text-left text-[11px] transition hover:bg-white"><span className="font-semibold text-[#ba5c42]">[{source.index}]</span><span className="min-w-0"><span className="block truncate font-medium">{source.title}</span><span className="text-muted-foreground">{[source.customerName, source.category].filter(Boolean).join(" · ")}</span></span></button>)}</div></div>}</div>}</div>
         <div className="border-t bg-white/85 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] backdrop-blur md:p-4"><div className="flex items-end gap-2 rounded-2xl border bg-white p-2 focus-within:border-[#ba5c42] focus-within:ring-4 focus-within:ring-[#ba5c42]/10"><textarea value={ask} onChange={(event) => setAsk(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askKnowledge(); } }} rows={2} className="max-h-36 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none" placeholder="Ask about this knowledge..." /><Button size="icon" onClick={askKnowledge} disabled={asking || !ask.trim()} aria-label="Send question"><Send className="h-4 w-4" /></Button></div><p className="mt-2 px-1 text-[10px] text-muted-foreground">Verify important commercial or legal information against the source document.</p></div>
       </section></div>}
 

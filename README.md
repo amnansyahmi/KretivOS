@@ -88,11 +88,34 @@ The chatbot and every generator use a server-side OpenAI-compatible route for `a
 
 | Route | Produces |
 | --- | --- |
-| `/api/ai` | Kretiv AI chat replies |
+| `/api/ai` | Kretiv AI chat replies, grounded in live records |
+| `/api/knowledge/ask` | An answer drawn only from the knowledge library, with sources |
+| `/api/briefing` | An operations briefing over live pipeline, cash and delivery |
 | `/api/marketing/generate` | A ten-section marketing plan |
 | `/api/storyboard/generate` | A shot-by-shot storyboard |
 | `/api/prompt/generate` | A model-specific image or video prompt |
 | `/api/funnels/generate` | A four-stage TOFU/MOFU/BOFU/retention funnel |
+
+### Grounding
+
+`lib/ai-context.ts` supplies AI features with real records instead of leaving them
+to guess. It provides two things:
+
+- **Knowledge retrieval** — ranked full-text search over `knowledge_entries` using
+  the GIN index defined in the first migration. Terms are OR-ed rather than AND-ed:
+  a natural-language question nearly always contains a word the document does not
+  use ("payment" against a document saying "payable"), and under AND that returns
+  nothing at all. `ts_rank` still orders by match quality, and an ILIKE keyword scan
+  covers anything the English dictionary stems awkwardly.
+- **An operations snapshot** — pipeline, receivables, settlements, delivery and
+  cleared cash rolled up from the shared tables, plus a list of concrete items
+  needing attention.
+
+Retrieved extracts are numbered so the model cites them as `[1]`, `[2]`, and the
+numbers resolve back to real entries in the UI. The chat and the Knowledge
+workspace both show which documents an answer came from. When nothing matches,
+the answer says so rather than inventing one, and both degrade to a clearly
+labelled ungrounded reply if the database is unreachable.
 
 Each generator asks for a JSON object matching a fixed schema and falls back to a
 deterministic starter when AI is unconfigured or unavailable, so no button is ever dead.
