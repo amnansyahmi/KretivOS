@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, Eye, FileCode2, Library, RotateCcw, Save, Upload, X } from "lucide-react";
+import { ArrowLeft, Check, Eye, FileCode2, RotateCcw, Save, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MarkdownPreview } from "@/components/markdown-preview";
-import { builtInKnowledge, KNOWLEDGE_STORAGE_KEY, KnowledgeEntry, makeKnowledgeId, slugifyFilename } from "@/lib/knowledge";
+import { KNOWLEDGE_STORAGE_KEY, KnowledgeEntry, slugifyFilename } from "@/lib/knowledge";
 import { cn } from "@/lib/utils";
 
 const starterContent = `# New Knowledge
@@ -22,53 +22,49 @@ Write the key facts, decisions, rules or reusable learning here.
 - Keep the content clear enough for KretivOS AI to use
 `;
 
-const categoryOptions = [
-  "General", "Agreement", "Proposal", "Marketing", "Finance", "Operations",
-  "Technology", "Brand", "SOP", "Meeting Notes", "Research", "Template",
-];
+const categoryOptions = ["General", "Agreement", "Proposal", "Marketing", "Finance", "Technology", "Operations", "SOP", "Research", "Meeting Notes", "Template", "Brand", "Campaign"];
 
-function loadEntries(): KnowledgeEntry[] {
-  if (typeof window === "undefined") return builtInKnowledge;
-  const saved = localStorage.getItem(KNOWLEDGE_STORAGE_KEY);
-  if (!saved) return builtInKnowledge;
-  try {
-    const parsed = JSON.parse(saved) as KnowledgeEntry[];
-    return Array.isArray(parsed) ? parsed : builtInKnowledge;
-  } catch {
-    return builtInKnowledge;
-  }
+type Customer = { id: string; name: string };
+type Brand = { id: string; customerId: string; name: string };
+
+async function jsonRequest(url: string, init?: RequestInit) {
+  const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Request failed.");
+  return data;
 }
 
 export default function AddKnowledgePage() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [title, setTitle] = useState("New Knowledge");
-  const [client, setClient] = useState("Kretivco");
+  const [customerId, setCustomerId] = useState("");
+  const [brandId, setBrandId] = useState("");
   const [category, setCategory] = useState("General");
   const [tags, setTags] = useState("");
   const [filename, setFilename] = useState("new-knowledge.md");
   const [content, setContent] = useState(starterContent);
   const [tab, setTab] = useState<"editor" | "preview">("editor");
-  const [saved, setSaved] = useState(false);
+  const [savedEntry, setSavedEntry] = useState<KnowledgeEntry | null>(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [customerOptions, setCustomerOptions] = useState<string[]>(["Kretivco"]);
+
+  useEffect(() => {
+    jsonRequest("/api/business", { cache: "no-store" })
+      .then((data) => {
+        setCustomers((data.customers || []).map((item: any) => ({ id: item.id, name: item.name })));
+        setBrands((data.brands || []).map((item: any) => ({ id: item.id, customerId: item.customerId, name: item.name })));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (filename === "new-knowledge.md" || !filename.trim()) setFilename(slugifyFilename(title));
   }, [title, filename]);
 
-  useEffect(() => {
-    const localClients = Array.from(new Set(loadEntries().map((entry) => entry.client)));
-    setCustomerOptions(Array.from(new Set(["Kretivco", ...localClients])).sort());
-    fetch("/api/business")
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => {
-        const names = Array.isArray(data?.customers) ? data.customers.map((item: any) => item.name).filter(Boolean) : [];
-        if (names.length) setCustomerOptions(Array.from(new Set(["Kretivco", ...localClients, ...names])).sort());
-      })
-      .catch(() => {});
-  }, []);
-
-  const wordCount = useMemo(() => content.trim() ? content.trim().split(/\s+/).length : 0, [content]);
+  const availableBrands = useMemo(() => brands.filter((brand) => brand.customerId === customerId), [brands, customerId]);
+  const wordCount = useMemo(() => content.trim().split(/\s+/).filter(Boolean).length, [content]);
 
   async function handleFile(file?: File) {
     if (!file) return;
@@ -86,42 +82,55 @@ export default function AddKnowledgePage() {
     setFilename(file.name);
     setContent(text);
     setError("");
-    setSaved(false);
+    setSavedEntry(null);
   }
 
-  function saveKnowledge() {
+  async function saveKnowledge() {
     if (!title.trim() || !content.trim()) {
       setError("Title and Markdown content are required.");
       return;
     }
-    const now = new Date().toISOString();
-    const record: KnowledgeEntry = {
-      id: makeKnowledgeId(),
-      title: title.trim(),
-      client: client.trim() || "General",
-      category: category.trim() || "General",
-      tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
-      content,
-      filename: filename.trim().endsWith(".md") ? filename.trim() : `${filename.trim() || slugifyFilename(title)}.md`,
-      createdAt: now,
-      updatedAt: now,
-      source: filename !== slugifyFilename(title) ? "markdown" : "editor",
-    };
-    const current = loadEntries();
-    localStorage.setItem(KNOWLEDGE_STORAGE_KEY, JSON.stringify([record, ...current]));
-    setSaved(true);
+    setSaving(true);
     setError("");
+    try {
+      const customer = customers.find((item) => item.id === customerId);
+      const data = await jsonRequest("/api/knowledge", {
+        method: "POST",
+        body: JSON.stringify({
+          title: title.trim(),
+          customerId: customerId || undefined,
+          brandId: brandId || undefined,
+          client: customer?.name || "Kretivco",
+          category,
+          tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+          content,
+          filename: filename.trim().endsWith(".md") ? filename.trim() : `${filename.trim() || slugifyFilename(title)}.md`,
+          source: filename !== slugifyFilename(title) ? "markdown" : "editor",
+        }),
+      });
+      setSavedEntry(data.entry);
+      try {
+        const cached = JSON.parse(localStorage.getItem(KNOWLEDGE_STORAGE_KEY) || "[]") as KnowledgeEntry[];
+        const next = [data.entry, ...cached.filter((entry) => entry.id !== data.entry.id)];
+        localStorage.setItem(KNOWLEDGE_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save knowledge.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function reset() {
     setTitle("New Knowledge");
-    setClient("Kretivco");
+    setCustomerId("");
+    setBrandId("");
     setCategory("General");
     setTags("");
     setFilename("new-knowledge.md");
     setContent(starterContent);
     setTab("editor");
-    setSaved(false);
+    setSavedEntry(null);
     setError("");
   }
 
@@ -130,78 +139,37 @@ export default function AddKnowledgePage() {
       <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f5f2ea]/95 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-3 px-4 md:h-auto md:min-h-24 md:px-8 md:py-6">
           <Button asChild variant="ghost" size="icon"><Link href="/knowledge" aria-label="Back to Knowledge"><ArrowLeft className="h-5 w-5" /></Link></Button>
-          <div className="min-w-0 flex-1">
-            <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] md:block">Knowledge ingestion</div>
-            <h1 className="truncate text-lg font-semibold tracking-tight md:mt-1 md:text-3xl">Add Knowledge</h1>
-            <p className="mt-1 hidden text-sm text-muted-foreground md:block">Upload Markdown or create a structured knowledge record for search and AI context.</p>
-          </div>
+          <div className="min-w-0 flex-1"><div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] md:block">Shared knowledge ingestion</div><h1 className="truncate text-lg font-semibold tracking-tight md:mt-1 md:text-3xl">Add Knowledge</h1><p className="mt-1 hidden text-sm text-muted-foreground md:block">Upload Markdown or create a record that becomes available to the whole team through Neon.</p></div>
           <Button variant="outline" className="hidden bg-white md:inline-flex" onClick={reset}><RotateCcw className="h-4 w-4" />Reset</Button>
-          <Button onClick={saveKnowledge}><Save className="h-4 w-4" /><span className="hidden sm:inline">Save knowledge</span></Button>
+          <Button onClick={saveKnowledge} disabled={saving}><Save className="h-4 w-4" /><span className="hidden sm:inline">{saving ? "Saving…" : "Save knowledge"}</span></Button>
         </div>
       </header>
 
       <div className="mx-auto max-w-[1500px] px-4 py-4 md:px-8 md:py-7">
-        {saved && (
-          <div className="mb-4 flex flex-col justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-2"><Check className="h-4 w-4" /><span>Knowledge saved successfully.</span></div>
-            <Link href="/knowledge" className="font-semibold underline underline-offset-4">View in library</Link>
-          </div>
-        )}
-        {error && (
-          <div className="mb-4 flex items-center justify-between rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            <span>{error}</span><button onClick={() => setError("")} className="rounded-lg p-1 hover:bg-red-100"><X className="h-4 w-4" /></button>
-          </div>
-        )}
+        {savedEntry && <div className="mb-4 flex flex-col justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 sm:flex-row sm:items-center"><div className="flex items-center gap-2"><Check className="h-4 w-4" /><span>Knowledge saved to the shared Neon library.</span></div><Link href="/knowledge" className="font-semibold underline underline-offset-4">View in library</Link></div>}
+        {error && <div className="mb-4 flex items-center justify-between rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")} className="rounded-lg p-1 hover:bg-red-100"><X className="h-4 w-4" /></button></div>}
 
-        <div className="mb-4 flex rounded-xl border bg-white p-1 md:hidden">
-          <button onClick={() => setTab("editor")} className={cn("flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium", tab === "editor" ? "bg-[#202c25] text-white" : "text-muted-foreground")}><FileCode2 className="h-4 w-4" />Editor</button>
-          <button onClick={() => setTab("preview")} className={cn("flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium", tab === "preview" ? "bg-[#202c25] text-white" : "text-muted-foreground")}><Eye className="h-4 w-4" />Preview</button>
-        </div>
+        <div className="mb-4 flex rounded-xl border bg-white p-1 md:hidden"><button onClick={() => setTab("editor")} className={cn("flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium", tab === "editor" ? "bg-[#202c25] text-white" : "text-muted-foreground")}><FileCode2 className="h-4 w-4" />Editor</button><button onClick={() => setTab("preview")} className={cn("flex h-10 flex-1 items-center justify-center gap-2 rounded-lg text-sm font-medium", tab === "preview" ? "bg-[#202c25] text-white" : "text-muted-foreground")}><Eye className="h-4 w-4" />Preview</button></div>
 
         <div className="grid min-w-0 gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
           <aside className={cn("space-y-4", tab === "preview" && "hidden lg:block")}>
-            <Card className="border-black/8 bg-white/90 shadow-sm">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between"><div><h2 className="font-semibold">Import Markdown</h2><p className="mt-1 text-xs text-muted-foreground">Maximum 2 MB</p></div><Upload className="h-5 w-5 text-[#ba5c42]" /></div>
-                <input ref={inputRef} type="file" accept=".md,text/markdown,text/plain" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />
-                <button onClick={() => inputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); handleFile(event.dataTransfer.files?.[0]); }} className="mt-4 flex w-full items-center gap-3 rounded-2xl border border-dashed bg-[#fbfaf7] p-4 text-left transition hover:border-[#ba5c42]/60 hover:bg-[#fff8f3]">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#f1ece2]"><Upload className="h-5 w-5 text-[#ba5c42]" /></div>
-                  <div><div className="text-sm font-semibold">Choose or drop .md</div><div className="mt-1 text-xs text-muted-foreground">Metadata will be detected automatically.</div></div>
-                </button>
-              </CardContent>
-            </Card>
+            <Card className="border-black/8 bg-white/90 shadow-sm"><CardContent className="p-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Import Markdown</h2><p className="mt-1 text-xs text-muted-foreground">Maximum 2 MB</p></div><Upload className="h-5 w-5 text-[#ba5c42]" /></div><input ref={inputRef} type="file" accept=".md,text/markdown,text/plain" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} /><button onClick={() => inputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); handleFile(event.dataTransfer.files?.[0]); }} className="mt-4 flex w-full items-center gap-3 rounded-2xl border border-dashed bg-[#fbfaf7] p-4 text-left transition hover:border-[#ba5c42]/60 hover:bg-[#fff8f3]"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#f1ece2]"><Upload className="h-5 w-5 text-[#ba5c42]" /></div><div><div className="text-sm font-semibold">Choose or drop .md</div><div className="mt-1 text-xs text-muted-foreground">Title is detected from the first H1.</div></div></button></CardContent></Card>
 
-            <Card className="border-black/8 bg-white/90 shadow-sm">
-              <CardContent className="space-y-4 p-4">
-                <div><h2 className="font-semibold">Knowledge details</h2><p className="mt-1 text-xs text-muted-foreground">Used by filters, search and AI grounding.</p></div>
-                <Field label="Title"><input value={title} onChange={(event) => { setTitle(event.target.value); setSaved(false); }} className="field-control" /></Field>
-                <Field label="Client / workspace"><select value={client} onChange={(event) => { setClient(event.target.value); setSaved(false); }} className="field-control">{customerOptions.map((name) => <option key={name}>{name}</option>)}</select></Field>
-                <Field label="Category"><select value={category} onChange={(event) => { setCategory(event.target.value); setSaved(false); }} className="field-control">{categoryOptions.map((name) => <option key={name}>{name}</option>)}</select></Field>
-                <Field label="Tags"><input value={tags} onChange={(event) => { setTags(event.target.value); setSaved(false); }} className="field-control" placeholder="campaign, SOP, finance" /></Field>
-                <Field label="Filename"><input value={filename} onChange={(event) => { setFilename(event.target.value); setSaved(false); }} className="field-control" /></Field>
-                <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#f7f4ed] p-3 text-xs"><div><div className="text-muted-foreground">Words</div><div className="mt-1 font-semibold">{wordCount}</div></div><div><div className="text-muted-foreground">Format</div><div className="mt-1 font-semibold">Markdown</div></div></div>
-              </CardContent>
-            </Card>
+            <Card className="border-black/8 bg-white/90 shadow-sm"><CardContent className="space-y-4 p-4"><div><h2 className="font-semibold">Knowledge details</h2><p className="mt-1 text-xs text-muted-foreground">Used by filters, relationships and AI grounding.</p></div>
+              <Field label="Title"><input value={title} onChange={(event) => { setTitle(event.target.value); setSavedEntry(null); }} className="field-control" /></Field>
+              <Field label="Customer / workspace"><select value={customerId} onChange={(event) => { setCustomerId(event.target.value); setBrandId(""); setSavedEntry(null); }} className="field-control"><option value="">Kretivco / Internal</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+              <Field label="Brand"><select value={brandId} onChange={(event) => { setBrandId(event.target.value); setSavedEntry(null); }} className="field-control" disabled={!customerId}><option value="">No specific brand</option>{availableBrands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+              <Field label="Category"><select value={category} onChange={(event) => { setCategory(event.target.value); setSavedEntry(null); }} className="field-control">{categoryOptions.map((name) => <option key={name}>{name}</option>)}</select></Field>
+              <Field label="Tags"><input value={tags} onChange={(event) => { setTags(event.target.value); setSavedEntry(null); }} className="field-control" placeholder="campaign, SOP, finance" /></Field>
+              <Field label="Filename"><input value={filename} onChange={(event) => { setFilename(event.target.value); setSavedEntry(null); }} className="field-control" /></Field>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#f7f4ed] p-3 text-xs"><div><div className="text-muted-foreground">Words</div><div className="mt-1 font-semibold">{wordCount}</div></div><div><div className="text-muted-foreground">Storage</div><div className="mt-1 font-semibold">Neon</div></div></div>
+            </CardContent></Card>
           </aside>
 
-          <Card className="min-w-0 overflow-hidden border-black/8 bg-white/90 shadow-sm">
-            <div className="hidden items-center justify-between border-b bg-[#fbfaf7] p-4 md:flex">
-              <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f1ece2]"><FileCode2 className="h-5 w-5 text-[#ba5c42]" /></div><div><h2 className="font-semibold">Markdown workspace</h2><p className="mt-1 text-xs text-muted-foreground">Edit and preview before saving.</p></div></div>
-              <div className="flex rounded-xl border bg-white p-1"><button onClick={() => setTab("editor")} className={cn("rounded-lg px-3 py-2 text-xs font-medium", tab === "editor" ? "bg-[#202c25] text-white" : "text-muted-foreground")}>Editor</button><button onClick={() => setTab("preview")} className={cn("rounded-lg px-3 py-2 text-xs font-medium", tab === "preview" ? "bg-[#202c25] text-white" : "text-muted-foreground")}>Preview</button></div>
-            </div>
-            <CardContent className="p-3 md:p-5">
-              {tab === "editor" ? (
-                <textarea value={content} onChange={(event) => { setContent(event.target.value); setSaved(false); }} className="min-h-[64dvh] w-full resize-y rounded-xl border bg-[#fcfbf8] p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10 md:min-h-[650px]" />
-              ) : (
-                <div className="min-h-[64dvh] rounded-xl border bg-white p-4 md:min-h-[650px] md:p-7"><div className="mx-auto max-w-4xl"><MarkdownPreview content={content} /></div></div>
-              )}
-            </CardContent>
-          </Card>
+          <Card className="min-w-0 overflow-hidden border-black/8 bg-white/90 shadow-sm"><div className="hidden items-center justify-between border-b bg-[#fbfaf7] p-4 md:flex"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f1ece2]"><FileCode2 className="h-5 w-5 text-[#ba5c42]" /></div><div><h2 className="font-semibold">Markdown workspace</h2><p className="mt-1 text-xs text-muted-foreground">Edit and preview before saving.</p></div></div><div className="flex rounded-xl border bg-white p-1"><button onClick={() => setTab("editor")} className={cn("rounded-lg px-3 py-2 text-xs font-medium", tab === "editor" ? "bg-[#202c25] text-white" : "text-muted-foreground")}>Editor</button><button onClick={() => setTab("preview")} className={cn("rounded-lg px-3 py-2 text-xs font-medium", tab === "preview" ? "bg-[#202c25] text-white" : "text-muted-foreground")}>Preview</button></div></div><CardContent className="p-3 md:p-5">{tab === "editor" ? <textarea value={content} onChange={(event) => { setContent(event.target.value); setSavedEntry(null); }} className="min-h-[64dvh] w-full resize-y rounded-xl border bg-[#fcfbf8] p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10 md:min-h-[650px]" /> : <div className="min-h-[64dvh] rounded-xl border bg-white p-4 md:min-h-[650px] md:p-7"><div className="mx-auto max-w-4xl"><MarkdownPreview content={content} /></div></div>}</CardContent></Card>
         </div>
 
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/90 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
-          <div className="mx-auto flex max-w-lg gap-2"><Button variant="outline" className="flex-1" onClick={reset}><RotateCcw className="h-4 w-4" />Reset</Button><Button className="flex-[1.5]" onClick={saveKnowledge}><Save className="h-4 w-4" />Save knowledge</Button></div>
-        </div>
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/90 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden"><div className="mx-auto flex max-w-lg gap-2"><Button variant="outline" className="flex-1" onClick={reset}><RotateCcw className="h-4 w-4" />Reset</Button><Button className="flex-[1.5]" onClick={saveKnowledge} disabled={saving}><Save className="h-4 w-4" />{saving ? "Saving…" : "Save knowledge"}</Button></div></div>
       </div>
 
       <style jsx>{`
