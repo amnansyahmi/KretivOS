@@ -3,14 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BookOpenCheck, BriefcaseBusiness, CalendarCheck, Check, ChevronRight,
-  Clock3, GraduationCap, LayoutDashboard, Pencil, Plus, RefreshCw,
+  Clock3, GraduationCap, LayoutDashboard, Pencil, Plus, ReceiptText, RefreshCw,
   Search, Trash2, UserPlus, Users, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { HRPhotoAttendance } from "@/components/hr-photo-attendance";
+import { HRPayslipSetup } from "@/components/hr-payslip-setup";
 import { cn } from "@/lib/utils";
 
-type Tab = "overview" | "people" | "leave" | "attendance" | "goals" | "learning";
+type Tab = "overview" | "people" | "leave" | "attendance" | "payslips" | "goals" | "learning";
 type Resource = "employees" | "leave" | "attendance" | "goals" | "learning";
 type Editor = { resource: Resource; record: any; isNew: boolean } | null;
 
@@ -20,7 +22,12 @@ type Snapshot = {
   attendance: any[];
   goals: any[];
   learning: any[];
-  settings: { departments: string[]; leaveTypes: string[]; workModes: string[] };
+  settings: {
+    departments: string[];
+    leaveTypes: string[];
+    workModes: string[];
+    attendance?: { timezone?: string; shiftStart?: string; graceMinutes?: number };
+  };
   version: number;
   syncedAt: string;
 };
@@ -35,15 +42,23 @@ const tabs: { id: Tab; label: string; icon: any }[] = [
   { id: "people", label: "People", icon: Users },
   { id: "leave", label: "Leave", icon: CalendarCheck },
   { id: "attendance", label: "Attendance", icon: Clock3 },
+  { id: "payslips", label: "Payslips", icon: ReceiptText },
   { id: "goals", label: "Goals", icon: BriefcaseBusiness },
   { id: "learning", label: "Learning", icon: GraduationCap },
 ];
 
-function today() { return new Date().toISOString().slice(0, 10); }
+function today() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuala_Lumpur",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 function uid() { return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 function formatDate(value?: string) {
   if (!value) return "—";
-  return new Date(`${value.length === 10 ? `${value}T00:00:00` : value}`).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(`${value.length === 10 ? `${value}T00:00:00+08:00` : value}`).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short", year: "numeric" });
 }
 function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 
@@ -80,7 +95,7 @@ export default function HRPage() {
   const stats = useMemo(() => ({
     active: data.employees.filter((item) => item.status === "active").length,
     pendingLeave: data.leaveRequests.filter((item) => item.status === "Pending").length,
-    presentToday: data.attendance.filter((item) => item.date === today() && ["Present", "WFH"].includes(item.status)).length,
+    presentToday: data.attendance.filter((item) => item.date === today() && ["Present", "WFH", "Client Site"].includes(item.status)).length,
     openGoals: data.goals.filter((item) => !["Completed", "Cancelled"].includes(item.status)).length,
     activeLearning: data.learning.filter((item) => ["Planned", "In progress"].includes(item.status)).length,
   }), [data]);
@@ -103,7 +118,7 @@ export default function HRPage() {
         ],
       },
       leave: { ...common, employeeId: firstEmployee, type: data.settings.leaveTypes[0] || "Annual Leave", startDate: today(), endDate: today(), reason: "", status: "Pending" },
-      attendance: { ...common, employeeId: firstEmployee, date: today(), status: "Present", checkIn: "09:00", checkOut: "", note: "" },
+      attendance: { ...common, employeeId: firstEmployee, date: today(), status: "Present", workMode: "Office", checkIn: "", checkOut: "", note: "" },
       goals: { ...common, employeeId: firstEmployee, title: "", period: "Q3 2026", dueDate: today(), progress: 0, status: "Not started", notes: "" },
       learning: { ...common, employeeId: firstEmployee, title: "", provider: "", status: "Planned", progress: 0, dueDate: today(), certification: "", notes: "" },
     };
@@ -149,16 +164,7 @@ export default function HRPage() {
     finally { setSaving(false); }
   }
 
-  async function attendanceAction(employeeId: string, action: "check_in" | "check_out") {
-    setSaving(true); setError("");
-    try {
-      setData(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation: "action", resource: "attendance", action, data: { employeeId, date: today() } }) }));
-      setNotice(action === "check_in" ? "Checked in." : "Checked out.");
-    } catch (value) { setError(value instanceof Error ? value.message : "Attendance action failed."); }
-    finally { setSaving(false); }
-  }
-
-  const actionResource: Partial<Record<Tab, Resource>> = { people: "employees", leave: "leave", attendance: "attendance", goals: "goals", learning: "learning" };
+  const actionResource: Partial<Record<Tab, Resource>> = { people: "employees", leave: "leave", goals: "goals", learning: "learning" };
 
   return (
     <main className="min-h-screen bg-[#f5f2ea] pb-24 text-[#202820]">
@@ -167,7 +173,7 @@ export default function HRPage() {
           <div className="min-w-0 flex-1">
             <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] md:block">People operations</div>
             <h1 className="truncate text-lg font-semibold tracking-tight md:mt-1 md:text-3xl">HR & Team</h1>
-            <p className="mt-1 hidden text-sm text-muted-foreground md:block">People directory, leave, attendance, goals and learning in one shared workspace.</p>
+            <p className="mt-1 hidden text-sm text-muted-foreground md:block">People directory, leave, photo attendance, protected payslips, goals and learning.</p>
           </div>
           <Button variant="outline" size="icon" className="bg-white" onClick={load} disabled={loading} aria-label="Refresh HR"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>
           {actionResource[tab] && <Button onClick={() => openCreate(actionResource[tab]!)}><Plus className="h-4 w-4" /><span className="hidden sm:inline">Add record</span></Button>}
@@ -186,7 +192,7 @@ export default function HRPage() {
 
         {loading && !data.employees.length ? <div className="rounded-2xl border bg-white p-12 text-center text-sm text-muted-foreground">Loading HR workspace…</div> : (
           <>
-            {tab !== "overview" && <div className="mb-4 flex h-11 items-center gap-2 rounded-xl border bg-white px-3"><Search className="h-4 w-4 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={`Search ${tabs.find((item) => item.id === tab)?.label.toLowerCase()}...`} /></div>}
+            {tab !== "overview" && tab !== "payslips" && <div className="mb-4 flex h-11 items-center gap-2 rounded-xl border bg-white px-3"><Search className="h-4 w-4 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={`Search ${tabs.find((item) => item.id === tab)?.label.toLowerCase()}...`} /></div>}
 
             {tab === "overview" && <Overview data={data} stats={stats} employeeName={employeeName} setTab={setTab} />}
 
@@ -218,12 +224,8 @@ export default function HRPage() {
               </div>
             )}
 
-            {tab === "attendance" && (
-              <div className="space-y-4">
-                <Card className="border-black/8 bg-[#26342b] text-white"><CardContent className="p-5"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><h2 className="font-semibold">Today · {formatDate(today())}</h2><p className="mt-1 text-xs text-white/50">Select a team member to record check-in or check-out.</p></div><div className="flex flex-wrap gap-2">{data.employees.filter((item) => item.status === "active").slice(0, 5).map((employee) => <div key={employee.id} className="flex items-center gap-1 rounded-xl bg-white/10 p-1"><span className="px-2 text-xs">{employee.name.split(" ")[0]}</span><button onClick={() => attendanceAction(employee.id, "check_in")} className="rounded-lg bg-white px-2.5 py-2 text-[10px] font-semibold text-[#26342b]">In</button><button onClick={() => attendanceAction(employee.id, "check_out")} className="rounded-lg border border-white/20 px-2.5 py-2 text-[10px] font-semibold">Out</button></div>)}</div></div></CardContent></Card>
-                <div className="space-y-3">{data.attendance.filter((item) => matches(employeeName(item.employeeId), item.date, item.status, item.note)).map((item) => <Card key={item.id} className="border-black/8 bg-white/90"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div className="flex-1"><div className="font-semibold">{employeeName(item.employeeId)}</div><div className="mt-1 text-xs text-muted-foreground">{formatDate(item.date)} · {item.checkIn || "—"} – {item.checkOut || "—"}</div></div><Status value={item.status} /><div className="flex gap-2"><Button variant="outline" size="icon" onClick={() => openEdit("attendance", item)}><Pencil className="h-4 w-4" /></Button><Button variant="outline" size="icon" onClick={() => deleteRecord("attendance", item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}</div>
-              </div>
-            )}
+            {tab === "attendance" && <HRPhotoAttendance employees={data.employees} attendance={data.attendance} query={query} onRefresh={load} onNotice={setNotice} onError={setError} />}
+            {tab === "payslips" && <HRPayslipSetup employees={data.employees} />}
 
             {tab === "goals" && <div className="grid gap-4 md:grid-cols-2">{data.goals.filter((item) => matches(employeeName(item.employeeId), item.title, item.period, item.status)).map((item) => <Card key={item.id} className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div><div className="text-[10px] uppercase tracking-[.16em] text-[#ba5c42]">{item.period}</div><h2 className="mt-2 font-semibold">{item.title}</h2><p className="mt-1 text-xs text-muted-foreground">{employeeName(item.employeeId)} · Due {formatDate(item.dueDate)}</p></div><Status value={item.status} /></div><div className="mt-5"><div className="flex justify-between text-xs"><span>Progress</span><span className="font-semibold">{item.progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-black/5"><div className="h-full rounded-full bg-[#ba5c42]" style={{ width: `${item.progress}%` }} /></div></div><p className="mt-4 min-h-10 text-xs leading-5 text-muted-foreground">{item.notes || "No notes."}</p><div className="mt-4 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => openEdit("goals", item)}><Pencil className="h-4 w-4" />Update</Button><Button variant="outline" size="icon" onClick={() => deleteRecord("goals", item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}</div>}
 
@@ -241,7 +243,7 @@ function Overview({ data, stats, employeeName, setTab }: any) {
   const pending = data.leaveRequests.filter((item: any) => item.status === "Pending").slice(0, 4);
   const goals = data.goals.filter((item: any) => !["Completed", "Cancelled"].includes(item.status)).sort((a: any, b: any) => String(a.dueDate).localeCompare(String(b.dueDate))).slice(0, 4);
   return <div className="space-y-5">
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Stat label="Active people" value={stats.active} note={`${data.employees.length} total profiles`} /><Stat label="Pending leave" value={stats.pendingLeave} note="Requires team review" /><Stat label="Present today" value={stats.presentToday} note="Present or WFH" /><Stat label="Open goals" value={stats.openGoals} note="In current periods" /><Stat label="Active learning" value={stats.activeLearning} note="Planned or in progress" /></div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Stat label="Active people" value={stats.active} note={`${data.employees.length} total profiles`} /><Stat label="Pending leave" value={stats.pendingLeave} note="Requires team review" /><Stat label="Present today" value={stats.presentToday} note="Photo clock-in records" /><Stat label="Open goals" value={stats.openGoals} note="In current periods" /><Stat label="Active learning" value={stats.activeLearning} note="Planned or in progress" /></div>
     <div className="grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
       <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Team directory</h2><p className="mt-1 text-xs text-muted-foreground">Core people and onboarding readiness.</p></div><button onClick={() => setTab("people")} className="text-xs font-semibold text-[#ba5c42]">View all</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2">{data.employees.slice(0, 6).map((employee: any) => { const done = employee.onboarding?.filter((item: any) => item.done).length || 0; const total = employee.onboarding?.length || 0; return <div key={employee.id} className="flex items-center gap-3 rounded-xl border bg-[#fbfaf7] p-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#202c25] text-xs font-semibold text-white">{initials(employee.name)}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{employee.name}</div><div className="mt-1 truncate text-[10px] text-muted-foreground">{employee.title || "Kretivco Team"} · Onboarding {done}/{total}</div></div><ChevronRight className="h-4 w-4 text-muted-foreground" /></div>; })}</div></CardContent></Card>
       <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Pending leave</h2><p className="mt-1 text-xs text-muted-foreground">Requests awaiting a decision.</p></div><button onClick={() => setTab("leave")} className="text-xs font-semibold text-[#ba5c42]">Open queue</button></div><div className="mt-4 space-y-2">{pending.map((item: any) => <div key={item.id} className="rounded-xl border bg-[#fbfaf7] p-3"><div className="text-sm font-semibold">{employeeName(item.employeeId)}</div><div className="mt-1 text-xs text-muted-foreground">{item.type} · {formatDate(item.startDate)} – {formatDate(item.endDate)}</div></div>)}{!pending.length && <div className="rounded-xl border border-dashed p-6 text-center text-xs text-muted-foreground">No pending leave requests.</div>}</div></CardContent></Card>
@@ -259,7 +261,7 @@ function EditorDialog({ editor, setEditor, data, saving, onSave }: any) {
       <div className="grid gap-4 sm:grid-cols-2"><Field label="Name"><input value={record.name} onChange={(e) => update("name", e.target.value)} className="field" /></Field><Field label="Work email"><input type="email" value={record.email} onChange={(e) => update("email", e.target.value)} className="field" placeholder="Optional until login is enabled" /></Field><Field label="Job title"><input value={record.title} onChange={(e) => update("title", e.target.value)} className="field" /></Field><Field label="Department"><select value={record.department} onChange={(e) => update("department", e.target.value)} className="field">{data.settings.departments.map((item: string) => <option key={item}>{item}</option>)}</select></Field><Field label="Employment type"><select value={record.employmentType} onChange={(e) => update("employmentType", e.target.value)} className="field">{["Core Team", "Full-time", "Part-time", "Contract", "Intern", "Advisor"].map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Work mode"><select value={record.workMode} onChange={(e) => update("workMode", e.target.value)} className="field">{data.settings.workModes.map((item: string) => <option key={item}>{item}</option>)}</select></Field><Field label="Location"><input value={record.location} onChange={(e) => update("location", e.target.value)} className="field" /></Field><Field label="Start date"><input type="date" value={record.startDate} onChange={(e) => update("startDate", e.target.value)} className="field" /></Field><Field label="Status"><select value={record.status} onChange={(e) => update("status", e.target.value)} className="field"><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="alumni">Alumni</option></select></Field><Field label="Phone"><input value={record.phone} onChange={(e) => update("phone", e.target.value)} className="field" /></Field><Field label="Annual leave balance"><input type="number" value={record.annualLeaveBalance} onChange={(e) => update("annualLeaveBalance", e.target.value)} className="field" /></Field><Field label="Medical leave balance"><input type="number" value={record.medicalLeaveBalance} onChange={(e) => update("medicalLeaveBalance", e.target.value)} className="field" /></Field><Field label="Skills" wide><input value={(record.skills || []).join(", ")} onChange={(e) => update("skills", e.target.value.split(",").map((item) => item.trim()).filter(Boolean))} className="field" placeholder="Marketing, React, Finance" /></Field><Field label="Notes" wide><textarea value={record.notes} onChange={(e) => update("notes", e.target.value)} className="textarea" /></Field></div>
       <div className="rounded-2xl border bg-white p-4"><div className="flex items-center gap-2"><BookOpenCheck className="h-4 w-4 text-[#ba5c42]" /><h3 className="text-sm font-semibold">Onboarding checklist</h3></div><div className="mt-3 space-y-2">{(record.onboarding || []).map((item: any, index: number) => <label key={item.id} className="flex items-center gap-3 rounded-xl bg-[#f7f4ed] p-3 text-sm"><input type="checkbox" checked={item.done} onChange={(e) => update("onboarding", record.onboarding.map((row: any, rowIndex: number) => rowIndex === index ? { ...row, done: e.target.checked } : row))} className="h-4 w-4" /><span>{item.label}</span></label>)}</div></div>
     </>}
-    {editor.resource !== "employees" && <div className="grid gap-4 sm:grid-cols-2"><Field label="Team member" wide><select value={record.employeeId} onChange={(e) => update("employeeId", e.target.value)} className="field">{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></Field>{editor.resource === "leave" && <><Field label="Leave type"><select value={record.type} onChange={(e) => update("type", e.target.value)} className="field">{data.settings.leaveTypes.map((item: string) => <option key={item}>{item}</option>)}</select></Field><div /><Field label="Start date"><input type="date" value={record.startDate} onChange={(e) => update("startDate", e.target.value)} className="field" /></Field><Field label="End date"><input type="date" value={record.endDate} onChange={(e) => update("endDate", e.target.value)} className="field" /></Field><Field label="Reason" wide><textarea value={record.reason} onChange={(e) => update("reason", e.target.value)} className="textarea" /></Field></>}{editor.resource === "attendance" && <><Field label="Date"><input type="date" value={record.date} onChange={(e) => update("date", e.target.value)} className="field" /></Field><Field label="Status"><select value={record.status} onChange={(e) => update("status", e.target.value)} className="field">{["Present", "WFH", "Leave", "Absent", "Off", "Client Site"].map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Check in"><input type="time" value={record.checkIn} onChange={(e) => update("checkIn", e.target.value)} className="field" /></Field><Field label="Check out"><input type="time" value={record.checkOut} onChange={(e) => update("checkOut", e.target.value)} className="field" /></Field><Field label="Note" wide><textarea value={record.note} onChange={(e) => update("note", e.target.value)} className="textarea" /></Field></>}{editor.resource === "goals" && <><Field label="Goal title" wide><input value={record.title} onChange={(e) => update("title", e.target.value)} className="field" /></Field><Field label="Period"><input value={record.period} onChange={(e) => update("period", e.target.value)} className="field" /></Field><Field label="Due date"><input type="date" value={record.dueDate} onChange={(e) => update("dueDate", e.target.value)} className="field" /></Field><Field label={`Progress · ${record.progress}%`} wide><input type="range" min="0" max="100" value={record.progress} onChange={(e) => update("progress", Number(e.target.value))} className="w-full" /></Field><Field label="Status"><select value={record.status} onChange={(e) => update("status", e.target.value)} className="field">{["Not started", "In progress", "At risk", "Completed", "Cancelled"].map((item) => <option key={item}>{item}</option>)}</select></Field><div /><Field label="Notes" wide><textarea value={record.notes} onChange={(e) => update("notes", e.target.value)} className="textarea" /></Field></>}{editor.resource === "learning" && <><Field label="Course / learning title" wide><input value={record.title} onChange={(e) => update("title", e.target.value)} className="field" /></Field><Field label="Provider"><input value={record.provider} onChange={(e) => update("provider", e.target.value)} className="field" /></Field><Field label="Due date"><input type="date" value={record.dueDate} onChange={(e) => update("dueDate", e.target.value)} className="field" /></Field><Field label="Status"><select value={record.status} onChange={(e) => update("status", e.target.value)} className="field">{["Planned", "In progress", "Completed", "Paused"].map((item) => <option key={item}>{item}</option>)}</select></Field><Field label={`Progress · ${record.progress}%`}><input type="range" min="0" max="100" value={record.progress} onChange={(e) => update("progress", Number(e.target.value))} className="w-full" /></Field><Field label="Certification"><input value={record.certification} onChange={(e) => update("certification", e.target.value)} className="field" /></Field><Field label="Notes" wide><textarea value={record.notes} onChange={(e) => update("notes", e.target.value)} className="textarea" /></Field></>}</div>}
+    {editor.resource !== "employees" && <div className="grid gap-4 sm:grid-cols-2"><Field label="Team member" wide><select value={record.employeeId} onChange={(e) => update("employeeId", e.target.value)} className="field">{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select></Field>{editor.resource === "leave" && <><Field label="Leave type"><select value={record.type} onChange={(e) => update("type", e.target.value)} className="field">{data.settings.leaveTypes.map((item: string) => <option key={item}>{item}</option>)}</select></Field><div /><Field label="Start date"><input type="date" value={record.startDate} onChange={(e) => update("startDate", e.target.value)} className="field" /></Field><Field label="End date"><input type="date" value={record.endDate} onChange={(e) => update("endDate", e.target.value)} className="field" /></Field><Field label="Reason" wide><textarea value={record.reason} onChange={(e) => update("reason", e.target.value)} className="textarea" /></Field></>}{editor.resource === "attendance" && <><Field label="Date"><input type="date" value={record.date} onChange={(e) => update("date", e.target.value)} className="field" /></Field><Field label="Status"><select value={record.status} onChange={(e) => update("status", e.target.value)} className="field">{["Present", "WFH", "Leave", "Absent", "Off", "Client Site"].map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Work mode"><select value={record.workMode || "Office"} onChange={(e) => update("workMode", e.target.value)} className="field"><option>Office</option><option>Remote</option><option>Client Site</option></select></Field><div /><Field label="Check in"><input type="time" value={record.checkIn} onChange={(e) => update("checkIn", e.target.value)} className="field" /></Field><Field label="Check out"><input type="time" value={record.checkOut} onChange={(e) => update("checkOut", e.target.value)} className="field" /></Field><Field label="Note" wide><textarea value={record.note} onChange={(e) => update("note", e.target.value)} className="textarea" /></Field></>}{editor.resource === "goals" && <><Field label="Goal title" wide><input value={record.title} onChange={(e) => update("title", e.target.value)} className="field" /></Field><Field label="Period"><input value={record.period} onChange={(e) => update("period", e.target.value)} className="field" /></Field><Field label="Due date"><input type="date" value={record.dueDate} onChange={(e) => update("dueDate", e.target.value)} className="field" /></Field><Field label={`Progress · ${record.progress}%`} wide><input type="range" min="0" max="100" value={record.progress} onChange={(e) => update("progress", Number(e.target.value))} className="w-full" /></Field><Field label="Status"><select value={record.status} onChange={(e) => update("status", e.target.value)} className="field">{["Not started", "In progress", "At risk", "Completed", "Cancelled"].map((item) => <option key={item}>{item}</option>)}</select></Field><div /><Field label="Notes" wide><textarea value={record.notes} onChange={(e) => update("notes", e.target.value)} className="textarea" /></Field></>}{editor.resource === "learning" && <><Field label="Course / learning title" wide><input value={record.title} onChange={(e) => update("title", e.target.value)} className="field" /></Field><Field label="Provider"><input value={record.provider} onChange={(e) => update("provider", e.target.value)} className="field" /></Field><Field label="Due date"><input type="date" value={record.dueDate} onChange={(e) => update("dueDate", e.target.value)} className="field" /></Field><Field label="Status"><select value={record.status} onChange={(e) => update("status", e.target.value)} className="field">{["Planned", "In progress", "Completed", "Paused"].map((item) => <option key={item}>{item}</option>)}</select></Field><Field label={`Progress · ${record.progress}%`}><input type="range" min="0" max="100" value={record.progress} onChange={(e) => update("progress", Number(e.target.value))} className="w-full" /></Field><Field label="Certification"><input value={record.certification} onChange={(e) => update("certification", e.target.value)} className="field" /></Field><Field label="Notes" wide><textarea value={record.notes} onChange={(e) => update("notes", e.target.value)} className="textarea" /></Field></>}</div>}
     <div className="sticky bottom-0 flex justify-end gap-2 border-t bg-[#f7f4ed]/95 pt-4 backdrop-blur"><Button variant="outline" onClick={() => setEditor(null)}>Cancel</Button><Button onClick={onSave} disabled={saving}>{saving ? "Saving…" : "Save record"}</Button></div>
   </CardContent><style jsx>{`.field{height:2.75rem;width:100%;border-radius:.75rem;border:1px solid #ddd8cf;background:white;padding:0 .8rem;font-size:.875rem;outline:none}.field:focus,.textarea:focus{border-color:#ba5c42;box-shadow:0 0 0 4px rgba(186,92,66,.1)}.textarea{min-height:7rem;width:100%;resize:vertical;border-radius:.75rem;border:1px solid #ddd8cf;background:white;padding:.8rem;font-size:.875rem;line-height:1.55;outline:none}`}</style></Card></div>;
 }
