@@ -217,7 +217,12 @@ async function recogniseInvoiceRevenue(result: any) {
   // A "Paid" invoice needs both halves: the revenue on issue, and the receipt
   // that clears it. Posting only the first would leave receivables permanently
   // debited for money that has already arrived.
-  const receipt = text(record.status) === "Paid" ? await settleInvoiceInFull(id) : null;
+  // Do not clear receivables until the invoice itself is on the ledger. If its
+  // issue period is closed (or the accounting schema is not ready), posting a
+  // receipt alone would leave a credit in AR with no matching invoice debit.
+  const receipt = outcome.status === "failed" || text(record.status) !== "Paid"
+    ? null
+    : await settleInvoiceInFull(id);
 
   if (outcome.status === "failed") return { posted: false, error: outcome.reason };
   if (receipt?.status === "failed") return { posted: true, error: receipt.reason };
