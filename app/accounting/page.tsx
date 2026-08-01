@@ -87,7 +87,8 @@ export default function AccountingPage() {
       if (!response.ok) throw new Error(payload.error || "That did not save.");
       if (payload.accounts) setData(payload);
       else await load();
-      success(successMessage);
+      if (payload.ledgerError) toastError(`Saved, but the ledger still needs attention: ${payload.ledgerError}`);
+      else success(successMessage);
       return payload;
     } catch (cause) {
       toastError(cause instanceof Error ? cause.message : "That did not save.");
@@ -1132,7 +1133,7 @@ function Settlements({ data, loading, submit }: any) {
       customerId: item.customerId, periodStart: item.periodStart, periodEnd: item.periodEnd,
       units: String(item.units), feePerUnit: String(item.feePerUnit),
       adReimbursement: String(item.adReimbursement), incentive: String(item.incentive),
-      dueDate: item.dueDate || "", notes: "",
+      dueDate: item.dueDate || "", notes: item.notes || "",
     });
     setOpen(true);
   }
@@ -1188,6 +1189,9 @@ function Settlements({ data, loading, submit }: any) {
       </label>
       <label className="text-xs font-medium">Incentive
         <input type="number" step="0.01" value={form.incentive} onChange={(event) => set({ incentive: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium md:col-span-2">Notes
+        <textarea value={form.notes} onChange={(event) => set({ notes: event.target.value })} className="mt-2 min-h-20 w-full rounded-lg border bg-white px-3 py-2 text-sm" />
       </label>
       <div className="md:col-span-2 flex flex-wrap items-center gap-3">
         <Button onClick={save}>{editing ? "Save changes" : "Create settlement"}</Button>
