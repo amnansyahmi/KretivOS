@@ -9,6 +9,7 @@ import {
   RotateCcw, ShoppingCart, Truck, Users, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog, DialogContent, DialogDescription, DialogTitle, VisuallyHidden,
 } from "@/components/ui/dialog";
@@ -49,6 +50,8 @@ export const BUSINESS_NAV_ITEMS: BusinessNavItem[] = [
   { id: "projects", label: "Delivery handoff", description: "Projects created from won work", group: "Handoff", icon: BriefcaseBusiness },
 ];
 
+const GROUP_ORDER: NavigationGroup[] = ["Workspace", "Customers", "Sales documents", "Revenue", "Handoff"];
+
 export type BusinessBadges = Partial<Record<BusinessTab, number>>;
 
 function SidebarContent({
@@ -71,6 +74,29 @@ function SidebarContent({
   const salesDocumentActive = BUSINESS_NAV_ITEMS.some((item) => item.group === "Sales documents" && item.id === activeId);
   const salesDocumentsExpanded = salesDocumentsOpen || salesDocumentActive;
 
+  function renderItem(item: BusinessNavItem) {
+    const Icon = item.icon;
+    const active = activeId === item.id;
+    const badge = badges?.[item.id];
+    return <button
+      key={item.id}
+      type="button"
+      onClick={() => { onClose?.(); onNavigate(item.id); }}
+      className={cn(
+        "group relative flex min-h-[48px] w-full items-center gap-3 border-l-2 px-3 py-2.5 text-left transition",
+        active ? "border-[#ef8a6b] bg-white/10 text-white" : "border-transparent text-white/62 hover:bg-white/[.06] hover:text-white",
+      )}
+      aria-current={active ? "page" : undefined}
+    >
+      <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[#f19a7f]" : "text-white/45 group-hover:text-white/75")} />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium">{item.label}</span>
+        <span className={cn("mt-0.5 block truncate text-[10px]", active ? "text-white/55" : "text-white/32")}>{item.description}</span>
+      </span>
+      {badge ? <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center bg-[#ef8a6b] px-1.5 text-[10px] font-semibold text-[#1c2b23]">{badge > 99 ? "99+" : badge}</span> : null}
+    </button>;
+  }
+
   return <div className="flex h-full min-h-0 flex-col bg-[#1c2b23] text-white">
     <div className="flex h-[88px] shrink-0 items-center gap-3 border-b border-white/10 px-5">
       <div className="flex h-10 w-10 items-center justify-center border border-white/15 bg-white/10 text-[#f19a7f]"><BriefcaseBusiness className="h-5 w-5" /></div>
@@ -92,33 +118,27 @@ function SidebarContent({
     </div>
 
     <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4" aria-label="Sales navigation">
-      {BUSINESS_NAV_ITEMS.map((item, index) => {
-        if (item.group === "Sales documents" && item.id !== "sales" && !salesDocumentsExpanded) return null;
-        const Icon = item.icon;
-        const showGroup = index === 0 || BUSINESS_NAV_ITEMS[index - 1].group !== item.group;
-        const active = activeId === item.id;
-        const badge = badges?.[item.id];
-        return <Fragment key={item.id}>
-          {showGroup && (item.group === "Sales documents"
-            ? <button type="button" onClick={() => setSalesDocumentsOpen((value) => !value)} aria-expanded={salesDocumentsExpanded} className={cn("flex w-full items-center justify-between px-3 pb-2 text-left text-[9px] font-semibold uppercase tracking-[.18em] text-white/35", index > 0 && "pt-5")}><span>{item.group}</span><ChevronDown className={cn("h-3.5 w-3.5 transition-transform", salesDocumentsExpanded && "rotate-180")} /></button>
-            : <div className={cn("px-3 pb-2 text-[9px] font-semibold uppercase tracking-[.18em] text-white/35", index > 0 && "pt-5")}>{item.group}</div>)}
-          <button
-            type="button"
-            onClick={() => { onClose?.(); onNavigate(item.id); }}
-            className={cn(
-              "group relative flex min-h-[48px] w-full items-center gap-3 border-l-2 px-3 py-2.5 text-left transition",
-              active ? "border-[#ef8a6b] bg-white/10 text-white" : "border-transparent text-white/62 hover:bg-white/[.06] hover:text-white",
-            )}
-            aria-current={active ? "page" : undefined}
-          >
-            <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[#f19a7f]" : "text-white/45 group-hover:text-white/75")} />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium">{item.label}</span>
-              <span className={cn("mt-0.5 block truncate text-[10px]", active ? "text-white/55" : "text-white/32")}>{item.description}</span>
-            </span>
-            {badge ? <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center bg-[#ef8a6b] px-1.5 text-[10px] font-semibold text-[#1c2b23]">{badge > 99 ? "99+" : badge}</span> : null}
-          </button>
-        </Fragment>;
+      {GROUP_ORDER.map((group, groupIndex) => {
+        const items = BUSINESS_NAV_ITEMS.filter((item) => item.group === group);
+        if (!items.length) return null;
+        const heading = <div className={cn("px-3 pb-2 text-[9px] font-semibold uppercase tracking-[.18em] text-white/35", groupIndex > 0 && "pt-5")}>{group}</div>;
+
+        // "Sales documents" is eight rows deep and would push everything else
+        // off a phone screen, so it collapses. Radix carries the aria-expanded
+        // and aria-controls pair the hand-rolled version was missing.
+        if (group === "Sales documents") {
+          const [lead, ...rest] = items;
+          return <Collapsible key={group} open={salesDocumentsExpanded} onOpenChange={setSalesDocumentsOpen}>
+            <CollapsibleTrigger className={cn("flex w-full items-center justify-between px-3 pb-2 text-left text-[9px] font-semibold uppercase tracking-[.18em] text-white/35 transition hover:text-white/60", groupIndex > 0 && "pt-5")}>
+              <span>{group}</span>
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", salesDocumentsExpanded && "rotate-180")} />
+            </CollapsibleTrigger>
+            {renderItem(lead)}
+            <CollapsibleContent>{rest.map(renderItem)}</CollapsibleContent>
+          </Collapsible>;
+        }
+
+        return <Fragment key={group}>{heading}{items.map(renderItem)}</Fragment>;
       })}
     </nav>
 

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/confirm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isTextField } from "@/components/ui/textarea";
 import { DateInput } from "@/components/date-input";
@@ -22,6 +23,7 @@ import {
 } from "@/components/business-shell";
 import { BUSINESS_STORAGE_KEY, CUSTOMER_STORAGE_KEY, businessId } from "@/lib/business-data";
 import { INDUSTRY_GROUPS } from "@/lib/industries";
+import { StatusBadge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 type ResourceTab = "customers" | "contacts" | "brands" | "channels" | "crm" | "sales" | "projects" | "onboarding";
@@ -75,6 +77,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const money = (value: number) => `RM${Number(value || 0).toLocaleString("en-MY", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
 export default function BusinessOperationsPage() {
+  const confirm = useConfirm();
   const [data, setData] = useState<Snapshot>(emptySnapshot);
   const [tab, setTab] = useState<BusinessTab>("overview");
   const [query, setQuery] = useState("");
@@ -243,7 +246,7 @@ export default function BusinessOperationsPage() {
   }
 
   async function deleteRecord(target: ResourceTab, id: string) {
-    if (!window.confirm("Delete this record? Linked records may also be removed.")) return;
+    if (!await confirm({ title: "Delete this record?", description: "Linked records may be removed with it. This cannot be undone.", destructive: true })) return;
     await mutate({ operation: "delete", resource: resourceForTab[target], id }, "Record deleted from Neon.");
   }
 
@@ -285,8 +288,8 @@ export default function BusinessOperationsPage() {
         <div className="text-xs text-muted-foreground">Authentication intentionally skipped for this phase</div>
       </div>
 
-      {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
-      {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
+      {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
+      {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
       {tab === "overview" && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Weighted pipeline" value={money(stats.pipeline)} note={`${data.opportunities.length} opportunities`} />
@@ -312,7 +315,7 @@ export default function BusinessOperationsPage() {
 
       {!loading && tab === "crm" && <div className="grid gap-4 lg:grid-cols-2">{data.opportunities.filter((item) => matches(item.title, item.stage, item.nextAction, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between gap-4"><div><div className="text-[10px] font-semibold uppercase tracking-wider text-[#ba5c42]">{customerName(item.customerId)}</div><h3 className="mt-1 font-semibold">{item.title}</h3></div><Badge value={item.stage} /></div><div className="mt-5 grid grid-cols-3 gap-2"><Mini label="Value" value={money(item.value)} /><Mini label="Probability" value={`${item.probability}%`} /><Mini label="Due" value={item.dueDate || "—"} /></div><div className="mt-4 rounded-lg bg-[#f7f4ed] p-3 text-xs"><span className="text-muted-foreground">Next action</span><div className="mt-1 font-medium">{item.nextAction || "Not set"}</div></div><RecordActions onEdit={() => openEdit("crm", item)} onDelete={() => deleteRecord("crm", item.id)} /></CardContent></Card>)}</div>}
 
-      {!loading && isDocumentTab(tab) && <div className="space-y-3">{data.documents.filter((item) => (!DOCUMENT_TABS[tab] || item.type === DOCUMENT_TABS[tab]) && matches(item.title, item.reference, item.type, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_120px_140px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "No reference"}</div><div className="mt-1 font-semibold">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.type} · Due {item.dueDate || "—"}</div></div><Badge value={item.status} /><div className="font-semibold">{money(item.value)}</div><div className="flex flex-wrap gap-2 md:justify-end">{item.type === "Invoice" && item.status !== "Paid" && <Button size="sm" onClick={() => performAction("mark-document-paid", item.id, "Invoice paid and receipt posted to Accounting.")}>Record payment</Button>}{PRINTABLE_TYPES.includes(item.type) && <Button variant="outline" size="icon" asChild title={`Print ${item.type.toLowerCase()}`}><Link href={`/print/${item.id}?back=${encodeURIComponent(`/sales?tab=${tab}`)}`}><Printer className="h-4 w-4" /></Link></Button>}<Button variant="outline" size="icon" onClick={() => openEdit("sales", item)}><Pencil className="h-4 w-4" /></Button><Button variant="outline" size="icon" onClick={() => deleteRecord("sales", item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}</div>}
+      {!loading && isDocumentTab(tab) && <div className="space-y-3">{data.documents.filter((item) => (!DOCUMENT_TABS[tab] || item.type === DOCUMENT_TABS[tab]) && matches(item.title, item.reference, item.type, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_120px_140px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "No reference"}</div><div className="mt-1 font-semibold">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.type} · Due {item.dueDate || "—"}</div></div><Badge value={item.status} /><div className="font-semibold">{money(item.value)}</div><div className="flex flex-wrap gap-2 md:justify-end">{item.type === "Invoice" && item.status !== "Paid" && <Button size="sm" onClick={() => performAction("mark-document-paid", item.id, "Invoice paid and receipt posted to Accounting.")}>Record payment</Button>}{PRINTABLE_TYPES.includes(item.type) && <Button variant="outline" size="icon" asChild title={`Print ${item.type.toLowerCase()}`} aria-label="Print"><Link href={`/print/${item.id}?back=${encodeURIComponent(`/sales?tab=${tab}`)}`}><Printer className="h-4 w-4" /></Link></Button>}<Button variant="outline" size="icon" onClick={() => openEdit("sales", item)} aria-label="Edit sale"><Pencil className="h-4 w-4" /></Button><Button variant="outline" size="icon" onClick={() => deleteRecord("sales", item.id)} aria-label="Delete sale"><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}</div>}
 
       {!loading && tab === "settlements" && <div className="space-y-3">{data.settlements.filter((item) => matches(item.reference, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_130px_150px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "Weekly settlement"}</div><div className="mt-1 font-semibold">{item.periodStart} to {item.periodEnd}</div><div className="mt-1 text-xs text-muted-foreground">{Number(item.units || 0).toLocaleString("en-MY")} units · RM{Number(item.feePerUnit || 0).toFixed(2)} per unit</div></div><Badge value={item.status} /><div className="font-semibold">{money(Number(item.units || 0) * Number(item.feePerUnit || 0) + Number(item.adReimbursement || 0) + Number(item.incentive || 0))}</div><Button variant="outline" asChild><Link href="/accounting?tab=settlements">Open in Accounting</Link></Button></CardContent></Card>)}</div>}
 
@@ -344,7 +347,7 @@ function EditorModal({ editor, customers, printSetup, saving, onChange, onClose,
   const inputClass = selectClass;
   const textareaClass = "min-h-28 w-full rounded-xl border border-[#d9d3c7] bg-white px-3 py-3 text-sm outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10";
 
-  return <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 sm:items-center sm:p-4"><Card className="max-h-[95vh] w-full max-w-[1500px] overflow-y-auto rounded-b-none bg-[#f7f4ed] shadow-2xl sm:rounded-xl"><CardHeader className="sticky top-0 z-20 flex-row items-start justify-between border-b bg-[#f7f4ed] p-4 sm:p-6"><div><CardTitle className="text-xl">{editor.isNew ? "Create" : "Edit"} {editor.tab === "sales" ? editor.record.type : BUSINESS_NAV_ITEMS.find((item) => item.id === editor.tab)?.label}</CardTitle><p className="mt-1 text-xs text-muted-foreground">Changes are saved directly to Neon PostgreSQL.</p></div><Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="p-4 sm:p-6">
+  return <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 sm:items-center sm:p-4"><Card className="max-h-[95vh] w-full max-w-[1500px] overflow-y-auto rounded-b-none bg-[#f7f4ed] shadow-2xl sm:rounded-xl"><CardHeader className="sticky top-0 z-20 flex-row items-start justify-between border-b bg-[#f7f4ed] p-4 sm:p-6"><div><CardTitle className="text-xl">{editor.isNew ? "Create" : "Edit"} {editor.tab === "sales" ? editor.record.type : BUSINESS_NAV_ITEMS.find((item) => item.id === editor.tab)?.label}</CardTitle><p className="mt-1 text-xs text-muted-foreground">Changes are saved directly to Neon PostgreSQL.</p></div><Button variant="ghost" size="icon" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button></CardHeader><CardContent className="p-4 sm:p-6">
     {editor.tab === "sales" && <SalesDocumentEditor record={r} customers={customers} printSetup={printSetup} onChange={onChange} />}
     <div className={cn("grid gap-4 sm:grid-cols-2", editor.tab === "sales" && "hidden")}>
     {!["customers", "channels", "sales"].includes(editor.tab) && <Field label="Customer"><select value={r.customerId} onChange={(event) => set("customerId", event.target.value)} className={selectClass}>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
@@ -407,7 +410,7 @@ function EditorModal({ editor, customers, printSetup, saving, onChange, onClose,
       <Field label="Blueprint"><select value={r.blueprint} onChange={(event) => set("blueprint", event.target.value)} className={selectClass}>{["General Client Onboarding", "E-commerce & Marketplace", "Website Development", "Marketing Campaign", "AI / Software Product", "Retainer Service"].map((value) => <option key={value}>{value}</option>)}</select></Field>
       <Field label="Status"><select value={r.status} onChange={(event) => set("status", event.target.value)} className={selectClass}>{["Not started", "In progress", "Ready", "Completed"].map((value) => <option key={value}>{value}</option>)}</select></Field>
       <Field label="Target launch"><DateInput value={r.targetLaunch} onChange={(event) => set("targetLaunch", event.target.value)} /></Field>
-      <Field label="Checklist" wide><div className="space-y-2">{r.steps.map((step: any, index: number) => <div key={step.id} className="flex items-center gap-2"><input type="checkbox" checked={step.done} onChange={(event) => set("steps", r.steps.map((item: any) => item.id === step.id ? { ...item, done: event.target.checked } : item))} className="h-4 w-4 accent-[#ba5c42]" /><input value={step.label} onChange={(event) => set("steps", r.steps.map((item: any) => item.id === step.id ? { ...item, label: event.target.value } : item))} className={inputClass} /><Button variant="outline" size="icon" onClick={() => set("steps", r.steps.filter((item: any) => item.id !== step.id))}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>)}<Button type="button" variant="outline" onClick={() => set("steps", [...r.steps, { id: businessId("step"), label: "New step", done: false }])}><Plus className="h-4 w-4" />Add step</Button></div></Field>
+      <Field label="Checklist" wide><div className="space-y-2">{r.steps.map((step: any, index: number) => <div key={step.id} className="flex items-center gap-2"><input type="checkbox" checked={step.done} onChange={(event) => set("steps", r.steps.map((item: any) => item.id === step.id ? { ...item, done: event.target.checked } : item))} className="h-4 w-4 accent-[#ba5c42]" /><input value={step.label} onChange={(event) => set("steps", r.steps.map((item: any) => item.id === step.id ? { ...item, label: event.target.value } : item))} className={inputClass} /><Button variant="outline" size="icon" onClick={() => set("steps", r.steps.filter((item: any) => item.id !== step.id))} aria-label="Delete step"><Trash2 className="h-4 w-4 text-red-500" /></Button></div>)}<Button type="button" variant="outline" onClick={() => set("steps", [...r.steps, { id: businessId("step"), label: "New step", done: false }])}><Plus className="h-4 w-4" />Add step</Button></div></Field>
       <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
     </>}
   </div><div className="mt-6 flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row sm:justify-end"><Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button><Button onClick={onSave} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{saving ? "Saving…" : "Save record"}</Button></div></CardContent></Card></div>;
@@ -429,12 +432,9 @@ function Mini({ label, value }: { label: string; value: string }) {
 }
 
 function Badge({ value }: { value: string }) {
-  const green = ["Active", "Paid", "Completed", "Won", "Cleared", "Primary", "Ready"].includes(value);
-  const amber = ["Lead", "Draft", "Pending", "Review", "Verified", "In progress", "Proposal", "Negotiation"].includes(value);
-  const red = ["Overdue", "Lost", "Cancelled", "Archived"].includes(value);
-  return <span className={cn("inline-flex rounded-full px-2.5 py-1 text-[10px] font-medium", green ? "bg-emerald-50 text-emerald-700" : red ? "bg-red-50 text-red-700" : amber ? "bg-amber-50 text-amber-700" : "bg-[#eeeae0] text-[#5a605a]")}>{value}</span>;
+  return <StatusBadge value={value} />;
 }
 
 function RecordActions({ onEdit, onDelete, compact = false }: { onEdit: () => void; onDelete: () => void; compact?: boolean }) {
-  return <div className={cn("flex gap-2", compact ? "sm:justify-end" : "mt-5")}><Button variant="outline" size={compact ? "icon" : "sm"} className={compact ? "" : "flex-1"} onClick={onEdit}><Pencil className="h-4 w-4" />{!compact && "Edit"}</Button><Button variant="outline" size="icon" onClick={onDelete}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>;
+  return <div className={cn("flex gap-2", compact ? "sm:justify-end" : "mt-5")}><Button variant="outline" size={compact ? "icon" : "sm"} className={compact ? "" : "flex-1"} onClick={onEdit}><Pencil className="h-4 w-4" />{!compact && "Edit"}</Button><Button variant="outline" size="icon" onClick={onDelete} aria-label="Delete"><Trash2 className="h-4 w-4 text-red-500" /></Button></div>;
 }

@@ -18,7 +18,23 @@ const config: Config = {
         destructive: { DEFAULT: "hsl(var(--destructive))", foreground: "hsl(var(--destructive-foreground))" }
       },
       borderRadius: { lg: "var(--radius)", md: "calc(var(--radius) - 2px)", sm: "calc(var(--radius) - 4px)" },
-      boxShadow: { soft: "0 16px 48px rgba(31, 36, 32, .08)" }
+      boxShadow: { soft: "0 16px 48px rgba(31, 36, 32, .08)" },
+      // Radix Collapsible measures the panel and exposes its height as a
+      // variable; without these the group snaps open instead of sliding.
+      keyframes: {
+        "collapsible-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-collapsible-content-height)" },
+        },
+        "collapsible-up": {
+          from: { height: "var(--radix-collapsible-content-height)" },
+          to: { height: "0" },
+        },
+      },
+      animation: {
+        "collapsible-down": "collapsible-down .18s ease-out",
+        "collapsible-up": "collapsible-up .18s ease-out",
+      }
     }
   },
   plugins: [require("tailwindcss-animate")]

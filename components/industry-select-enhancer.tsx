@@ -209,7 +209,7 @@ function IndustryPicker({ input }: { input: HTMLInputElement }) {
                               )}
                               role="option"
                               aria-selected={selected}
-                            >
+                             aria-label="Mark all read">
                               <span className="min-w-0 flex-1">{option}</span>
                               {selected && <Check className="h-3.5 w-3.5 shrink-0" />}
                             </button>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { FlaskConical, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/confirm";
 import { DateInput } from "@/components/date-input";
 
 type Employee = { id: string; name: string; status: string };
@@ -19,6 +20,7 @@ function todayMY() {
 }
 
 export function AttendanceTestSession() {
+  const confirm = useConfirm();
   const pathname = usePathname();
   const visible = pathname === "/hr" || pathname.startsWith("/hr/attendance");
   const [admin, setAdmin] = useState(false);
@@ -56,7 +58,11 @@ export function AttendanceTestSession() {
 
   async function startNewSession() {
     if (!employee || !record) return;
-    const confirmed = window.confirm(`Archive ${employee.name}'s current attendance for ${date} and start a fresh testing session?`);
+    const confirmed = await confirm({
+      title: `Start a fresh testing session for ${employee.name}?`,
+      description: `The attendance already recorded for ${date} is archived, not deleted.`,
+      confirmLabel: "Archive and restart",
+    });
     if (!confirmed) return;
     setBusy(true);
     setNotice("");

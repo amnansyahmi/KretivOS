@@ -7,6 +7,7 @@ import {
   FileText, Loader2, Plus, RefreshCw, Save, Sparkles, Trash2, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/confirm";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,6 +44,7 @@ async function jsonRequest(url: string, init?: RequestInit) {
 }
 
 export default function DocumentAiPage() {
+  const confirm = useConfirm();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [form, setForm] = useState<Form>(emptyForm);
@@ -105,7 +107,7 @@ export default function DocumentAiPage() {
 
   async function savePackage() {
     if (!draft) return;
-    if (!window.confirm("Save the reviewed proposal, quotation, onboarding and project records as drafts?")) return;
+    if (!await confirm({ title: "Save these records as drafts?", description: "Creates a proposal, a quotation, an onboarding checklist and a project, all as drafts you can still edit.", confirmLabel: "Save drafts" })) return;
     setSaving(true); setError("");
     try {
       const result = await jsonRequest("/api/ai/proposal-package", { method: "POST", body: JSON.stringify({ action: "save", customerId: form.customerId, budget: form.budget, mediaBudget: form.mediaBudget, targetLaunch: form.targetLaunch, draft }) });
@@ -120,8 +122,8 @@ export default function DocumentAiPage() {
     description="Turn one CRM opportunity into a coherent proposal, quotation, onboarding checklist and delivery brief. AI drafts; the Kretivco team reviews and approves."
     actions={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={load} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>{draft && <Button onClick={savePackage} disabled={saving || Boolean(saved)}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "Saved as drafts" : saving ? "Saving…" : "Save package"}</Button>}</div>}
   >
-    {notice && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
-    {error && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
+    {notice && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
+    {error && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
     {saved && <Card className="mb-5 border-emerald-200 bg-emerald-50"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white"><Check className="h-5 w-5" /></div><div className="flex-1"><div className="font-semibold text-emerald-900">Document package created</div><p className="mt-1 text-xs leading-5 text-emerald-800">Everything remains in Draft, Planning or Not started status. Open each workspace to review before approval or sending.</p><div className="mt-4 flex flex-wrap gap-2"><Button variant="outline" size="sm" className="bg-white" asChild><Link href="/documents?section=documents">Review documents <ArrowRight className="h-3.5 w-3.5" /></Link></Button><Button variant="outline" size="sm" className="bg-white" asChild><Link href="/sales?tab=sales">Sales records</Link></Button><Button variant="outline" size="sm" className="bg-white" asChild><Link href="/sales?tab=onboarding">Onboarding</Link></Button><Button variant="outline" size="sm" className="bg-white" asChild><Link href="/sales?tab=projects">Project</Link></Button></div></div></div></CardContent></Card>}
 
@@ -168,7 +170,7 @@ function QuotationReview({ draft, setDraft }: { draft: Draft; setDraft: (draft: 
   const updateItem = (index: number, patch: Partial<LineItem>) => update({ items: draft.quotation.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item) });
   const quotationTotal = draft.quotation.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
   return <div className="space-y-4"><Field label="Quotation title"><Input value={draft.quotation.title} onChange={(event) => update({ title: event.target.value })} /></Field><ReviewField label="Scope summary" value={draft.quotation.scope} onChange={(value) => update({ scope: value })} />
-    <div><div className="flex items-center justify-between"><div className="text-xs font-medium text-[#4e5a52]">Line items</div><Button variant="outline" size="sm" onClick={() => update({ items: [...draft.quotation.items, { id: id(), description: "", quantity: 1, unit: "item", unitPrice: 0 }] })}><Plus className="h-3.5 w-3.5" />Add item</Button></div><div className="mt-2 space-y-2">{draft.quotation.items.map((item, index) => <div key={item.id} className="grid gap-2 rounded-xl border bg-[#fbfaf7] p-3 sm:grid-cols-[minmax(0,1fr)_80px_90px_120px_auto]"><Input value={item.description} onChange={(event) => updateItem(index, { description: event.target.value })} placeholder="Description" /><Input type="number" min="0" value={item.quantity} onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })} /><Input value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })} placeholder="unit" /><Input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })} /><Button variant="ghost" size="icon" onClick={() => update({ items: draft.quotation.items.filter((_, itemIndex) => itemIndex !== index) })}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>)}</div></div>
+    <div><div className="flex items-center justify-between"><div className="text-xs font-medium text-[#4e5a52]">Line items</div><Button variant="outline" size="sm" onClick={() => update({ items: [...draft.quotation.items, { id: id(), description: "", quantity: 1, unit: "item", unitPrice: 0 }] })}><Plus className="h-3.5 w-3.5" />Add item</Button></div><div className="mt-2 space-y-2">{draft.quotation.items.map((item, index) => <div key={item.id} className="grid gap-2 rounded-xl border bg-[#fbfaf7] p-3 sm:grid-cols-[minmax(0,1fr)_80px_90px_120px_auto]"><Input value={item.description} onChange={(event) => updateItem(index, { description: event.target.value })} placeholder="Description" /><Input type="number" min="0" value={item.quantity} onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })} /><Input value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })} placeholder="unit" /><Input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })} /><Button variant="ghost" size="icon" onClick={() => update({ items: draft.quotation.items.filter((_, itemIndex) => itemIndex !== index) })} aria-label="Delete"><Trash2 className="h-4 w-4 text-red-500" /></Button></div>)}</div></div>
     <div className="rounded-xl border bg-[#202c25] p-4 text-white"><div className="text-[10px] uppercase tracking-wider text-white/45">Reviewed quotation total</div><div className="mt-1 text-2xl font-semibold">{money(quotationTotal)}</div><div className="mt-1 text-[10px] text-white/45">Calculated only from the editable line items above.</div></div><ReviewField label="Terms · one per line" value={fromLines(draft.quotation.terms)} onChange={(value) => update({ terms: toLines(value) })} /></div>;
 }
 function OnboardingReview({ draft, setDraft }: { draft: Draft; setDraft: (draft: Draft) => void }) {

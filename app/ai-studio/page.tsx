@@ -8,6 +8,7 @@ import {
   Save, Send, Settings2, Sparkles, ThumbsDown, ThumbsUp, WandSparkles, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/confirm";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -72,6 +73,7 @@ const relative = (value: string) => {
 };
 
 export default function AiStudioPage() {
+  const confirm = useConfirm();
   const [data, setData] = useState<StudioData>(emptyData);
   const [status, setStatus] = useState<Status>({ online: false, origin: "", models: [] });
   const [activeId, setActiveId] = useState("");
@@ -203,7 +205,7 @@ export default function AiStudioPage() {
   }
 
   async function archive() {
-    if (!activeId || !window.confirm("Archive this AI conversation?")) return;
+    if (!activeId || !await confirm({ title: "Archive this conversation?", description: "It leaves the list but the transcript is kept.", confirmLabel: "Archive" })) return;
     try {
       await jsonRequest(`/api/ai/studio?id=${encodeURIComponent(activeId)}`, { method: "DELETE" });
       newConversation();
@@ -232,8 +234,8 @@ export default function AiStudioPage() {
     description="One workspace for ai-nonymauz-cloud: live KretivOS context, cloud RAG, web tools, model routing, reusable prompts, image generation and shared history."
     actions={<div className="flex flex-wrap items-center gap-2"><ServiceBadge status={status} /><Button asChild variant="outline" className="bg-white"><Link href="/?view=Prompt%20Lab"><WandSparkles className="h-4 w-4" />Prompt Lab</Link></Button><Button variant="outline" className="bg-white" onClick={() => load(activeId)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Refresh</Button><Button onClick={newConversation}><Plus className="h-4 w-4" />New</Button></div>}
   >
-    {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
-    {error && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
+    {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
+    {error && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
     <div className="mb-4 grid grid-cols-3 gap-2 md:max-w-xl">
       <MiniStat label="30-day requests" value={compact(data.usage.requests)} />
@@ -256,11 +258,11 @@ export default function AiStudioPage() {
 
       <section className="flex min-w-0 flex-col bg-[#f7f4ed]">
         <div className="flex min-h-[70px] items-center gap-3 border-b bg-white/70 px-3 py-3 sm:px-5">
-          <Button variant="ghost" size="icon" className="xl:hidden" onClick={() => setMobileList(true)}><ChevronLeft className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="icon" className="xl:hidden" onClick={() => setMobileList(true)} aria-label="Previous"><ChevronLeft className="h-4 w-4" /></Button>
           <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{studioMode === "image" ? "Image generation" : activeConversation?.title || "New AI conversation"}</div><div className="mt-1 truncate text-[10px] text-muted-foreground">{settings.customerId ? data.customers.find((item) => item.id === settings.customerId)?.name : "Company-wide"} · {settings.mode} mode</div></div>
           <div className="flex rounded-lg border bg-white p-1"><button onClick={() => setStudioMode("chat")} className={cn("rounded-md px-3 py-1.5 text-xs", studioMode === "chat" ? "bg-[#202c25] text-white" : "text-muted-foreground")}><MessageSquareText className="mr-1.5 inline h-3.5 w-3.5" />Chat</button><button onClick={() => setStudioMode("image")} className={cn("rounded-md px-3 py-1.5 text-xs", studioMode === "image" ? "bg-[#202c25] text-white" : "text-muted-foreground")}><ImageIcon className="mr-1.5 inline h-3.5 w-3.5" />Image</button></div>
-          <Button variant="outline" size="icon" className="bg-white xl:hidden" onClick={() => setShowSettings(true)}><Settings2 className="h-4 w-4" /></Button>
-          {activeId && <Button variant="ghost" size="icon" onClick={archive}><Archive className="h-4 w-4" /></Button>}
+          <Button variant="outline" size="icon" className="bg-white xl:hidden" onClick={() => setShowSettings(true)} aria-label="Settings"><Settings2 className="h-4 w-4" /></Button>
+          {activeId && <Button variant="ghost" size="icon" onClick={archive} aria-label="Archive"><Archive className="h-4 w-4" /></Button>}
         </div>
 
         {studioMode === "chat" ? <>
@@ -290,7 +292,7 @@ function Welcome({ templates, onSelect }: { templates: Template[]; onSelect: (te
 
 function ChatMessage({ message, onSave, onFeedback }: { message: Message; onSave: () => void; onFeedback: (value: "up" | "down") => void }) {
   if (message.role === "user") return <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-[#202c25] px-4 py-3 text-sm leading-6 text-white sm:max-w-[75%]">{message.content}</div>;
-  return <div className="group flex items-start gap-3"><div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#202c25] text-white"><Bot className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="rounded-2xl border bg-white p-4 sm:p-5"><MarkdownPreview content={message.content} />{message.sources.length > 0 && <div className="mt-5 border-t pt-4"><div className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">KretivOS sources</div><div className="flex flex-wrap gap-2">{message.sources.map((source) => <a key={`${message.id}-${source.index}`} href={`/knowledge?id=${encodeURIComponent(source.id)}`} className="rounded-lg border bg-[#faf8f3] px-2.5 py-2 text-[10px] hover:bg-white"><span className="font-semibold text-[#ba5c42]">[{source.index}]</span> {source.title}</a>)}</div></div>}</div><div className="mt-2 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground"><span>{message.model || message.mode}</span>{message.usage?.total_tokens ? <span>· {compact(message.usage.total_tokens)} tokens</span> : null}<div className="ml-auto flex gap-1"><button onClick={() => navigator.clipboard.writeText(message.content)} className="rounded-lg p-2 hover:bg-black/5" title="Copy"><Copy className="h-3.5 w-3.5" /></button><button onClick={onSave} className="rounded-lg p-2 hover:bg-black/5" title="Save"><Save className="h-3.5 w-3.5" /></button><button onClick={() => onFeedback("up")} className={cn("rounded-lg p-2 hover:bg-black/5", message.feedback === "up" && "bg-emerald-50 text-emerald-700")}><ThumbsUp className="h-3.5 w-3.5" /></button><button onClick={() => onFeedback("down")} className={cn("rounded-lg p-2 hover:bg-black/5", message.feedback === "down" && "bg-red-50 text-red-700")}><ThumbsDown className="h-3.5 w-3.5" /></button></div></div></div></div>;
+  return <div className="group flex items-start gap-3"><div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#202c25] text-white"><Bot className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="rounded-2xl border bg-white p-4 sm:p-5"><MarkdownPreview content={message.content} />{message.sources.length > 0 && <div className="mt-5 border-t pt-4"><div className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">KretivOS sources</div><div className="flex flex-wrap gap-2">{message.sources.map((source) => <a key={`${message.id}-${source.index}`} href={`/knowledge?id=${encodeURIComponent(source.id)}`} className="rounded-lg border bg-[#faf8f3] px-2.5 py-2 text-[10px] hover:bg-white"><span className="font-semibold text-[#ba5c42]">[{source.index}]</span> {source.title}</a>)}</div></div>}</div><div className="mt-2 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground"><span>{message.model || message.mode}</span>{message.usage?.total_tokens ? <span>· {compact(message.usage.total_tokens)} tokens</span> : null}<div className="ml-auto flex gap-1"><button onClick={() => navigator.clipboard.writeText(message.content)} className="rounded-lg p-2 hover:bg-black/5" title="Copy"><Copy className="h-3.5 w-3.5" /></button><button onClick={onSave} className="rounded-lg p-2 hover:bg-black/5" aria-label="Save"><Save className="h-3.5 w-3.5" /></button><button onClick={() => onFeedback("up")} className={cn("rounded-lg p-2 hover:bg-black/5", message.feedback === "up" && "bg-emerald-50 text-emerald-700")}><ThumbsUp className="h-3.5 w-3.5" /></button><button onClick={() => onFeedback("down")} className={cn("rounded-lg p-2 hover:bg-black/5", message.feedback === "down" && "bg-red-50 text-red-700")}><ThumbsDown className="h-3.5 w-3.5" /></button></div></div></div></div>;
 }
 
 function SettingsPanel({ className, settings, setSettings, status, customers, onClose }: { className?: string; settings: Settings; setSettings: React.Dispatch<React.SetStateAction<Settings>>; status: Status; customers: { id: string; name: string }[]; onClose: () => void }) {

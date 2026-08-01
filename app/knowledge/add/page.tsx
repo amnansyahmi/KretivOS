@@ -151,7 +151,7 @@ export default function AddKnowledgePage() {
     <main className="min-h-screen bg-[#f5f2ea] pb-24 text-[#202820]">
       <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f5f2ea]/95 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-3 px-4 md:h-auto md:min-h-24 md:px-8 md:py-6">
-          <Button asChild variant="ghost" size="icon"><Link href="/knowledge" aria-label="Back to Knowledge"><ArrowLeft className="h-5 w-5" /></Link></Button>
+          <Button asChild variant="ghost" size="icon" aria-label="Back"><Link href="/knowledge" aria-label="Back to Knowledge"><ArrowLeft className="h-5 w-5" /></Link></Button>
           <div className="min-w-0 flex-1"><div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] md:block">Shared knowledge ingestion</div><h1 className="truncate text-lg font-semibold tracking-tight md:mt-1 md:text-3xl">Add Knowledge</h1><p className="mt-1 hidden text-sm text-muted-foreground md:block">Upload Markdown or create a record that becomes available to the whole team through Neon.</p></div>
           <Button variant="outline" className="hidden bg-white md:inline-flex" onClick={reset}><RotateCcw className="h-4 w-4" />Reset</Button>
           <Button onClick={saveKnowledge} disabled={saving}><Save className="h-4 w-4" /><span className="hidden sm:inline">{saving ? "Saving…" : "Save knowledge"}</span></Button>

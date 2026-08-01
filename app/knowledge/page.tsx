@@ -8,6 +8,7 @@ import {
   SlidersHorizontal, Sparkles, Tag, Trash2, Upload, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/confirm";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -73,6 +74,7 @@ async function jsonRequest(url: string, init?: RequestInit) {
 }
 
 export default function KnowledgeLibraryPage() {
+  const confirm = useConfirm();
   const [entries, setEntries] = useState<KnowledgeEntry[]>(cachedEntries);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [brands, setBrands] = useState<BrandOption[]>([]);
@@ -216,7 +218,7 @@ export default function KnowledgeLibraryPage() {
   }
 
   async function deleteEntry() {
-    if (!selected || !window.confirm(`Delete “${selected.title}”? This removes the shared record for the team.`)) return;
+    if (!selected || !await confirm({ title: `Delete “${selected.title}”?`, description: "This removes the shared record for the whole team.", destructive: true })) return;
     setSyncing(true);
     setError("");
     try {
@@ -282,7 +284,7 @@ export default function KnowledgeLibraryPage() {
           <Button variant="outline" size="icon" className="bg-white" onClick={() => loadData(false)} disabled={syncing} aria-label="Refresh knowledge"><RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} /></Button>
           <Button variant="outline" size="icon" className="bg-white md:hidden" onClick={() => setAiOpen(true)} aria-label="Ask Kretiv AI"><Bot className="h-4 w-4" /></Button>
           <Button variant="outline" className="hidden bg-white md:inline-flex" onClick={() => setAiOpen(true)}><Sparkles className="h-4 w-4" />Ask Kretiv AI</Button>
-          <Button asChild size="icon" className="md:hidden"><Link href="/knowledge/add" aria-label="Add knowledge"><Plus className="h-5 w-5" /></Link></Button>
+          <Button asChild size="icon" className="md:hidden" aria-label="Add"><Link href="/knowledge/add" aria-label="Add knowledge"><Plus className="h-5 w-5" /></Link></Button>
           <Button asChild className="hidden md:inline-flex"><Link href="/knowledge/add"><Upload className="h-4 w-4" />Add knowledge</Link></Button>
         </div>
       </header>
