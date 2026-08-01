@@ -21,6 +21,7 @@ import {
 } from "@/lib/einvoice";
 import { lineAmount, type LineItem } from "@/lib/line-items";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { isoDate, todayIso } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -238,7 +239,7 @@ export async function POST(request: NextRequest) {
 
       const result = await submitInvoice(config, {
         internalId,
-        issueDate: row.issue_date ? String(row.issue_date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        issueDate: isoDate(row.issue_date, todayIso()),
         issueTime: new Date().toISOString().slice(11, 19) + "Z",
         currency: clean(row.currency_code, 3) || "MYR",
         exchangeRate: Number(row.exchange_rate) || 1,

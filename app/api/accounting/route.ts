@@ -10,10 +10,12 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { AccountingError, listAccounts, postEntry, prepareEntry, voidEntry } from "@/lib/accounting";
-import { agingBucket, fromCents, lineTax, toCents } from "@/lib/accounting-math";
+import { paymentEntryInput } from "@/lib/accounting-entries";
+import { agingBucket, fromCents, lineTax, signedBalance, toCents } from "@/lib/accounting-math";
 import { backfillSalesInvoices, postSalesInvoice, unpostedInvoiceCount } from "@/lib/invoice-posting";
 import { backfillSettlements, postCashEntry, postSettlementPayment, unreconciledCashCount } from "@/lib/cash-posting";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { isoDate, todayIso } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,7 +29,7 @@ const num = (value: unknown) => {
 };
 const arr = (value: unknown) => (Array.isArray(value) ? value : []);
 const isDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 
 function tablesMissing(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -153,16 +155,16 @@ async function snapshot() {
     bills: bills.map((row: any) => ({
       id: row.id, vendorId: row.vendor_id, vendorName: row.vendor_name,
       billNumber: row.bill_number, reference: row.reference,
-      billDate: String(row.bill_date).slice(0, 10),
-      dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
+      billDate: isoDate(row.bill_date),
+      dueDate: isoDate(row.due_date, ""),
       currency: row.currency, subtotal: Number(row.subtotal), taxAmount: Number(row.tax_amount),
       total: Number(row.total), amountPaid: Number(row.amount_paid), balance: Number(row.balance),
       status: row.status, notes: row.notes, captureId: row.capture_id || "",
       journalEntryId: row.journal_entry_id || "",
-      aging: row.due_date && Number(row.balance) > 0 ? agingBucket(String(row.due_date).slice(0, 10)) : "current",
+      aging: row.due_date && Number(row.balance) > 0 ? agingBucket(isoDate(row.due_date)) : "current",
     })),
     payments: payments.map((row: any) => ({
-      id: row.id, direction: row.direction, paymentDate: String(row.payment_date).slice(0, 10),
+      id: row.id, direction: row.direction, paymentDate: isoDate(row.payment_date),
       bankAccountId: row.bank_account_id, bankAccountName: row.bank_account_name || "",
       vendorId: row.vendor_id || "", vendorName: row.vendor_name || "",
       customerId: row.customer_id || "", customerName: row.customer_name || "",
@@ -174,7 +176,7 @@ async function snapshot() {
       closedAt: row.closed_at, closedBy: row.closed_by || "",
     })),
     entries: entries.map((row: any) => ({
-      id: row.id, date: String(row.entry_date).slice(0, 10), memo: row.memo,
+      id: row.id, date: isoDate(row.entry_date), memo: row.memo,
       reference: row.reference, sourceType: row.source_type, sourceId: row.source_id || "",
       status: row.status, total: Number(row.total),
     })),
@@ -182,7 +184,7 @@ async function snapshot() {
     unreconciledCash,
     transactions: cashRows.map((row: any) => ({
       id: row.id, type: row.type, category: row.category,
-      amount: Number(row.amount), date: String(row.transaction_date).slice(0, 10),
+      amount: Number(row.amount), date: isoDate(row.transaction_date),
       status: row.status, reference: row.reference || "", notes: row.notes || "",
       customerId: row.customer_id || "", customerName: row.customer_name || "",
       bankAccountName: row.bank_account_name || "", ledgerAccountName: row.ledger_account_name || "",
@@ -193,11 +195,11 @@ async function snapshot() {
     })),
     settlements: settlementRows.map((row: any) => ({
       id: row.id, customerId: row.customer_id, customerName: row.customer_name,
-      periodStart: String(row.period_start).slice(0, 10), periodEnd: String(row.period_end).slice(0, 10),
+      periodStart: isoDate(row.period_start), periodEnd: isoDate(row.period_end),
       units: Number(row.units), feePerUnit: Number(row.fee_per_unit),
       adReimbursement: Number(row.ad_reimbursement), incentive: Number(row.incentive),
       total: Number(row.units) * Number(row.fee_per_unit) + Number(row.ad_reimbursement) + Number(row.incentive),
-      status: row.status, dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
+      status: row.status, dueDate: isoDate(row.due_date, ""),
       notes: row.notes || "",
       onLedger: Boolean(row.journal_entry_id),
     })),
@@ -230,6 +232,74 @@ export async function GET(request: NextRequest) {
         })),
       });
     }
+    // General ledger: one account, every posting against it, with the balance
+    // carried down. The Journal tab lists entries; an accountant asks the other
+    // question — what has gone through account 1100 and what does it stand at.
+    const accountId = clean(request.nextUrl.searchParams.get("accountId"), 100);
+    if (accountId) {
+      const sql = getDatabase();
+      const from = isDate(clean(request.nextUrl.searchParams.get("from"), 10))
+        ? clean(request.nextUrl.searchParams.get("from"), 10) : "";
+      const to = isDate(clean(request.nextUrl.searchParams.get("to"), 10))
+        ? clean(request.nextUrl.searchParams.get("to"), 10) : today();
+
+      const accounts = await sql`
+        select id, code, name, type from ledger_accounts
+        where id = ${accountId} and organization_id = ${ORGANIZATION_ID}
+      `;
+      if (!accounts.length) return NextResponse.json({ error: "Account was not found." }, { status: 404 });
+      const account = accounts[0];
+
+      // Everything before the window collapses into one opening figure, so the
+      // running balance is the real balance rather than a partial one.
+      const openingRows = from ? await sql`
+        select coalesce(sum(l.debit), 0) as debit, coalesce(sum(l.credit), 0) as credit
+        from journal_lines l join journal_entries e on e.id = l.entry_id
+        where l.account_id = ${accountId} and e.organization_id = ${ORGANIZATION_ID}
+          and e.status = 'Posted' and e.entry_date < ${from}::date
+      ` : [];
+
+      const rows = await sql`
+        select e.id as entry_id, e.entry_date, e.reference, e.memo as entry_memo,
+               e.source_type, l.debit, l.credit, l.memo, c.name as customer_name
+        from journal_lines l
+        join journal_entries e on e.id = l.entry_id
+        left join customers c on c.id = l.customer_id
+        where l.account_id = ${accountId} and e.organization_id = ${ORGANIZATION_ID}
+          and e.status = 'Posted' and e.entry_date <= ${to}::date
+          ${from ? sql`and e.entry_date >= ${from}::date` : sql``}
+        order by e.entry_date, e.created_at, l.line_order
+      `;
+
+      const openingCents = openingRows.length
+        ? signedBalance(account.type, toCents(openingRows[0].debit), toCents(openingRows[0].credit))
+        : 0;
+      let runningCents = openingCents;
+
+      return NextResponse.json({
+        account: { id: account.id, code: account.code, name: account.name, type: account.type },
+        range: { from, to },
+        opening: fromCents(openingCents),
+        lines: rows.map((row: any) => {
+          // Signed by account type, so an expense reads positive as it grows and
+          // a liability does not read negative for being credited.
+          runningCents += signedBalance(account.type, toCents(row.debit), toCents(row.credit));
+          return {
+            entryId: row.entry_id,
+            date: isoDate(row.entry_date),
+            reference: row.reference || "",
+            memo: row.memo || row.entry_memo || "",
+            sourceType: row.source_type || "manual",
+            customerName: row.customer_name || "",
+            debit: Number(row.debit),
+            credit: Number(row.credit),
+            balance: fromCents(runningCents),
+          };
+        }),
+        closing: fromCents(runningCents),
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+
     return NextResponse.json(await snapshot(), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return failure(error);
@@ -474,7 +544,7 @@ export async function POST(request: NextRequest) {
       const direction = clean(data.direction, 5) === "in" ? "in" : "out";
       const paymentDate = clean(data.paymentDate, 10) || today();
       const bankAccountId = clean(data.bankAccountId, 100);
-      const amount = num(data.amount);
+      const amount = fromCents(toCents(num(data.amount)));
 
       if (!isDate(paymentDate)) return NextResponse.json({ error: "A valid payment date is required." }, { status: 400 });
       if (!bankAccountId) return NextResponse.json({ error: "Select the bank or cash account used." }, { status: 400 });
@@ -490,7 +560,7 @@ export async function POST(request: NextRequest) {
       const allocations = arr(data.allocations).map((item: any, index: number) => {
         const billId = clean(item.billId, 100) || null;
         const salesDocumentId = clean(item.salesDocumentId, 100) || null;
-        const allocationAmount = num(item.amount);
+        const allocationAmount = fromCents(toCents(num(item.amount)));
         if ((billId ? 1 : 0) + (salesDocumentId ? 1 : 0) !== 1) {
           throw new AccountingError(`Allocation ${index + 1} must name exactly one bill or sales invoice.`);
         }
@@ -590,25 +660,27 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Money out clears the payable and reduces the bank; money in does the
-      // mirror image against receivables.
-      const entry = await prepareEntry({
+      const unallocatedCents = toCents(amount) - allocatedCents;
+      if (unallocatedCents > 0 && direction === "out" && !vendorId) {
+        return NextResponse.json({ error: "Select the supplier for an unallocated payment or advance." }, { status: 400 });
+      }
+      if (unallocatedCents > 0 && direction === "in" && !customerId) {
+        return NextResponse.json({ error: "Select the customer for an unallocated receipt or advance." }, { status: 400 });
+      }
+
+      const entry = await prepareEntry(paymentEntryInput({
+        id: paymentId,
         date: paymentDate,
+        direction,
+        amount,
+        allocatedAmount: fromCents(allocatedCents),
+        bankAccountId,
+        customerId,
+        vendorId,
         reference: clean(data.reference, 100),
         memo: clean(data.notes, 400) || (direction === "out" ? "Supplier payment" : "Customer receipt"),
-        sourceType: "payment",
-        sourceId: paymentId,
         createdBy: session.userId,
-        lines: direction === "out"
-          ? [
-            { accountKey: "accounts_payable", debit: amount, vendorId },
-            { accountId: bankAccountId, credit: amount },
-          ]
-          : [
-            { accountId: bankAccountId, debit: amount },
-            { accountKey: "accounts_receivable", credit: amount, customerId },
-          ],
-      }, { sql });
+      }), { sql });
 
       const statements: any[] = [
         ...entry.statements,
@@ -620,7 +692,7 @@ export async function POST(request: NextRequest) {
             ${paymentId}, ${ORGANIZATION_ID}, ${direction}, ${paymentDate}, ${bankAccountId},
             ${customerId}, ${vendorId}, ${amount}, ${clean(data.currency, 3) || "MYR"},
             ${clean(data.method, 60) || "Bank transfer"}, ${clean(data.reference, 100)},
-            ${fromCents(toCents(amount) - allocatedCents)}, ${entry.id}, ${clean(data.notes, 2000)}
+            ${fromCents(unallocatedCents)}, ${entry.id}, ${clean(data.notes, 2000)}
           )
         `,
       ];

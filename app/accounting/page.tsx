@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/toast";
 import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
@@ -26,6 +27,8 @@ import {
   AccountingShell, ACCOUNTING_NAV_ITEMS, type AccountingTab,
 } from "@/components/accounting-shell";
 import { BudgetForecast } from "@/components/budget-forecast";
+import { fromCents, toCents } from "@/lib/accounting-math";
+import { isoDate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
 type Tab = AccountingTab;
@@ -146,8 +149,8 @@ export default function AccountingPage() {
     {!loading && Number(data.unpostedInvoices?.count) > 0 && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
       <AlertTriangle className="h-4 w-4 shrink-0" />
       <span className="flex-1">
-        {data.unpostedInvoices!.count} issued invoice{data.unpostedInvoices!.count === 1 ? " is" : "s are"} not on the ledger
-        ({money(data.unpostedInvoices!.value)}). Income and receivables are understated by that amount until they are posted.
+        {data.unpostedInvoices!.count} issued sales document{data.unpostedInvoices!.count === 1 ? " is" : "s are"} not on the ledger
+        ({money(data.unpostedInvoices!.value)} net impact). Reports remain incomplete until they are posted.
       </span>
       <Button
         size="sm"
@@ -716,7 +719,7 @@ function Vendors({ data, loading, submit }: any) {
 
 function Payments({ data, loading, submit }: any) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", amount: "", method: "Bank transfer", reference: "", billId: "" });
+  const [form, setForm] = useState({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" });
   const set = (patch: any) => setForm((current) => ({ ...current, ...patch }));
 
   const openBills = data.bills.filter((bill: any) => bill.vendorId === form.vendorId && Number(bill.balance) > 0);
@@ -727,7 +730,7 @@ function Payments({ data, loading, submit }: any) {
       resource: "payment", operation: "create",
       data: { ...form, amount: Number(form.amount), allocations },
     }, "Payment recorded and posted.");
-    if (result) { setOpen(false); setForm({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", amount: "", method: "Bank transfer", reference: "", billId: "" }); }
+    if (result) { setOpen(false); setForm({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" }); }
   }
 
   return <div className="space-y-5">
@@ -735,7 +738,7 @@ function Payments({ data, loading, submit }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       <label className="text-xs font-medium">Direction
-        <select value={form.direction} onChange={(event) => set({ direction: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, vendorId: "", customerId: "", billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
           <option value="out">Money out — paying a supplier</option>
           <option value="in">Money in — receiving from a client</option>
         </select>
@@ -753,6 +756,12 @@ function Payments({ data, loading, submit }: any) {
         <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value, billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
           <option value="">Select…</option>
           {data.vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
+        </select>
+      </label>}
+      {form.direction === "in" && <label className="text-xs font-medium">Customer
+        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+          <option value="">Select…</option>
+          {(data.customers || []).map((customer: any) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
       </label>}
       {form.direction === "out" && openBills.length > 0 && <label className="text-xs font-medium">Settle which bill
@@ -789,6 +798,87 @@ function Payments({ data, loading, submit }: any) {
   </div>;
 }
 
+/**
+ * General ledger: one account, every posting against it, balance carried down.
+ *
+ * The Journal below answers "what was posted"; this answers the question an
+ * accountant actually asks — "what has gone through 1100 Accounts receivable,
+ * and what does it stand at". Without it, checking an account meant reading
+ * every entry and doing the arithmetic by hand.
+ */
+function GeneralLedger({ accounts }: { accounts: any[] }) {
+  const [accountId, setAccountId] = useState("");
+  const [ledger, setLedger] = useState<any | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!accountId) { setLedger(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/accounting?accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload) => { if (!cancelled) setLedger(payload.error ? null : payload); })
+      .catch(() => { if (!cancelled) setLedger(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [accountId]);
+
+  return <Card className="bg-white/80">
+    <CardHeader>
+      <CardTitle>General ledger</CardTitle>
+      <p className="mt-1 text-xs text-muted-foreground">Pick an account to see everything posted to it, with the balance carried down.</p>
+    </CardHeader>
+    <CardContent>
+      <Label className="block sm:max-w-sm">
+        <span className="mb-2 block">Account</span>
+        <Select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+          <option value="">Choose an account</option>
+          {accounts.map((account: any) => <option key={account.id} value={account.id}>
+            {account.code} {account.name}
+          </option>)}
+        </Select>
+      </Label>
+
+      {loading && <p className="mt-4 text-xs text-muted-foreground">Reading the ledger…</p>}
+
+      {ledger && !loading && <div className="mt-4 overflow-x-auto rounded-lg border">
+        <table className="w-full text-xs">
+          <thead className="bg-[#faf8f3] text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Date</th>
+              <th className="px-3 py-2 font-medium">Detail</th>
+              <th className="px-3 py-2 font-medium">Source</th>
+              <th className="px-3 py-2 text-right font-medium">Debit</th>
+              <th className="px-3 py-2 text-right font-medium">Credit</th>
+              <th className="px-3 py-2 text-right font-medium">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!ledger.lines.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Nothing has posted to this account.</td></tr>}
+            {ledger.lines.map((line: any, index: number) => <tr key={`${line.entryId}-${index}`} className="border-t">
+              <td className="whitespace-nowrap px-3 py-2 tabular-nums">{line.date}</td>
+              <td className="px-3 py-2">
+                {line.memo || line.reference || "Posting"}
+                {line.customerName && <span className="ml-1 text-muted-foreground">· {line.customerName}</span>}
+              </td>
+              <td className="px-3 py-2 capitalize text-muted-foreground">{String(line.sourceType).replace(/_/g, " ")}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{toCents(line.debit) ? money(line.debit) : ""}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{toCents(line.credit) ? money(line.credit) : ""}</td>
+              <td className="px-3 py-2 text-right font-medium tabular-nums">{money(line.balance)}</td>
+            </tr>)}
+          </tbody>
+          <tfoot>
+            <tr className="border-t bg-[#faf8f3] font-semibold">
+              <td className="px-3 py-2" colSpan={5}>Closing balance · {ledger.account.code} {ledger.account.name}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{money(ledger.closing)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>}
+    </CardContent>
+  </Card>;
+}
+
 function Journal({ data, submit }: any) {
   const [lines, setLines] = useState<any[] | null>(null);
   const [openId, setOpenId] = useState("");
@@ -802,6 +892,7 @@ function Journal({ data, submit }: any) {
   }
 
   return <div className="space-y-3">
+    <GeneralLedger accounts={data.accounts} />
     <p className="text-xs text-muted-foreground">Every posting, newest first. Voiding writes a reversing entry rather than deleting, so the trail stays intact.</p>
     {!data.entries.length && <Card className="bg-white/80"><CardContent className="p-12 text-center text-sm text-muted-foreground">Nothing posted yet.</CardContent></Card>}
     {data.entries.map((entry: any) => <Card key={entry.id} className="bg-white/80"><CardContent className="p-4">
@@ -899,21 +990,25 @@ function Reports() {
     </div>
 
     <div className="grid gap-5 lg:grid-cols-2">
-      <Card className="bg-white/80">
-        <CardHeader><CardTitle>Owed to suppliers</CardTitle></CardHeader>
-        <CardContent className="space-y-1 text-sm">
-          {Object.entries(report.payable.buckets).map(([bucket, value]: any) => <Row key={bucket} label={bucket === "current" ? "Not yet due" : `${bucket} days overdue`} value={money(value)} />)}
-          <Row label="Total payable" value={money(report.payable.total)} bold />
-        </CardContent>
-      </Card>
-      <Card className="bg-white/80">
-        <CardHeader><CardTitle>Owed by clients</CardTitle></CardHeader>
-        <CardContent className="space-y-1 text-sm">
-          {Object.entries(report.receivable.buckets).map(([bucket, value]: any) => <Row key={bucket} label={bucket === "current" ? "Not yet due" : `${bucket} days overdue`} value={money(value)} />)}
-          <Row label="Total receivable" value={money(report.receivable.total)} bold />
-        </CardContent>
-      </Card>
+      <AgedCard
+        title="Owed to suppliers"
+        note="Oldest first. Chase from the bottom of the list."
+        aged={report.payable}
+        nameOf={(row: any) => row.vendor_name || "Supplier"}
+        referenceOf={(row: any) => row.bill_number || ""}
+        totalLabel="Total payable"
+      />
+      <AgedCard
+        title="Owed by clients"
+        note="Oldest first. Chase from the bottom of the list."
+        aged={report.receivable}
+        nameOf={(row: any) => row.customer_name || "Client"}
+        referenceOf={(row: any) => row.reference || row.title || ""}
+        totalLabel="Total receivable"
+      />
     </div>
+
+    <TrialBalanceCard trialBalance={report.trialBalance} range={report.range} />
 
     <Card className="bg-white/80">
       <CardHeader>
@@ -997,6 +1092,155 @@ function PeriodReview() {
       </span>
     </div>
   </CardContent></Card>;
+}
+
+const BUCKET_LABEL: Record<string, string> = {
+  current: "Not yet due",
+  "1-30": "1-30 days overdue",
+  "31-60": "31-60 days overdue",
+  "61-90": "61-90 days overdue",
+  "90+": "Over 90 days overdue",
+};
+
+/**
+ * Aged balances with the documents behind them.
+ *
+ * The totals alone said "RM 8,400 is 31-60 days overdue" without saying whose,
+ * which is not something anyone can act on. The API has always returned the
+ * individual documents; this shows them, oldest bucket first, because that is
+ * the order you work a debtors list in.
+ */
+function AgedCard({ title, note, aged, nameOf, referenceOf, totalLabel }: {
+  title: string;
+  note: string;
+  aged: { buckets: Record<string, number>; items: any[]; total: number };
+  nameOf: (row: any) => string;
+  referenceOf: (row: any) => string;
+  totalLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const order = ["90+", "61-90", "31-60", "1-30", "current"];
+  const overdue = order
+    .filter((bucket) => bucket !== "current")
+    .reduce((sum, bucket) => sum + toCents(aged.buckets[bucket] || 0), 0);
+
+  return <Card className="bg-white/80">
+    <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+      <div>
+        <CardTitle>{title}</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">{note}</p>
+      </div>
+      {aged.items.length > 0 && <Button variant="outline" size="sm" onClick={() => setOpen((value) => !value)}>
+        {open ? "Hide detail" : `Show ${aged.items.length}`}
+      </Button>}
+    </CardHeader>
+    <CardContent className="space-y-1 text-sm">
+      {order.map((bucket) => <Row
+        key={bucket}
+        label={BUCKET_LABEL[bucket] ?? bucket}
+        value={money(aged.buckets[bucket] || 0)}
+        highlight={bucket === "90+" && toCents(aged.buckets[bucket] || 0) > 0}
+      />)}
+      <Row label={totalLabel} value={money(aged.total)} bold />
+      {overdue > 0 && <Row label="Of which overdue" value={money(fromCents(overdue))} />}
+
+      {open && <div className="mt-3 overflow-x-auto rounded-lg border">
+        <table className="w-full text-xs">
+          <thead className="bg-[#faf8f3] text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Who</th>
+              <th className="px-3 py-2 font-medium">Reference</th>
+              <th className="px-3 py-2 font-medium">Due</th>
+              <th className="px-3 py-2 text-right font-medium">Outstanding</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...aged.items]
+              // Oldest due date first: the top of the list is what to chase.
+              .sort((a, b) => String(a.due_date || "9999").localeCompare(String(b.due_date || "9999")))
+              .map((row: any) => <tr key={row.id} className="border-t">
+                <td className="px-3 py-2">{nameOf(row)}</td>
+                <td className="px-3 py-2 text-muted-foreground">{referenceOf(row)}</td>
+                <td className={cn("px-3 py-2", row.bucket !== "current" && "text-[#ba5c42]")}>
+                  {isoDate(row.due_date) || "No date"}
+                  {row.bucket !== "current" && <span className="ml-1 text-[10px]">({row.bucket})</span>}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{money(row.outstanding)}</td>
+              </tr>)}
+          </tbody>
+        </table>
+      </div>}
+    </CardContent>
+  </Card>;
+}
+
+/**
+ * The trial balance every account, both columns and the totals.
+ *
+ * The API has always computed these rows; the page used only the balanced flag
+ * to decide whether to show a warning, and threw the rest away. This is the
+ * report an accountant asks for first, and the one that shows *where* an
+ * imbalance is rather than only that there is one.
+ */
+function TrialBalanceCard({ trialBalance, range }: { trialBalance: any; range: { from: string; to: string } }) {
+  const [open, setOpen] = useState(false);
+  const rows = (trialBalance.rows || []).filter(
+    (row: any) => toCents(row.debit) !== 0 || toCents(row.credit) !== 0,
+  );
+
+  return <Card className="bg-white/80">
+    <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+      <div>
+        <CardTitle>Trial balance</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Every account balance through {range.to}. Debits and credits must agree.
+        </p>
+      </div>
+      <Button variant="outline" size="sm" onClick={() => setOpen((value) => !value)}>
+        {open ? "Hide" : "Show"}
+      </Button>
+    </CardHeader>
+    <CardContent>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+        <span>Total debits <span className="font-medium tabular-nums">{money(trialBalance.debit)}</span></span>
+        <span>Total credits <span className="font-medium tabular-nums">{money(trialBalance.credit)}</span></span>
+        <span className={cn(trialBalance.balanced ? "text-muted-foreground" : "font-semibold text-red-700")}>
+          {trialBalance.balanced ? "In balance" : `Out by ${money(trialBalance.difference)}`}
+        </span>
+      </div>
+
+      {open && <div className="mt-4 overflow-x-auto rounded-lg border">
+        <table className="w-full text-xs">
+          <thead className="bg-[#faf8f3] text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Code</th>
+              <th className="px-3 py-2 font-medium">Account</th>
+              <th className="px-3 py-2 font-medium">Type</th>
+              <th className="px-3 py-2 text-right font-medium">Debit</th>
+              <th className="px-3 py-2 text-right font-medium">Credit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!rows.length && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Nothing has posted yet.</td></tr>}
+            {rows.map((row: any) => <tr key={row.accountId} className="border-t">
+              <td className="px-3 py-2 tabular-nums text-muted-foreground">{row.code}</td>
+              <td className="px-3 py-2">{row.name}</td>
+              <td className="px-3 py-2 capitalize text-muted-foreground">{row.type}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{toCents(row.debit) ? money(row.debit) : ""}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{toCents(row.credit) ? money(row.credit) : ""}</td>
+            </tr>)}
+          </tbody>
+          <tfoot>
+            <tr className="border-t bg-[#faf8f3] font-semibold">
+              <td className="px-3 py-2" colSpan={3}>Total</td>
+              <td className="px-3 py-2 text-right tabular-nums">{money(trialBalance.debit)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{money(trialBalance.credit)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>}
+    </CardContent>
+  </Card>;
 }
 
 function Row({ label, value, bold, highlight }: { label: string; value: string; bold?: boolean; highlight?: boolean }) {
@@ -1315,4 +1559,3 @@ function Accounts({ data, submit }: any) {
     </Card>)}
   </div>;
 }
-

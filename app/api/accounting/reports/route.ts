@@ -10,6 +10,7 @@ import { getDatabase } from "@/lib/db";
 import { accountBalances, trialBalanceCheck } from "@/lib/accounting";
 import { agingBucket, fromCents, toCents } from "@/lib/accounting-math";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { isoDate, todayIso } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -89,7 +90,7 @@ export async function GET(request: NextRequest) {
     await requireHRSession(["hr_admin", "finance"]);
     const params = request.nextUrl.searchParams;
     const from = isDate(String(params.get("from"))) ? String(params.get("from")) : monthStart(-11);
-    const to = isDate(String(params.get("to"))) ? String(params.get("to")) : new Date().toISOString().slice(0, 10);
+    const to = isDate(String(params.get("to"))) ? String(params.get("to")) : todayIso();
 
     const sql = getDatabase();
     const [period, cumulative, check, payableRows, receivableRows, clientRows, bankRows] = await Promise.all([
@@ -97,25 +98,50 @@ export async function GET(request: NextRequest) {
       accountBalances({ to }),
       trialBalanceCheck({ to }),
       sql`
-        select b.id, b.bill_number, b.due_date, b.total, b.amount_paid, v.name as vendor_name
+        select b.id, b.bill_number, b.due_date, b.total,
+          coalesce(a.amount_paid, 0) as amount_paid, v.name as vendor_name
         from bills b join vendors v on v.id = b.vendor_id
+        left join (
+          select pa.bill_id, sum(pa.amount) as amount_paid
+          from payment_allocations pa
+          join payments p on p.id = pa.payment_id
+          where p.organization_id = ${ORGANIZATION_ID}
+            and p.payment_date <= ${to}::date
+            and pa.bill_id is not null
+          group by pa.bill_id
+        ) a on a.bill_id = b.id
         where b.organization_id = ${ORGANIZATION_ID}
-          and b.status not in ('Void', 'Paid', 'Draft')
-          and b.total > b.amount_paid
+          and b.status not in ('Void', 'Draft')
+          and b.total > coalesce(a.amount_paid, 0)
+          and b.bill_date <= ${to}::date
       `,
+      // Credit notes are included with the sign flipped. Counting invoices alone
+      // made this report disagree with the balance sheet the moment anyone
+      // credited a client — clients "owed" the full invoice while receivables
+      // on the balance sheet had already come down.
       sql`
-        select d.id, d.reference, d.title, d.due_date, d.value,
+        select d.id, d.type, d.reference, d.title, d.due_date, d.value,
           coalesce(a.amount_paid, 0) as amount_paid, c.name as customer_name
         from sales_documents d join customers c on c.id = d.customer_id
         left join (
           select pa.sales_document_id, sum(pa.amount) as amount_paid
           from payment_allocations pa
-          join payments p on p.id = pa.payment_id and p.organization_id = ${ORGANIZATION_ID}
+          join payments p on p.id = pa.payment_id
+          where p.organization_id = ${ORGANIZATION_ID}
+            and p.payment_date <= ${to}::date
           group by pa.sales_document_id
         ) a on a.sales_document_id = d.id
         where c.organization_id = ${ORGANIZATION_ID}
-          and d.type = 'Invoice' and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid')
+          and d.type in ('Invoice', 'Credit Note')
+          and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid', 'Paid')
           and d.value > coalesce(a.amount_paid, 0)
+          -- Only what the ledger has actually seen, and only as far as the
+          -- report date, so this and the balance sheet answer the same
+          -- question. Without the date bound a future-dated credit note showed
+          -- here while the control account had not yet taken it. Unposted
+          -- invoices are reported separately by unpostedInvoiceCount().
+          and d.journal_entry_id is not null
+          and coalesce(d.issue_date, d.created_at::date) <= ${to}::date
       `,
       // Per-client profitability: an agency's most useful report, and the one
       // the single-entry cash log could never produce.
@@ -145,11 +171,12 @@ export async function GET(request: NextRequest) {
       `,
     ]);
 
+    const agingAsOf = new Date(`${to}T00:00:00Z`);
     const bucketise = (rows: any[], amountOf: (row: any) => number, dueOf: (row: any) => string) => {
       const buckets: Record<string, number> = { current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
       const items = rows.map((row: any) => {
         const outstanding = amountOf(row);
-        const bucket = agingBucket(dueOf(row));
+        const bucket = agingBucket(dueOf(row), agingAsOf);
         buckets[bucket] += toCents(outstanding);
         return { ...row, outstanding, bucket };
       });
@@ -163,12 +190,12 @@ export async function GET(request: NextRequest) {
     const payable = bucketise(
       payableRows,
       (row) => Number(row.total) - Number(row.amount_paid),
-      (row) => (row.due_date ? String(row.due_date).slice(0, 10) : ""),
+      (row) => (isoDate(row.due_date, "")),
     );
     const receivable = bucketise(
       receivableRows,
-      (row) => Number(row.value) - Number(row.amount_paid || 0),
-      (row) => (row.due_date ? String(row.due_date).slice(0, 10) : ""),
+      (row) => (Number(row.value) - Number(row.amount_paid || 0)) * (row.type === "Credit Note" ? -1 : 1),
+      (row) => (isoDate(row.due_date, "")),
     );
 
     const clients = clientRows
@@ -190,7 +217,10 @@ export async function GET(request: NextRequest) {
       range: { from, to },
       profitAndLoss: profitAndLoss(period),
       balanceSheet: balanceSheet(cumulative),
-      trialBalance: { rows: period, ...check },
+      // The totals in `check` are cumulative through `to`, so the displayed
+      // account rows must come from the same cumulative dataset. Returning the
+      // P&L window here made the visible rows disagree with their own footer.
+      trialBalance: { rows: cumulative, ...check },
       payable,
       receivable,
       clients,

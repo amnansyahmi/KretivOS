@@ -17,6 +17,7 @@ import { AccountingError, prepareEntry } from "@/lib/accounting";
 import { toCents } from "@/lib/accounting-math";
 import { getDatabase } from "@/lib/db";
 import { cashEntryLines, type CashDirection, type CashEntryInput } from "@/lib/cash-posting-lines";
+import { isoDate, todayIso } from "@/lib/dates";
 
 export { cashEntryLines };
 export type { CashDirection, CashEntryInput };
@@ -107,8 +108,8 @@ export async function postSettlementPayment(
     if (!account) return { status: "skipped", reason: "No bank account is set up to receive the payment." };
 
     const entry = await prepareEntry({
-      date: new Date().toISOString().slice(0, 10),
-      reference: `SET-${String(row.period_end).slice(0, 10)}`,
+      date: todayIso(),
+      reference: `SET-${isoDate(row.period_end)}`,
       memo: `Settlement from ${row.customer_name}`,
       sourceType: "settlement",
       sourceId: settlementId,

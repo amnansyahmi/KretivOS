@@ -54,6 +54,71 @@ export type BillLineForEntry = {
   taxCode?: string;
 };
 
+export type PaymentForEntry = {
+  id: string;
+  date: string;
+  direction: "in" | "out";
+  amount: number;
+  allocatedAmount: number;
+  bankAccountId: string;
+  customerId?: string | null;
+  vendorId?: string | null;
+  reference?: string;
+  memo?: string;
+  createdBy?: string | null;
+};
+
+/**
+ * A receipt or supplier payment, split between settled documents and advances.
+ *
+ * Only the amount actually allocated to an invoice or bill belongs in the
+ * receivable/payable control account. Anything left unallocated is money held
+ * for a client, or money advanced to a supplier; putting the full payment into
+ * AR/AP creates a negative outstanding balance and makes the subledger disagree
+ * with the balance sheet.
+ */
+export function paymentEntryInput(payment: PaymentForEntry): EntryInput {
+  const amountCents = toCents(payment.amount);
+  const allocatedCents = toCents(payment.allocatedAmount);
+  if (amountCents <= 0) throw new RangeError("A payment must be greater than zero.");
+  if (allocatedCents < 0 || allocatedCents > amountCents) {
+    throw new RangeError("The allocated amount must be between zero and the payment amount.");
+  }
+
+  const amount = amountCents / 100;
+  const allocated = allocatedCents / 100;
+  const unallocated = (amountCents - allocatedCents) / 100;
+  const lines: EntryLine[] = [];
+
+  if (payment.direction === "out") {
+    if (allocatedCents > 0) {
+      lines.push({ accountKey: "accounts_payable", debit: allocated, vendorId: payment.vendorId });
+    }
+    if (unallocated > 0) {
+      lines.push({ accountKey: "supplier_advances", debit: unallocated, vendorId: payment.vendorId });
+    }
+    lines.push({ accountId: payment.bankAccountId, credit: amount });
+  } else {
+    lines.push({ accountId: payment.bankAccountId, debit: amount });
+    if (allocatedCents > 0) {
+      lines.push({ accountKey: "accounts_receivable", credit: allocated, customerId: payment.customerId });
+    }
+    if (unallocated > 0) {
+      lines.push({ accountKey: "customer_advances", credit: unallocated, customerId: payment.customerId });
+    }
+  }
+
+  return {
+    date: payment.date,
+    reference: payment.reference ?? "",
+    memo: payment.memo || (payment.direction === "out" ? "Supplier payment" : "Customer receipt"),
+    sourceType: "payment",
+    sourceId: payment.id,
+    createdBy: payment.createdBy,
+    lines,
+  };
+}
+
 /**
  * A supplier bill: the cost is recognised now, recoverable tax is separated out,
  * and the amount owed sits in payables until it is paid.
@@ -202,3 +267,53 @@ export const ISSUED_INVOICE_STATUSES = ["Sent", "Approved", "Overdue", "Partiall
 
 export const isIssuedInvoice = (type: string, status: string) =>
   type === "Invoice" && ISSUED_INVOICE_STATUSES.includes(status);
+
+/**
+ * A credit note is the correction instrument: it reduces what a client owes and
+ * takes back revenue already recognised. "Credit Note" has been a selectable
+ * document type since the sales module shipped, but only "Invoice" was ever
+ * posted, so issuing one left revenue overstated and receivables too high with
+ * nothing to show for it.
+ */
+export const isIssuedCreditNote = (type: string, status: string) =>
+  type === "Credit Note" && ISSUED_INVOICE_STATUSES.includes(status);
+
+/** Any sales document whose money belongs on the ledger. */
+export const isPostableSalesDocument = (type: string, status: string) =>
+  isIssuedInvoice(type, status) || isIssuedCreditNote(type, status);
+
+/**
+ * The invoice entry with every side reversed. Built by transposing rather than
+ * by writing a second set of lines, so the two can never drift apart: a credit
+ * note is exactly the undoing of an invoice, and stays that way when the
+ * invoice grows a line.
+ */
+export function creditNoteEntryInput(
+  note: InvoiceForEntry,
+  customerName: string,
+  createdBy?: string | null,
+): EntryInput {
+  const invoice = salesInvoiceEntryInput(note, customerName, createdBy);
+  return {
+    ...invoice,
+    memo: `Credit note to ${customerName}`,
+    sourceType: "credit_note",
+    lines: invoice.lines.map((line) => ({
+      ...line,
+      debit: line.credit,
+      credit: line.debit,
+    })),
+  };
+}
+
+/** Picks the right builder for a postable sales document. */
+export function salesDocumentEntryInput(
+  document: InvoiceForEntry,
+  type: string,
+  customerName: string,
+  createdBy?: string | null,
+): EntryInput {
+  return type === "Credit Note"
+    ? creditNoteEntryInput(document, customerName, createdBy)
+    : salesInvoiceEntryInput(document, customerName, createdBy);
+}

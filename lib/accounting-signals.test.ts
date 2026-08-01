@@ -167,6 +167,17 @@ test("payroll is optional so the review works before that migration is applied",
   assert.equal(signals.length, 1);
 });
 
+test("unposted credit notes are described as a signed net impact, not missing revenue", () => {
+  const [signal] = detectUnposted({
+    invoices: { count: 1, value: -200 },
+    cash: { count: 0, net: 0 },
+    settlements: { count: 0 },
+  });
+  assert.match(signal.title, /sales document/);
+  assert.match(signal.detail, /net invoice\/credit-note impact/);
+  assert.equal(signal.amount, -200);
+});
+
 test("ranking puts severity first, then size", () => {
   const ranked = rankSignals([
     { kind: "spike", severity: "medium", title: "m-small", detail: "", amount: 100, recordIds: [] },

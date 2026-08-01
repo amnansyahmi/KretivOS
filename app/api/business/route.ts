@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { dispatchAutomationEvent } from "@/lib/automation-server";
-import { isIssuedInvoice } from "@/lib/accounting-entries";
+import { isIssuedCreditNote, isPostableSalesDocument } from "@/lib/accounting-entries";
 import { postSalesInvoice, settleInvoiceInFull } from "@/lib/invoice-posting";
 import { postSettlementPayment } from "@/lib/cash-posting";
 
@@ -209,8 +209,7 @@ async function audit(action: string, entityType: string, entityId: string | null
 async function recogniseInvoiceRevenue(result: any) {
   const record = result?.document || result;
   const id = text(record?.id);
-  if (!id || text(record?.type) !== "Invoice") return null;
-  if (!isIssuedInvoice(text(record.type), text(record.status))) return null;
+  if (!id || !isPostableSalesDocument(text(record?.type), text(record?.status))) return null;
 
   const outcome = await postSalesInvoice(id);
 
@@ -220,7 +219,12 @@ async function recogniseInvoiceRevenue(result: any) {
   // Do not clear receivables until the invoice itself is on the ledger. If its
   // issue period is closed (or the accounting schema is not ready), posting a
   // receipt alone would leave a credit in AR with no matching invoice debit.
-  const receipt = outcome.status === "failed" || text(record.status) !== "Paid"
+  //
+  // A credit note is excluded outright: it has already reduced receivables, and
+  // "Paid" on one means the client's balance was settled by the credit, not
+  // that money arrived. Settling it would credit AR a second time.
+  const settleable = !isIssuedCreditNote(text(record?.type), text(record?.status));
+  const receipt = outcome.status === "failed" || text(record.status) !== "Paid" || !settleable
     ? null
     : await settleInvoiceInFull(id);
 

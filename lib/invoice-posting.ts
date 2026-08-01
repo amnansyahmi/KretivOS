@@ -10,9 +10,12 @@
  */
 
 import { AccountingError, prepareEntry } from "@/lib/accounting";
-import { invoiceAmounts, isIssuedInvoice, salesInvoiceEntryInput } from "@/lib/accounting-entries";
+import {
+  invoiceAmounts, isPostableSalesDocument, salesDocumentEntryInput,
+} from "@/lib/accounting-entries";
 import { computeTotals, type LineItem } from "@/lib/line-items";
 import { getDatabase } from "@/lib/db";
+import { isoDate, todayIso } from "@/lib/dates";
 
 const ORGANIZATION_ID = "org-kretivco";
 
@@ -59,19 +62,21 @@ export async function prepareInvoicePosting(
   if (!rows.length) return null;
 
   const row = rows[0];
-  if (!isIssuedInvoice(String(row.type), String(row.status))) return null;
+  if (!isPostableSalesDocument(String(row.type), String(row.status))) return null;
   // Already on the ledger. This is the common case on an ordinary edit.
   if (row.journal_entry_id) return null;
 
   const amounts = amountsFor(row);
   if (!amounts.total) return null;
 
-  const issueDate = row.issue_date
-    ? String(row.issue_date).slice(0, 10)
-    : String(row.created_at ?? new Date().toISOString()).slice(0, 10);
+  // Legacy documents may not have an issue date. Their created_at value is also
+  // returned as a Date by the driver, so it must go through the same formatter;
+  // String(Date).slice(0, 10) would recreate the original "Sat Aug 01" bug on
+  // exactly the old records this backfill exists to repair.
+  const issueDate = isoDate(row.issue_date ?? row.created_at, todayIso());
 
   const entry = await prepareEntry(
-    salesInvoiceEntryInput(
+    salesDocumentEntryInput(
       {
         id: row.id,
         customerId: row.customer_id,
@@ -83,6 +88,7 @@ export async function prepareInvoicePosting(
         total: amounts.total,
         incomeAccountId: row.income_account_id || null,
       },
+      String(row.type),
       row.customer_name || "Customer",
       createdBy,
     ),
@@ -179,7 +185,7 @@ export async function settleInvoiceInFull(
 
     const paymentId = crypto.randomUUID();
     const entry = await prepareEntry({
-      date: new Date().toISOString().slice(0, 10),
+      date: todayIso(),
       reference: String(row.reference || ""),
       memo: `Receipt from ${row.customer_name || "customer"}`,
       sourceType: "payment",
@@ -242,7 +248,7 @@ export async function backfillSalesInvoices({ limit = 500, createdBy = null }: {
     select d.id, d.reference
     from sales_documents d join customers c on c.id = d.customer_id
     where c.organization_id = ${ORGANIZATION_ID}
-      and d.type = 'Invoice'
+      and d.type in ('Invoice', 'Credit Note')
       and d.journal_entry_id is null
       and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid', 'Paid')
     order by d.issue_date nulls last, d.created_at
@@ -268,10 +274,11 @@ export async function unpostedInvoiceCount() {
   try {
     const sql = getDatabase();
     const rows = await sql`
-      select count(*)::int as count, coalesce(sum(d.value), 0) as value
+      select count(*)::int as count,
+        coalesce(sum(case when d.type = 'Credit Note' then -d.value else d.value end), 0) as value
       from sales_documents d join customers c on c.id = d.customer_id
       where c.organization_id = ${ORGANIZATION_ID}
-        and d.type = 'Invoice'
+        and d.type in ('Invoice', 'Credit Note')
         and d.journal_entry_id is null
         and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid', 'Paid')
     `;

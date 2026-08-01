@@ -26,6 +26,7 @@ import {
 import { unpostedInvoiceCount } from "@/lib/invoice-posting";
 import { unreconciledCashCount } from "@/lib/cash-posting";
 import { unpostedPayrollCount } from "@/lib/payroll-posting";
+import { isoDate } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -101,7 +102,7 @@ export async function GET(request: NextRequest) {
     // account type — which is the shape the detectors reason about.
     const facts: LedgerFact[] = factRows.map((row: any) => ({
       id: row.id,
-      date: String(row.entry_date).slice(0, 10),
+      date: isoDate(row.entry_date),
       accountCode: row.code,
       accountName: row.account_name,
       accountType: row.type,
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest) {
         id: row.id,
         reference: row.reference || "",
         customerName: row.customer_name,
-        dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
+        dueDate: isoDate(row.due_date, ""),
         outstanding: Number(row.value) - Number(row.allocated),
       }))),
     ]);

@@ -1,4 +1,16 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
+
+/**
+ * Development escape hatch. The HTTP driver only talks to a Neon endpoint,
+ * which meant the posting engine could not be exercised anywhere but
+ * production. Setting NEON_HTTP_ENDPOINT points it at scripts/neon-local-proxy.mjs
+ * so the unmodified application runs against a local Postgres. Unset in
+ * production, this changes nothing.
+ */
+if (process.env.NEON_HTTP_ENDPOINT) {
+  neonConfig.fetchEndpoint = process.env.NEON_HTTP_ENDPOINT;
+  neonConfig.useSecureWebSocket = false;
+}
 
 type DatabaseHealthRow = {
   database_name: string;

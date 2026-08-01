@@ -40,13 +40,58 @@ Add `DATABASE_URL` to Vercel for Production, Preview, and Development, then rede
    | `0010_invoice_posting.sql` | Customer invoices post to the ledger |
    | `0011_unify_cash_and_settlements.sql` | Cash movements and settlements post to the ledger |
    | `0012_payroll_posting.sql` | Payroll posts to the ledger, with statutory payables |
+   | `0013_bank_reconciliation.sql` | Bank reconciliation, overpayment holding accounts, refunds |
 
 4. Open `/api/db/health` on the deployed KretivOS URL.
 
-Migrations 0006 through 0012 are additive and safe to run on an existing database.
+Migrations 0006 through 0013 are additive and safe to run on an existing database.
 Until they are applied, knowledge retrieval falls back to the previous
 entry-level search, and the Content Planner and Financial Projection show a
 banner saying their inputs are not being shared.
+
+All thirteen have been applied to Postgres 16 from an empty database and are
+verified idempotent: 0006 through 0013 can be re-run without error.
+
+## Verify the ledger
+
+Run this after applying the migrations, and any time the accounting code
+changes:
+
+```bash
+DATABASE_URL="postgresql://…" node scripts/verify-ledger.mjs --probe
+```
+
+It reports which migrations are applied, checks the ledger invariants — debits
+equal credits, no unbalanced entry, accounts receivable and payable agreeing
+with their subledgers, no over-allocated payment — and counts records that
+never reached the journal. With `--probe` it also confirms the database
+*refuses* what it should: an unbalanced entry, a line carrying both debit and
+credit, and posting into a closed period. The probe runs inside a transaction
+that is always rolled back, so it leaves nothing behind.
+
+Use the direct (non-pooler) Neon hostname: the probe holds one transaction open
+across several statements.
+
+## Run the whole app against a local database
+
+The application talks to Neon over HTTP, which used to mean the accounting code
+could only ever run in production. `scripts/neon-local-proxy.mjs` speaks that
+same HTTP protocol in front of an ordinary Postgres, so the unmodified app runs
+against a throwaway database:
+
+```bash
+./scripts/local-db.sh up      # create, migrate, start the shim
+```
+
+Then, in another shell:
+
+```bash
+DATABASE_URL=postgresql://postgres@localhost:5433/kretivos \
+NEON_HTTP_ENDPOINT=http://localhost:4444 npm run dev
+```
+
+`./scripts/local-db.sh reset` rebuilds from the migrations; `down` stops
+everything. The proxy has no authentication and is for development only.
 
 A successful response looks like:
 

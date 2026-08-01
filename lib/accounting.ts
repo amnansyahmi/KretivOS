@@ -22,6 +22,7 @@ import {
   checkBalance, describeProblem, fromCents, signedBalance, toCents,
   type AccountType,
 } from "@/lib/accounting-math";
+import { isoDate } from "@/lib/dates";
 
 const ORGANIZATION_ID = "org-kretivco";
 
@@ -239,7 +240,7 @@ export async function voidEntry(entryId: string, { date, memo, createdBy }: { da
   if (!lines.length) throw new AccountingError("Journal entry has no lines to reverse.");
 
   const original = entries[0];
-  const reversalDate = date && isDateString(date) ? date : String(original.entry_date).slice(0, 10);
+  const reversalDate = date && isDateString(date) ? date : isoDate(original.entry_date);
   await assertPeriodOpen(reversalDate);
 
   const reversalId = crypto.randomUUID();
