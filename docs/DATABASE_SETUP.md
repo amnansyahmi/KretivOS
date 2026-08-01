@@ -44,13 +44,13 @@ Add `DATABASE_URL` to Vercel for Production, Preview, and Development, then rede
 
 4. Open `/api/db/health` on the deployed KretivOS URL.
 
-Migrations 0006 through 0012 are additive and safe to run on an existing database.
+Migrations 0006 through 0013 are additive and safe to run on an existing database.
 Until they are applied, knowledge retrieval falls back to the previous
 entry-level search, and the Content Planner and Financial Projection show a
 banner saying their inputs are not being shared.
 
-All twelve have been applied to Postgres 16 from an empty database and are
-verified idempotent: 0006 through 0012 can be re-run without error.
+All thirteen have been applied to Postgres 16 from an empty database and are
+verified idempotent: 0006 through 0013 can be re-run without error.
 
 ## Verify the ledger
 

@@ -98,11 +98,21 @@ export async function GET(request: NextRequest) {
       accountBalances({ to }),
       trialBalanceCheck({ to }),
       sql`
-        select b.id, b.bill_number, b.due_date, b.total, b.amount_paid, v.name as vendor_name
+        select b.id, b.bill_number, b.due_date, b.total,
+          coalesce(a.amount_paid, 0) as amount_paid, v.name as vendor_name
         from bills b join vendors v on v.id = b.vendor_id
+        left join (
+          select pa.bill_id, sum(pa.amount) as amount_paid
+          from payment_allocations pa
+          join payments p on p.id = pa.payment_id
+          where p.organization_id = ${ORGANIZATION_ID}
+            and p.payment_date <= ${to}::date
+            and pa.bill_id is not null
+          group by pa.bill_id
+        ) a on a.bill_id = b.id
         where b.organization_id = ${ORGANIZATION_ID}
-          and b.status not in ('Void', 'Paid', 'Draft')
-          and b.total > b.amount_paid
+          and b.status not in ('Void', 'Draft')
+          and b.total > coalesce(a.amount_paid, 0)
           and b.bill_date <= ${to}::date
       `,
       // Credit notes are included with the sign flipped. Counting invoices alone
@@ -116,12 +126,14 @@ export async function GET(request: NextRequest) {
         left join (
           select pa.sales_document_id, sum(pa.amount) as amount_paid
           from payment_allocations pa
-          join payments p on p.id = pa.payment_id and p.organization_id = ${ORGANIZATION_ID}
+          join payments p on p.id = pa.payment_id
+          where p.organization_id = ${ORGANIZATION_ID}
+            and p.payment_date <= ${to}::date
           group by pa.sales_document_id
         ) a on a.sales_document_id = d.id
         where c.organization_id = ${ORGANIZATION_ID}
           and d.type in ('Invoice', 'Credit Note')
-          and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid')
+          and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid', 'Paid')
           and d.value > coalesce(a.amount_paid, 0)
           -- Only what the ledger has actually seen, and only as far as the
           -- report date, so this and the balance sheet answer the same
@@ -159,11 +171,12 @@ export async function GET(request: NextRequest) {
       `,
     ]);
 
+    const agingAsOf = new Date(`${to}T00:00:00Z`);
     const bucketise = (rows: any[], amountOf: (row: any) => number, dueOf: (row: any) => string) => {
       const buckets: Record<string, number> = { current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
       const items = rows.map((row: any) => {
         const outstanding = amountOf(row);
-        const bucket = agingBucket(dueOf(row));
+        const bucket = agingBucket(dueOf(row), agingAsOf);
         buckets[bucket] += toCents(outstanding);
         return { ...row, outstanding, bucket };
       });
@@ -204,7 +217,10 @@ export async function GET(request: NextRequest) {
       range: { from, to },
       profitAndLoss: profitAndLoss(period),
       balanceSheet: balanceSheet(cumulative),
-      trialBalance: { rows: period, ...check },
+      // The totals in `check` are cumulative through `to`, so the displayed
+      // account rows must come from the same cumulative dataset. Returning the
+      // P&L window here made the visible rows disagree with their own footer.
+      trialBalance: { rows: cumulative, ...check },
       payable,
       receivable,
       clients,

@@ -34,6 +34,12 @@ test("unusable values fall back rather than producing a broken date", () => {
   assert.equal(isoDate(null, "2026-01-01"), "2026-01-01", "the fallback is honoured");
 });
 
+test("a legacy document can use its created timestamp when its issue date is missing", () => {
+  const createdAt = new Date(2026, 7, 1, 12, 30, 0);
+  assert.equal(isoDate(createdAt, todayIso()), "2026-08-01");
+  assert.equal(String(createdAt).slice(0, 10), "Sat Aug 01", "the old fallback recreated the posting bug");
+});
+
 test("single-digit months and days are padded", () => {
   assert.equal(isoDateFrom(new Date(2026, 0, 5)), "2026-01-05");
   assert.equal(isoDateFrom(new Date(2026, 8, 9)), "2026-09-09");

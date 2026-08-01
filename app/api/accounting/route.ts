@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { AccountingError, listAccounts, postEntry, prepareEntry, voidEntry } from "@/lib/accounting";
+import { paymentEntryInput } from "@/lib/accounting-entries";
 import { agingBucket, fromCents, lineTax, signedBalance, toCents } from "@/lib/accounting-math";
 import { backfillSalesInvoices, postSalesInvoice, unpostedInvoiceCount } from "@/lib/invoice-posting";
 import { backfillSettlements, postCashEntry, postSettlementPayment, unreconciledCashCount } from "@/lib/cash-posting";
@@ -543,7 +544,7 @@ export async function POST(request: NextRequest) {
       const direction = clean(data.direction, 5) === "in" ? "in" : "out";
       const paymentDate = clean(data.paymentDate, 10) || today();
       const bankAccountId = clean(data.bankAccountId, 100);
-      const amount = num(data.amount);
+      const amount = fromCents(toCents(num(data.amount)));
 
       if (!isDate(paymentDate)) return NextResponse.json({ error: "A valid payment date is required." }, { status: 400 });
       if (!bankAccountId) return NextResponse.json({ error: "Select the bank or cash account used." }, { status: 400 });
@@ -559,7 +560,7 @@ export async function POST(request: NextRequest) {
       const allocations = arr(data.allocations).map((item: any, index: number) => {
         const billId = clean(item.billId, 100) || null;
         const salesDocumentId = clean(item.salesDocumentId, 100) || null;
-        const allocationAmount = num(item.amount);
+        const allocationAmount = fromCents(toCents(num(item.amount)));
         if ((billId ? 1 : 0) + (salesDocumentId ? 1 : 0) !== 1) {
           throw new AccountingError(`Allocation ${index + 1} must name exactly one bill or sales invoice.`);
         }
@@ -659,25 +660,27 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Money out clears the payable and reduces the bank; money in does the
-      // mirror image against receivables.
-      const entry = await prepareEntry({
+      const unallocatedCents = toCents(amount) - allocatedCents;
+      if (unallocatedCents > 0 && direction === "out" && !vendorId) {
+        return NextResponse.json({ error: "Select the supplier for an unallocated payment or advance." }, { status: 400 });
+      }
+      if (unallocatedCents > 0 && direction === "in" && !customerId) {
+        return NextResponse.json({ error: "Select the customer for an unallocated receipt or advance." }, { status: 400 });
+      }
+
+      const entry = await prepareEntry(paymentEntryInput({
+        id: paymentId,
         date: paymentDate,
+        direction,
+        amount,
+        allocatedAmount: fromCents(allocatedCents),
+        bankAccountId,
+        customerId,
+        vendorId,
         reference: clean(data.reference, 100),
         memo: clean(data.notes, 400) || (direction === "out" ? "Supplier payment" : "Customer receipt"),
-        sourceType: "payment",
-        sourceId: paymentId,
         createdBy: session.userId,
-        lines: direction === "out"
-          ? [
-            { accountKey: "accounts_payable", debit: amount, vendorId },
-            { accountId: bankAccountId, credit: amount },
-          ]
-          : [
-            { accountId: bankAccountId, debit: amount },
-            { accountKey: "accounts_receivable", credit: amount, customerId },
-          ],
-      }, { sql });
+      }), { sql });
 
       const statements: any[] = [
         ...entry.statements,
@@ -689,7 +692,7 @@ export async function POST(request: NextRequest) {
             ${paymentId}, ${ORGANIZATION_ID}, ${direction}, ${paymentDate}, ${bankAccountId},
             ${customerId}, ${vendorId}, ${amount}, ${clean(data.currency, 3) || "MYR"},
             ${clean(data.method, 60) || "Bank transfer"}, ${clean(data.reference, 100)},
-            ${fromCents(toCents(amount) - allocatedCents)}, ${entry.id}, ${clean(data.notes, 2000)}
+            ${fromCents(unallocatedCents)}, ${entry.id}, ${clean(data.notes, 2000)}
           )
         `,
       ];

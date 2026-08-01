@@ -117,6 +117,7 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, () => {
+// Development-only and unauthenticated: never expose the SQL shim on a LAN.
+server.listen(PORT, "127.0.0.1", () => {
   console.log(`Neon HTTP shim on http://localhost:${PORT} → ${DATABASE.replace(/:[^:@/]*@/, ":***@")}`);
 });

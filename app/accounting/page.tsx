@@ -149,8 +149,8 @@ export default function AccountingPage() {
     {!loading && Number(data.unpostedInvoices?.count) > 0 && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
       <AlertTriangle className="h-4 w-4 shrink-0" />
       <span className="flex-1">
-        {data.unpostedInvoices!.count} issued invoice{data.unpostedInvoices!.count === 1 ? " is" : "s are"} not on the ledger
-        ({money(data.unpostedInvoices!.value)}). Income and receivables are understated by that amount until they are posted.
+        {data.unpostedInvoices!.count} issued sales document{data.unpostedInvoices!.count === 1 ? " is" : "s are"} not on the ledger
+        ({money(data.unpostedInvoices!.value)} net impact). Reports remain incomplete until they are posted.
       </span>
       <Button
         size="sm"
@@ -719,7 +719,7 @@ function Vendors({ data, loading, submit }: any) {
 
 function Payments({ data, loading, submit }: any) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", amount: "", method: "Bank transfer", reference: "", billId: "" });
+  const [form, setForm] = useState({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" });
   const set = (patch: any) => setForm((current) => ({ ...current, ...patch }));
 
   const openBills = data.bills.filter((bill: any) => bill.vendorId === form.vendorId && Number(bill.balance) > 0);
@@ -730,7 +730,7 @@ function Payments({ data, loading, submit }: any) {
       resource: "payment", operation: "create",
       data: { ...form, amount: Number(form.amount), allocations },
     }, "Payment recorded and posted.");
-    if (result) { setOpen(false); setForm({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", amount: "", method: "Bank transfer", reference: "", billId: "" }); }
+    if (result) { setOpen(false); setForm({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" }); }
   }
 
   return <div className="space-y-5">
@@ -738,7 +738,7 @@ function Payments({ data, loading, submit }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       <label className="text-xs font-medium">Direction
-        <select value={form.direction} onChange={(event) => set({ direction: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, vendorId: "", customerId: "", billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
           <option value="out">Money out — paying a supplier</option>
           <option value="in">Money in — receiving from a client</option>
         </select>
@@ -756,6 +756,12 @@ function Payments({ data, loading, submit }: any) {
         <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value, billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
           <option value="">Select…</option>
           {data.vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
+        </select>
+      </label>}
+      {form.direction === "in" && <label className="text-xs font-medium">Customer
+        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+          <option value="">Select…</option>
+          {(data.customers || []).map((customer: any) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
       </label>}
       {form.direction === "out" && openBills.length > 0 && <label className="text-xs font-medium">Settle which bill
@@ -1187,7 +1193,7 @@ function TrialBalanceCard({ trialBalance, range }: { trialBalance: any; range: {
       <div>
         <CardTitle>Trial balance</CardTitle>
         <p className="mt-1 text-xs text-muted-foreground">
-          Every account with a movement to {range.to}. Debits and credits must agree.
+          Every account balance through {range.to}. Debits and credits must agree.
         </p>
       </div>
       <Button variant="outline" size="sm" onClick={() => setOpen((value) => !value)}>
@@ -1553,4 +1559,3 @@ function Accounts({ data, submit }: any) {
     </Card>)}
   </div>;
 }
-

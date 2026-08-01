@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Verifies that migrations 0006 to 0012 are actually applied, and that the
+ * Verifies that migrations 0006 to 0013 are actually applied, and that the
  * ledger they create holds together.
  *
  * Every accounting feature since PR #2 was written against a schema that had
@@ -115,6 +115,19 @@ const EXPECTED = [
     migration: "0012_payroll_posting",
     // This migration only seeds rows, so presence of the accounts is the test.
     systemKeys: ["epf_payable", "socso_payable", "pcb_payable", "employer_statutory"],
+  },
+  {
+    migration: "0013_bank_reconciliation",
+    tables: ["bank_reconciliations"],
+    columns: [
+      ["journal_lines", "cleared_at"],
+      ["journal_lines", "reconciliation_id"],
+      ["payments", "is_refund"],
+    ],
+    indexes: ["bank_reconciliations_account_idx", "journal_lines_cleared_idx", "payments_refund_idx"],
+    functions: ["assert_reconciliation_open"],
+    triggers: [["journal_lines", "journal_lines_reconciliation_open"]],
+    systemKeys: ["customer_advances", "supplier_advances"],
   },
 ];
 
@@ -233,7 +246,9 @@ async function checkInvariants(db, has) {
                       (select sum(pa.amount) from payment_allocations pa
                         where pa.sales_document_id = d.id), 0)))
                    from sales_documents d
+                   join customers c on c.id = d.customer_id
                   where d.type in ('Invoice', 'Credit Note')
+                    and c.organization_id = $1
                     and d.journal_entry_id is not null
                     and d.status in ('Sent','Approved','Overdue','Partially paid')), 0)::float8 as subledger`,
     (r) => Math.abs(r.control - r.subledger) < 0.05,
@@ -267,6 +282,38 @@ async function checkInvariants(db, has) {
     (r) => (r.n ? `${r.n} over-allocated payments` : ""),
   );
 
+  if (has.column.has("payments.is_refund")) {
+    await q(
+      "customer advances agree with unallocated receipts",
+      `select
+         coalesce((select sum(l.credit - l.debit) from journal_lines l
+                     join journal_entries e on e.id = l.entry_id
+                     join ledger_accounts a on a.id = l.account_id
+                    where e.organization_id = $1 and e.status = 'Posted'
+                      and a.system_key = 'customer_advances'), 0)::float8 as control,
+         coalesce((select sum(p.unallocated) from payments p
+                    where p.organization_id = $1 and p.direction = 'in'
+                      and not p.is_refund), 0)::float8 as subledger`,
+      (r) => Math.abs(r.control - r.subledger) < 0.05,
+      (r) => `control ${r.control.toFixed(2)}, unallocated receipts ${r.subledger.toFixed(2)}`,
+    );
+
+    await q(
+      "supplier advances agree with unallocated payments",
+      `select
+         coalesce((select sum(l.debit - l.credit) from journal_lines l
+                     join journal_entries e on e.id = l.entry_id
+                     join ledger_accounts a on a.id = l.account_id
+                    where e.organization_id = $1 and e.status = 'Posted'
+                      and a.system_key = 'supplier_advances'), 0)::float8 as control,
+         coalesce((select sum(p.unallocated) from payments p
+                    where p.organization_id = $1 and p.direction = 'out'
+                      and not p.is_refund), 0)::float8 as subledger`,
+      (r) => Math.abs(r.control - r.subledger) < 0.05,
+      (r) => `control ${r.control.toFixed(2)}, supplier advances ${r.subledger.toFixed(2)}`,
+    );
+  }
+
   section("Records that never reached the ledger");
   const unposted = async (name, sql) => {
     const { rows } = await db.query(sql, [ORG]);
@@ -277,11 +324,12 @@ async function checkInvariants(db, has) {
     record(true, `${name}: ${n}`, n ? "run the backfill before trusting reports" : "");
   };
 
-  await unposted("issued invoices not posted", `
-    select count(*)::int as n from sales_documents
-     where $1 <> '' and type = 'Invoice'
-       and status in ('Sent','Approved','Overdue','Partially paid','Paid')
-       and journal_entry_id is null`);
+  await unposted("issued sales documents not posted", `
+    select count(*)::int as n from sales_documents d
+      join customers c on c.id = d.customer_id
+     where c.organization_id = $1 and d.type in ('Invoice', 'Credit Note')
+       and d.status in ('Sent','Approved','Overdue','Partially paid','Paid')
+       and d.journal_entry_id is null`);
   await unposted("cash movements not posted", `
     select count(*)::int as n from finance_transactions
      where $1 <> '' and journal_entry_id is null`);

@@ -8,6 +8,7 @@ import {
   isIssuedCreditNote,
   isIssuedInvoice,
   isPostableSalesDocument,
+  paymentEntryInput,
   salesDocumentEntryInput,
   salesInvoiceEntryInput,
 } from "./accounting-entries.ts";
@@ -128,6 +129,58 @@ test("a bill line with no account falls back to the holding account", () => {
     "Vendor",
   );
   assert.equal(lineFor(entry.lines, "uncategorised").debit, 100);
+});
+
+test("a customer overpayment clears only the invoice and holds the rest as an advance", () => {
+  const entry = paymentEntryInput({
+    id: "pay-in-1",
+    date: "2026-08-01",
+    direction: "in",
+    amount: 1200,
+    allocatedAmount: 1000,
+    bankAccountId: "bank-1",
+    customerId: "cust-1",
+  });
+
+  assert.equal(lineFor(entry.lines, "accounts_receivable").credit, 1000);
+  assert.equal(lineFor(entry.lines, "customer_advances").credit, 200);
+  assert.equal(entry.lines.find((line) => line.accountId === "bank-1")?.debit, 1200);
+  assert.equal(lineFor(entry.lines, "customer_advances").customerId, "cust-1");
+  assert.equal(checkBalance(entry.lines).ok, true);
+});
+
+test("a supplier advance never reduces accounts payable", () => {
+  const entry = paymentEntryInput({
+    id: "pay-out-1",
+    date: "2026-08-01",
+    direction: "out",
+    amount: 350,
+    allocatedAmount: 0,
+    bankAccountId: "bank-1",
+    vendorId: "vendor-1",
+  });
+
+  assert.equal(lineFor(entry.lines, "accounts_payable"), undefined);
+  assert.equal(lineFor(entry.lines, "supplier_advances").debit, 350);
+  assert.equal(lineFor(entry.lines, "supplier_advances").vendorId, "vendor-1");
+  assert.equal(entry.lines.find((line) => line.accountId === "bank-1")?.credit, 350);
+  assert.equal(checkBalance(entry.lines).ok, true);
+});
+
+test("a fully allocated receipt does not touch customer advances", () => {
+  const entry = paymentEntryInput({
+    id: "pay-in-2",
+    date: "2026-08-01",
+    direction: "in",
+    amount: 99.99,
+    allocatedAmount: 99.99,
+    bankAccountId: "bank-1",
+    customerId: "cust-1",
+  });
+
+  assert.equal(lineFor(entry.lines, "accounts_receivable").credit, 99.99);
+  assert.equal(lineFor(entry.lines, "customer_advances"), undefined);
+  assert.equal(checkBalance(entry.lines).ok, true);
 });
 
 test("a credit note is the invoice with every side reversed", () => {

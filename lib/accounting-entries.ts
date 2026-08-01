@@ -54,6 +54,71 @@ export type BillLineForEntry = {
   taxCode?: string;
 };
 
+export type PaymentForEntry = {
+  id: string;
+  date: string;
+  direction: "in" | "out";
+  amount: number;
+  allocatedAmount: number;
+  bankAccountId: string;
+  customerId?: string | null;
+  vendorId?: string | null;
+  reference?: string;
+  memo?: string;
+  createdBy?: string | null;
+};
+
+/**
+ * A receipt or supplier payment, split between settled documents and advances.
+ *
+ * Only the amount actually allocated to an invoice or bill belongs in the
+ * receivable/payable control account. Anything left unallocated is money held
+ * for a client, or money advanced to a supplier; putting the full payment into
+ * AR/AP creates a negative outstanding balance and makes the subledger disagree
+ * with the balance sheet.
+ */
+export function paymentEntryInput(payment: PaymentForEntry): EntryInput {
+  const amountCents = toCents(payment.amount);
+  const allocatedCents = toCents(payment.allocatedAmount);
+  if (amountCents <= 0) throw new RangeError("A payment must be greater than zero.");
+  if (allocatedCents < 0 || allocatedCents > amountCents) {
+    throw new RangeError("The allocated amount must be between zero and the payment amount.");
+  }
+
+  const amount = amountCents / 100;
+  const allocated = allocatedCents / 100;
+  const unallocated = (amountCents - allocatedCents) / 100;
+  const lines: EntryLine[] = [];
+
+  if (payment.direction === "out") {
+    if (allocatedCents > 0) {
+      lines.push({ accountKey: "accounts_payable", debit: allocated, vendorId: payment.vendorId });
+    }
+    if (unallocated > 0) {
+      lines.push({ accountKey: "supplier_advances", debit: unallocated, vendorId: payment.vendorId });
+    }
+    lines.push({ accountId: payment.bankAccountId, credit: amount });
+  } else {
+    lines.push({ accountId: payment.bankAccountId, debit: amount });
+    if (allocatedCents > 0) {
+      lines.push({ accountKey: "accounts_receivable", credit: allocated, customerId: payment.customerId });
+    }
+    if (unallocated > 0) {
+      lines.push({ accountKey: "customer_advances", credit: unallocated, customerId: payment.customerId });
+    }
+  }
+
+  return {
+    date: payment.date,
+    reference: payment.reference ?? "",
+    memo: payment.memo || (payment.direction === "out" ? "Supplier payment" : "Customer receipt"),
+    sourceType: "payment",
+    sourceId: payment.id,
+    createdBy: payment.createdBy,
+    lines,
+  };
+}
+
 /**
  * A supplier bill: the cost is recognised now, recoverable tax is separated out,
  * and the amount owed sits in payables until it is paid.

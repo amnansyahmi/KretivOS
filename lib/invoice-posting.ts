@@ -69,9 +69,11 @@ export async function prepareInvoicePosting(
   const amounts = amountsFor(row);
   if (!amounts.total) return null;
 
-  const issueDate = row.issue_date
-    ? isoDate(row.issue_date)
-    : String(row.created_at ?? new Date().toISOString()).slice(0, 10);
+  // Legacy documents may not have an issue date. Their created_at value is also
+  // returned as a Date by the driver, so it must go through the same formatter;
+  // String(Date).slice(0, 10) would recreate the original "Sat Aug 01" bug on
+  // exactly the old records this backfill exists to repair.
+  const issueDate = isoDate(row.issue_date ?? row.created_at, todayIso());
 
   const entry = await prepareEntry(
     salesDocumentEntryInput(
@@ -272,7 +274,8 @@ export async function unpostedInvoiceCount() {
   try {
     const sql = getDatabase();
     const rows = await sql`
-      select count(*)::int as count, coalesce(sum(d.value), 0) as value
+      select count(*)::int as count,
+        coalesce(sum(case when d.type = 'Credit Note' then -d.value else d.value end), 0) as value
       from sales_documents d join customers c on c.id = d.customer_id
       where c.organization_id = ${ORGANIZATION_ID}
         and d.type in ('Invoice', 'Credit Note')

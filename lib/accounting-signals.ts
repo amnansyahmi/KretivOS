@@ -252,8 +252,8 @@ export function detectUnposted({ invoices, cash, settlements, payroll }: {
   if (invoices.count > 0) {
     signals.push({
       kind: "unposted", severity: "high",
-      title: `${invoices.count} issued invoice${invoices.count === 1 ? "" : "s"} not on the ledger`,
-      detail: `${money(invoices.value)} of revenue is missing from the reports until these are posted.`,
+      title: `${invoices.count} issued sales document${invoices.count === 1 ? "" : "s"} not on the ledger`,
+      detail: `${money(invoices.value)} net invoice/credit-note impact is absent from the reports until these are posted.`,
       amount: invoices.value, recordIds: [],
     });
   }
