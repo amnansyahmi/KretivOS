@@ -38,6 +38,42 @@ body {
   font-feature-settings: "rlig" 1, "calt" 1;
 }
 
+/* Give native/raw buttons the same friendly corners as the shared Button. */
+button {
+  border-radius: .75rem;
+}
+
+/*
+ * Search controls are primary navigation on mobile. Keep them comfortably
+ * tappable and use 16px text on iPhone so Safari does not zoom the page.
+ */
+.kretivos-search-control {
+  min-height: 3rem;
+}
+
+:where(div, label):has(> input[placeholder^="Search"]) {
+  min-height: 3rem;
+}
+
+@media (max-width: 639px) {
+  .kretivos-search-control {
+    min-height: 3.5rem !important;
+    height: 3.5rem !important;
+  }
+
+  :where(div, label):has(> input[placeholder^="Search"]) {
+    min-height: 3.5rem !important;
+    height: 3.5rem !important;
+  }
+
+  .kretivos-search-control input,
+  input.kretivos-search-control,
+  input[placeholder^="Search"] {
+    font-size: 1rem !important;
+    line-height: 1.5rem !important;
+  }
+}
+
 ::selection {
   background: rgba(112, 74, 52, .18);
 }
