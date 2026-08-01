@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/toast";
 import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
+import { DateInput } from "@/components/date-input";
 import {
   AccountingShell, ACCOUNTING_NAV_ITEMS, type AccountingTab,
 } from "@/components/accounting-shell";
@@ -247,6 +248,7 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
   const [active, setActive] = useState<any>(null);
   const [kind, setKind] = useState("receipt");
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const { success, error: toastError, toast } = useToast();
 
   const load = useCallback(async () => {
@@ -294,6 +296,7 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (cameraRef.current) cameraRef.current.value = "";
     }
   }
 
@@ -324,20 +327,32 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
             </select>
           </label>
           <input
-            ref={fileRef}
+            ref={cameraRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp,application/pdf"
+            accept="image/*"
             capture="environment"
             className="hidden"
             onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }}
           />
-          <Button onClick={() => fileRef.current?.click()} disabled={busy} className="sm:ml-auto">
-            {busy ? <><Loader2 className="h-4 w-4 animate-spin" />Reading…</> : <><Upload className="h-4 w-4" />Upload or photograph</>}
-          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            className="hidden"
+            onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }}
+          />
+          <div className="flex flex-wrap gap-2 sm:ml-auto">
+            <Button variant="outline" className="bg-white" onClick={() => cameraRef.current?.click()} disabled={busy}>
+              <Camera className="h-4 w-4" />Take photo
+            </Button>
+            <Button onClick={() => fileRef.current?.click()} disabled={busy}>
+              {busy ? <><Loader2 className="h-4 w-4 animate-spin" />Reading…</> : <><Upload className="h-4 w-4" />Choose from album</>}
+            </Button>
+          </div>
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
           The image is stored first and read second, so a document is never lost if the reader fails —
-          you can always key the fields yourself. Nothing reaches the ledger until you confirm it.
+          you can always key the fields yourself. Use the album option for a saved image or PDF. Nothing reaches the ledger until you confirm it.
         </p>
       </CardContent>
     </Card>
@@ -515,7 +530,7 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
               <input value={form.documentNumber} onChange={(event) => set({ documentNumber: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm" />
             </Field>
             <Field label="Date" flagged={lowConfidence.includes("documentDate")}>
-              <input type="date" value={form.documentDate} onChange={(event) => set({ documentDate: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+              <DateInput value={form.documentDate} onChange={(event) => set({ documentDate: event.target.value })} className="h-10 rounded-lg" />
             </Field>
           </div>
 
@@ -614,10 +629,10 @@ function Bills({ data, loading, submit }: any) {
         <input value={form.billNumber} onChange={(event) => set({ billNumber: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Bill date
-        <input type="date" value={form.billDate} onChange={(event) => set({ billDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.billDate} onChange={(event) => set({ billDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Due date <span className="text-muted-foreground">(defaults to the vendor's terms)</span>
-        <input type="date" value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Expense account
         <select value={form.accountId} onChange={(event) => set({ accountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
@@ -740,7 +755,7 @@ function Payments({ data, loading, submit }: any) {
         </select>
       </label>
       <label className="text-xs font-medium">Date
-        <input type="date" value={form.paymentDate} onChange={(event) => set({ paymentDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.paymentDate} onChange={(event) => set({ paymentDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">From / to account
         <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
@@ -1052,7 +1067,7 @@ function Transactions({ data, loading, submit }: any) {
         </select>
       </label>
       <label className="text-xs font-medium">Date
-        <input type="date" value={form.date} onChange={(event) => set({ date: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.date} onChange={(event) => set({ date: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Bank or cash account
         <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
@@ -1170,13 +1185,13 @@ function Settlements({ data, loading, submit }: any) {
         </select>
       </label>
       <label className="text-xs font-medium">Due date
-        <input type="date" value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Period start
-        <input type="date" value={form.periodStart} onChange={(event) => set({ periodStart: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.periodStart} onChange={(event) => set({ periodStart: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Period end
-        <input type="date" value={form.periodEnd} onChange={(event) => set({ periodEnd: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.periodEnd} onChange={(event) => set({ periodEnd: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Units sold
         <input type="number" value={form.units} onChange={(event) => set({ units: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
@@ -1314,3 +1329,4 @@ function Accounts({ data, submit }: any) {
     </Card>)}
   </div>;
 }
+
