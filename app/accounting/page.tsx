@@ -248,7 +248,6 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
   const [active, setActive] = useState<any>(null);
   const [kind, setKind] = useState("receipt");
   const fileRef = useRef<HTMLInputElement>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
   const { success, error: toastError, toast } = useToast();
 
   const load = useCallback(async () => {
@@ -296,7 +295,6 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
-      if (cameraRef.current) cameraRef.current.value = "";
     }
   }
 
@@ -327,32 +325,19 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
             </select>
           </label>
           <input
-            ref={cameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }}
-          />
-          <input
             ref={fileRef}
             type="file"
             accept="image/jpeg,image/png,image/webp,application/pdf"
             className="hidden"
             onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }}
           />
-          <div className="flex flex-wrap gap-2 sm:ml-auto">
-            <Button variant="outline" className="bg-white" onClick={() => cameraRef.current?.click()} disabled={busy}>
-              <Camera className="h-4 w-4" />Take photo
-            </Button>
-            <Button onClick={() => fileRef.current?.click()} disabled={busy}>
-              {busy ? <><Loader2 className="h-4 w-4 animate-spin" />Reading…</> : <><Upload className="h-4 w-4" />Choose from album</>}
-            </Button>
-          </div>
+          <Button onClick={() => fileRef.current?.click()} disabled={busy} className="sm:ml-auto">
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" />Reading…</> : <><Upload className="h-4 w-4" />Upload receipt</>}
+          </Button>
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
           The image is stored first and read second, so a document is never lost if the reader fails —
-          you can always key the fields yourself. Use the album option for a saved image or PDF. Nothing reaches the ledger until you confirm it.
+          you can always key the fields yourself. Choose an image or PDF; on mobile, your device picker can also offer the camera. Nothing reaches the ledger until you confirm it.
         </p>
       </CardContent>
     </Card>
