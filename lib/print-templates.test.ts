@@ -84,9 +84,9 @@ test("an unknown token stays visible rather than printing a hole", () => {
   assert.equal(fillTokens("Pay {{bankNam}} now", { bankName: "Maybank" }), "Pay {{bankNam}} now");
 });
 
-test("an invoice prints numbered rows with unit, price and amount", () => {
+test("an invoice prints numbered rows with quantity/unit, price and amount", () => {
   const model = buildPrintModel(invoice, company, invoiceTemplate);
-  assert.deepEqual(model.columns.map((c) => c.label), ["No", "Description", "Unit", "Price", "Amount"]);
+  assert.deepEqual(model.columns.map((c) => c.label), ["No", "Description", "Qty / Unit", "Price", "Amount"]);
   assert.deepEqual(model.rows[0], ["1", "Creative direction", "1 package", "3,500.00", "3,500.00"]);
   assert.deepEqual(model.rows[1], ["2", "Video editing", "3 days", "800.00", "2,400.00"]);
 });
