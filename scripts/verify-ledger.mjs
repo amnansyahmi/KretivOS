@@ -250,7 +250,7 @@ async function checkInvariants(db, has) {
                   where d.type in ('Invoice', 'Credit Note')
                     and c.organization_id = $1
                     and d.journal_entry_id is not null
-                    and d.status in ('Sent','Approved','Overdue','Partially paid')), 0)::float8 as subledger`,
+                    and d.status in ('Sent','Approved','Overdue','Partially paid','Paid')), 0)::float8 as subledger`,
     (r) => Math.abs(r.control - r.subledger) < 0.05,
     (r) => `control ${r.control.toFixed(2)}, documents outstanding ${r.subledger.toFixed(2)}`,
   );
@@ -320,7 +320,7 @@ async function checkInvariants(db, has) {
     const n = rows[0]?.n ?? 0;
     // Not a failure: it is legitimate to have records predating the posting
     // engine. It is reported because a non-zero count means the reports are
-    // understating something, and the backfill has not been run.
+    // misstating something, and the backfill has not been run.
     record(true, `${name}: ${n}`, n ? "run the backfill before trusting reports" : "");
   };
 
