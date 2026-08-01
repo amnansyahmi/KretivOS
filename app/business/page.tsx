@@ -281,7 +281,7 @@ export default function BusinessOperationsPage() {
       </div>}
 
       {tab !== "overview" && <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex h-11 flex-1 items-center gap-2 rounded-xl border bg-white px-3"><Search className="h-4 w-4 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={`Search ${currentLabel.toLowerCase()}…`} /></div>
+        <div className="kretivos-search-control flex h-11 flex-1 items-center gap-2 rounded-xl border bg-white px-3"><Search className="h-5 w-5 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={`Search ${currentLabel.toLowerCase()}…`} /></div>
         <Button onClick={() => openCreate()} className="w-full sm:w-auto"><Plus className="h-4 w-4" />{tab === "settlements" ? "Manage in Accounting" : "Create new"}</Button>
       </div>}
 
