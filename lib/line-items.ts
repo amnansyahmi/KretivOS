@@ -90,7 +90,7 @@ export function lineItemsMarkdown(items: LineItem[], settings: LineItemSettings)
   const rows = items.filter((item) => item.description.trim() || lineAmount(item));
   if (!rows.length) return "_No items added yet._";
 
-  const header = "| # | Description | Qty | Unit price | Amount |\n| --- | --- | ---: | ---: | ---: |";
+  const header = "| # | Description | Qty / Unit | Unit price | Amount |\n| --- | --- | ---: | ---: | ---: |";
   const body = rows
     .map((item, index) => {
       const qty = item.unit.trim() ? `${item.quantity} ${cell(item.unit)}` : String(item.quantity);
