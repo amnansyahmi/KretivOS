@@ -81,6 +81,15 @@ export async function PUT(request: NextRequest) {
       `;
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, "companyEmail") || Object.prototype.hasOwnProperty.call(body, "companyPhone")) {
+      await sql`
+        update organizations set
+          contact_email = ${clean(body.companyEmail, 240)},
+          contact_phone = ${clean(body.companyPhone, 160)}
+        where id = ${ORGANIZATION_ID}
+      `;
+    }
+
     await sql`
       insert into audit_logs (organization_id, user_id, action, entity_type, entity_id, metadata)
       values (${ORGANIZATION_ID}, ${session.userId}, 'update', 'print_template', ${rows[0].id},

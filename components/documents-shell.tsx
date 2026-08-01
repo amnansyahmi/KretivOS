@@ -28,7 +28,7 @@ export type DocumentsNavItem = {
 export const DOCUMENTS_NAV_ITEMS: DocumentsNavItem[] = [
   { id: "templates", label: "Template library", description: "Reusable content and variables", group: "Create", icon: LayoutTemplate },
   { id: "documents", label: "Generated documents", description: "Saved drafts and final files", group: "Output", icon: FileStack },
-  { id: "print", label: "Print layouts", description: "Quotation, invoice and receipt", group: "Setup", icon: FileText },
+  { id: "print", label: "Print settings", description: "Bank details, notes and signatures", group: "Setup", icon: FileText },
 ];
 
 function SidebarContent({
@@ -92,7 +92,7 @@ function SidebarContent({
     </nav>
 
     <div className="shrink-0 border-t border-white/10 p-3">
-      <Link href="/" onClick={onClose} className="flex min-h-11 items-center gap-3 border border-white/10 px-3 text-xs font-medium text-white/65 transition hover:border-white/20 hover:bg-white/[.06] hover:text-white">
+      <Link href="/" onClick={onClose} className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 px-3 text-xs font-medium text-white/65 transition hover:border-white/20 hover:bg-white/[.06] hover:text-white">
         <ArrowLeft className="h-4 w-4" />Back to KretivOS
       </Link>
     </div>

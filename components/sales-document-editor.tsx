@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Copy, Eye, FilePenLine, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Copy, Eye, FilePenLine, Plus, Settings2, Trash2 } from "lucide-react";
 import { AIWritingButton } from "@/components/ai-writing-button";
 import { DateInput } from "@/components/date-input";
 import { ResponsivePrintDocument, PRINT_STYLES } from "@/components/print-document";
@@ -245,7 +246,7 @@ export function SalesDocumentEditor({
 
       <aside className={cn("min-w-0", mobilePane === "edit" && "hidden lg:block")}>
         <div className="sticky top-24 rounded-2xl border bg-[#e8e4da] p-3">
-          <div className="mb-3 flex items-center justify-between px-1"><div><div className="text-sm font-semibold">Live preview</div><div className="text-[10px] text-muted-foreground">Updates before you save</div></div><Eye className="h-4 w-4 text-muted-foreground" /></div>
+          <div className="mb-3 flex items-center justify-between gap-3 px-1"><div><div className="text-sm font-semibold">Live preview</div><div className="text-[10px] text-muted-foreground">Updates before you save</div></div><Link href="/documents?section=print" target="_blank" rel="noreferrer" className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-black/10 bg-white/65 px-2.5 text-[10px] font-medium text-[#4f5d54] transition hover:bg-white"><Settings2 className="h-3.5 w-3.5" />Print settings</Link></div>
           <div className="max-h-[72vh] overflow-auto rounded-xl bg-[#d8d4ca] p-2 sm:p-4">
             <ResponsivePrintDocument model={model} />
           </div>

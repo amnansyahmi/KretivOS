@@ -101,7 +101,7 @@ function SidebarContent({
     </nav>
 
     <div className="shrink-0 border-t border-white/10 p-3">
-      <Link href="/" onClick={onClose} className="flex min-h-11 items-center gap-3 border border-white/10 px-3 text-xs font-medium text-white/65 transition hover:border-white/20 hover:bg-white/[.06] hover:text-white">
+      <Link href="/" onClick={onClose} className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 px-3 text-xs font-medium text-white/65 transition hover:border-white/20 hover:bg-white/[.06] hover:text-white">
         <ArrowLeft className="h-4 w-4" />Back to KretivOS
       </Link>
     </div>

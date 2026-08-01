@@ -157,11 +157,11 @@ export default function Home() {
 
   return <div className="min-h-screen bg-[#f4f1e8] text-[#202820]">
     <aside className={cn(
-      "fixed inset-y-0 left-0 z-50 border-r border-white/10 bg-[#202c25] text-white transition-all duration-300",
+      "fixed inset-y-0 left-0 z-50 flex h-[100dvh] flex-col border-r border-white/10 bg-[#202c25] text-white transition-all duration-300",
       collapsed ? "w-[76px]" : "w-[264px]",
       mobile ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
     )}>
-      <div className={cn("flex h-[76px] items-center border-b border-white/10", collapsed ? "justify-center px-2" : "justify-between px-5")}>
+      <div className={cn("flex h-[76px] shrink-0 items-center border-b border-white/10", collapsed ? "justify-center px-2" : "justify-between px-5")}>
         <div className={cn(collapsed && "hidden")}>
           <div className="text-xl font-semibold tracking-tight">Kretiv<span className="text-[#ef7f5f]">OS</span></div>
           <div className="text-[9px] uppercase tracking-[.25em] text-white/40">Kretivco operating system</div>
@@ -169,7 +169,7 @@ export default function Home() {
         {collapsed && <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ef7f5f] font-bold">K</div>}
         <button onClick={() => setMobile(false)} className="lg:hidden" aria-label="Close navigation"><X className="h-5 w-5" /></button>
       </div>
-      <div className="h-[calc(100vh-156px)] overflow-y-auto px-3 py-4 scrollbar-thin">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 scrollbar-thin">
         {navGroups.map(group => <div key={group.label} className="mb-5">
           {!collapsed && <div className="mb-2 px-3 text-[9px] font-semibold uppercase tracking-[.2em] text-white/30">{group.label}</div>}
           <div className="space-y-1">{group.items.map(item => {
@@ -192,7 +192,7 @@ export default function Home() {
           })}</div>
         </div>)}
       </div>
-      <div className="absolute bottom-0 flex h-20 w-full items-center border-t border-white/10 px-3">
+      <div className="z-10 flex h-20 w-full shrink-0 items-center border-t border-white/10 bg-[#202c25] px-3">
         <button className={cn("flex w-full items-center rounded-lg p-2 hover:bg-white/5", collapsed ? "justify-center" : "gap-3")}>
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ef7f5f] text-xs font-semibold">KT</div>
           {!collapsed && <><div className="min-w-0 text-left"><div className="truncate text-xs font-medium">Kretivco Team</div><div className="text-[10px] text-white/40">Shared internal workspace</div></div><MoreHorizontal className="ml-auto h-4 w-4" /></>}

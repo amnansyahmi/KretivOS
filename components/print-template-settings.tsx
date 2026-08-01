@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/toast";
-import type { PrintTemplate } from "@/lib/print-templates";
+import type { PrintCompany, PrintTemplate } from "@/lib/print-templates";
 
 const TYPES = ["Invoice", "Quotation", "Receipt"];
 
@@ -34,6 +34,7 @@ const TOKENS = [
 export function PrintTemplateSettings() {
   const toast = useToast();
   const [templates, setTemplates] = useState<PrintTemplate[]>([]);
+  const [company, setCompany] = useState<PrintCompany | null>(null);
   const [active, setActive] = useState("Invoice");
   const [draft, setDraft] = useState<PrintTemplate | null>(null);
   const [notesText, setNotesText] = useState("");
@@ -48,6 +49,7 @@ export function PrintTemplateSettings() {
       const payload = await response.json();
       if (payload.error) { setError(payload.error); return; }
       setTemplates(payload.templates || []);
+      setCompany(payload.company || null);
       setError("");
     } catch {
       setError("Could not load the print templates.");
@@ -74,6 +76,8 @@ export function PrintTemplateSettings() {
         body: JSON.stringify({
           ...draft,
           notes: notesText.split("\n").map((line) => line.trim()).filter(Boolean),
+          companyEmail: company?.email || "",
+          companyPhone: company?.phone || "",
           // Bank details belong to the business, not to one document type.
           applyBankToAll: true,
         }),
@@ -97,10 +101,10 @@ export function PrintTemplateSettings() {
 
   return <Card className="bg-white/80">
     <CardHeader>
-      <CardTitle>Printed documents</CardTitle>
+      <CardTitle>Quotation, invoice & receipt settings</CardTitle>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">
-        The wording on quotations, invoices and receipts. The layout — logo, company block,
-        ruled table, totals, signatures — is fixed so the three stay a matching set.
+        Configure bank details, numbered notes, the closing line and signatures for each
+        printed document. Changes apply to future previews, prints and saved PDFs.
       </p>
     </CardHeader>
     <CardContent className="space-y-5">
@@ -137,6 +141,14 @@ export function PrintTemplateSettings() {
             <Input value={draft.bankAccountNumber} onChange={(event) => setDraft({ ...draft, bankAccountNumber: event.target.value })} placeholder="5123 4567 8901" />
           </Label>
           <Label className="block">
+            <span className="mb-2 block">Company email</span>
+            <Input type="email" value={company?.email || ""} onChange={(event) => setCompany((current) => current ? { ...current, email: event.target.value } : current)} placeholder="accounts@example.com" />
+          </Label>
+          <Label className="block">
+            <span className="mb-2 block">Company phone / WhatsApp</span>
+            <Input value={company?.phone || ""} onChange={(event) => setCompany((current) => current ? { ...current, phone: event.target.value } : current)} placeholder="+6012-3456789" />
+          </Label>
+          <Label className="block">
             <span className="mb-2 block">Payment terms (days)</span>
             <Input
               type="number" min={0} max={365}
@@ -169,7 +181,7 @@ export function PrintTemplateSettings() {
             </span>)}
           </div>
           <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-            Bank details are shared across all three documents, so changing them here changes them everywhere.
+            Bank details, company email and phone are shared across all three documents. The email and phone fields fill the corresponding tokens automatically.
           </p>
         </div>
 
