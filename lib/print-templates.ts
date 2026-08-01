@@ -165,7 +165,7 @@ export function noteTokens(company: PrintCompany, template: PrintTemplate): Reco
 const SALES_COLUMNS: PrintColumn[] = [
   { key: "no", label: "No", align: "left" },
   { key: "description", label: "Description", align: "left" },
-  { key: "unit", label: "Unit", align: "center" },
+  { key: "unit", label: "Qty / Unit", align: "center" },
   { key: "price", label: "Price", align: "right" },
   { key: "amount", label: "Amount", align: "right" },
 ];
@@ -203,8 +203,8 @@ function salesRows(document: PrintDocument): string[][] {
   return document.items.map((item, index) => [
     String(index + 1),
     item.description,
-    // Quantity carries the unit label when there is one: "2 days" reads better
-    // than a bare 2 in a column headed Unit.
+    // Quantity and its label share one printed column: "2 days" is compact
+    // and makes the distinction from unit price clear.
     item.unit ? `${item.quantity} ${item.unit}` : String(item.quantity),
     money(item.unitPrice),
     money(item.quantity * item.unitPrice),
