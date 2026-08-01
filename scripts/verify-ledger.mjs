@@ -215,6 +215,10 @@ async function checkInvariants(db, has) {
   // carries no organisation column and no amount_paid — outstanding is the
   // document value less what payment_allocations has settled, matching how
   // lib/invoice-posting.ts computes it.
+  //
+  // Credit notes are subtracted, not ignored. They debit revenue and credit
+  // receivables, so the control account already nets them off; counting only
+  // invoices would report a shortfall the moment anyone credits a client.
   await q(
     "accounts receivable agrees with unpaid invoices",
     `select
@@ -223,14 +227,17 @@ async function checkInvariants(db, has) {
                    join ledger_accounts a on a.id = l.account_id
                   where e.organization_id = $1 and e.status = 'Posted'
                     and a.system_key = 'accounts_receivable'), 0)::float8 as control,
-       coalesce((select sum(d.value - coalesce(
-                    (select sum(pa.amount) from payment_allocations pa
-                      where pa.sales_document_id = d.id), 0))
+       coalesce((select sum(
+                    (case when d.type = 'Credit Note' then -1 else 1 end) *
+                    (d.value - coalesce(
+                      (select sum(pa.amount) from payment_allocations pa
+                        where pa.sales_document_id = d.id), 0)))
                    from sales_documents d
-                  where d.type = 'Invoice'
+                  where d.type in ('Invoice', 'Credit Note')
+                    and d.journal_entry_id is not null
                     and d.status in ('Sent','Approved','Overdue','Partially paid')), 0)::float8 as subledger`,
     (r) => Math.abs(r.control - r.subledger) < 0.05,
-    (r) => `control ${r.control.toFixed(2)}, invoices outstanding ${r.subledger.toFixed(2)}`,
+    (r) => `control ${r.control.toFixed(2)}, documents outstanding ${r.subledger.toFixed(2)}`,
   );
 
   await q(
