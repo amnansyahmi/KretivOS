@@ -16,6 +16,10 @@ import {
   FolderKanban, HandCoins, Library, Loader2, Palette, Rocket, Search, Sparkles,
   Target, UsersRound, Workflow,
 } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogDescription, DialogTitle, VisuallyHidden,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 type Destination = { label: string; href: string; group: string; icon: any; keywords?: string };
@@ -65,14 +69,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     ...hits.map((item) => ({ kind: "record" as const, item })),
   ], [destinations, hits]);
 
+  // Radix handles focus on open; this only clears the previous session's query.
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setHits([]);
     setActive(0);
-    // The dialog mounts before focus can land, so defer a frame.
-    const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   // Record search is debounced and cancelled on each keystroke so an early,
@@ -112,8 +114,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     router.push(href);
   }, [onOpenChange, router]);
 
+  // Escape is Radix's job now; this only covers list navigation.
   function onKeyDown(event: React.KeyboardEvent) {
-    if (event.key === "Escape") { onOpenChange(false); return; }
     if (event.key === "ArrowDown" || (event.key === "n" && event.ctrlKey)) {
       event.preventDefault();
       setActive((current) => (results.length ? (current + 1) % results.length : 0));
@@ -132,28 +134,31 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  if (!open) return null;
-
   let index = -1;
   let lastGroup = "";
 
-  return <div className="fixed inset-0 z-[120] flex items-start justify-center bg-black/40 p-4 pt-[12vh]" onClick={() => onOpenChange(false)}>
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Search KretivOS"
-      className="w-full max-w-xl overflow-hidden rounded-2xl border bg-white shadow-2xl"
-      onClick={(event) => event.stopPropagation()}
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent
+      showCloseButton={false}
+      // Anchored near the top rather than centred: the list grows downward and
+      // a centred panel would jump as results arrive.
+      className="top-[12vh] max-w-xl translate-y-0 overflow-hidden p-0"
+      onOpenAutoFocus={(event) => { event.preventDefault(); inputRef.current?.focus(); }}
     >
+      <VisuallyHidden>
+        <DialogTitle>Search KretivOS</DialogTitle>
+        <DialogDescription>Jump to a workspace or find a customer, document, project or knowledge entry.</DialogDescription>
+      </VisuallyHidden>
+
       <div className="flex items-center gap-3 border-b px-4">
         <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <input
+        <Input
           ref={inputRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Search workspaces, customers, documents, projects and knowledge…"
-          className="h-14 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="h-14 flex-1 rounded-none border-0 bg-transparent px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
         />
         {searching && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
       </div>
@@ -201,8 +206,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         <span><kbd className="rounded border bg-white px-1">↵</kbd> open</span>
         <span><kbd className="rounded border bg-white px-1">esc</kbd> close</span>
       </div>
-    </div>
-  </div>;
+    </DialogContent>
+  </Dialog>;
 }
 
 /** Any component can open the palette without threading state through the tree. */

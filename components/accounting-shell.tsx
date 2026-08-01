@@ -5,7 +5,7 @@
  *
  * Follows components/hrms-shell.tsx rather than inventing a second pattern: the
  * same grid, the same grouped sidebar with a description under each label, the
- * same mobile drawer with a scroll lock and an Escape handler.
+ * same mobile drawer built on Radix Dialog.
  *
  * The tab strip it replaces had grown to ten items, which scrolled horizontally
  * on a laptop and hid whichever section you were not already looking at. A
@@ -14,13 +14,16 @@
  */
 
 import Link from "next/link";
-import { Fragment, type ReactNode, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft, ArrowLeftRight, BookOpen, Building2, Camera, CircleDollarSign,
   HandCoins, Landmark, LineChart, ListTree, Menu, Receipt, TrendingUp, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogDescription, DialogTitle, VisuallyHidden,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 export type AccountingTab =
@@ -128,19 +131,8 @@ export function AccountingShell({
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  // Radix owns the scroll lock, the Escape handler and the focus trap.
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setMobileOpen(false); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [mobileOpen]);
 
   return <main className="min-h-screen bg-[#f5f2ea] text-[#202820]">
     <div className="lg:grid lg:min-h-screen lg:grid-cols-[272px_minmax(0,1fr)]">
@@ -165,11 +157,18 @@ export function AccountingShell({
       </div>
     </div>
 
-    {mobileOpen && <div className="fixed inset-0 z-[210] lg:hidden" role="dialog" aria-modal="true" aria-label="Accounting navigation menu">
-      <button className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={() => setMobileOpen(false)} aria-label="Close accounting navigation" />
-      <aside className="absolute inset-y-0 left-0 w-[min(326px,88vw)] shadow-2xl">
+    <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+      <DialogContent
+        showCloseButton={false}
+        overlayClassName="z-[210] bg-black/55 lg:hidden"
+        className="left-0 top-0 z-[220] h-full max-h-full w-[min(326px,88vw)] max-w-none translate-x-0 translate-y-0 rounded-none border-y-0 border-l-0 p-0 lg:hidden"
+      >
+        <VisuallyHidden>
+          <DialogTitle>Accounting navigation</DialogTitle>
+          <DialogDescription>Move between the sections of the Accounting workspace.</DialogDescription>
+        </VisuallyHidden>
         <SidebarContent activeId={activeId} badges={badges} onNavigate={onNavigate} onClose={() => setMobileOpen(false)} />
-      </aside>
-    </div>}
+      </DialogContent>
+    </Dialog>
   </main>;
 }
