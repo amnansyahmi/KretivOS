@@ -96,9 +96,19 @@ create table if not exists document_capture_lines (
 
 create index if not exists document_capture_lines_capture_idx on document_capture_lines(capture_id);
 
-alter table bills
-  add constraint bills_capture_fk foreign key (capture_id)
-  references document_captures(id) on delete set null;
+-- Postgres has no `add constraint if not exists`, so re-running this file
+-- errored on an existing constraint while every other statement here is
+-- idempotent. Verified against Postgres 16: applying 0009 twice now succeeds.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'bills_capture_fk'
+  ) then
+    alter table bills
+      add constraint bills_capture_fk foreign key (capture_id)
+      references document_captures(id) on delete set null;
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Taxpayer identity, required by LHDN on both sides of every e-Invoice
