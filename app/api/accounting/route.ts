@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { AccountingError, listAccounts, postEntry, prepareEntry, voidEntry } from "@/lib/accounting";
-import { agingBucket, fromCents, lineTax, toCents } from "@/lib/accounting-math";
+import { agingBucket, fromCents, lineTax, signedBalance, toCents } from "@/lib/accounting-math";
 import { backfillSalesInvoices, postSalesInvoice, unpostedInvoiceCount } from "@/lib/invoice-posting";
 import { backfillSettlements, postCashEntry, postSettlementPayment, unreconciledCashCount } from "@/lib/cash-posting";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
@@ -231,6 +231,74 @@ export async function GET(request: NextRequest) {
         })),
       });
     }
+    // General ledger: one account, every posting against it, with the balance
+    // carried down. The Journal tab lists entries; an accountant asks the other
+    // question — what has gone through account 1100 and what does it stand at.
+    const accountId = clean(request.nextUrl.searchParams.get("accountId"), 100);
+    if (accountId) {
+      const sql = getDatabase();
+      const from = isDate(clean(request.nextUrl.searchParams.get("from"), 10))
+        ? clean(request.nextUrl.searchParams.get("from"), 10) : "";
+      const to = isDate(clean(request.nextUrl.searchParams.get("to"), 10))
+        ? clean(request.nextUrl.searchParams.get("to"), 10) : today();
+
+      const accounts = await sql`
+        select id, code, name, type from ledger_accounts
+        where id = ${accountId} and organization_id = ${ORGANIZATION_ID}
+      `;
+      if (!accounts.length) return NextResponse.json({ error: "Account was not found." }, { status: 404 });
+      const account = accounts[0];
+
+      // Everything before the window collapses into one opening figure, so the
+      // running balance is the real balance rather than a partial one.
+      const openingRows = from ? await sql`
+        select coalesce(sum(l.debit), 0) as debit, coalesce(sum(l.credit), 0) as credit
+        from journal_lines l join journal_entries e on e.id = l.entry_id
+        where l.account_id = ${accountId} and e.organization_id = ${ORGANIZATION_ID}
+          and e.status = 'Posted' and e.entry_date < ${from}::date
+      ` : [];
+
+      const rows = await sql`
+        select e.id as entry_id, e.entry_date, e.reference, e.memo as entry_memo,
+               e.source_type, l.debit, l.credit, l.memo, c.name as customer_name
+        from journal_lines l
+        join journal_entries e on e.id = l.entry_id
+        left join customers c on c.id = l.customer_id
+        where l.account_id = ${accountId} and e.organization_id = ${ORGANIZATION_ID}
+          and e.status = 'Posted' and e.entry_date <= ${to}::date
+          ${from ? sql`and e.entry_date >= ${from}::date` : sql``}
+        order by e.entry_date, e.created_at, l.line_order
+      `;
+
+      const openingCents = openingRows.length
+        ? signedBalance(account.type, toCents(openingRows[0].debit), toCents(openingRows[0].credit))
+        : 0;
+      let runningCents = openingCents;
+
+      return NextResponse.json({
+        account: { id: account.id, code: account.code, name: account.name, type: account.type },
+        range: { from, to },
+        opening: fromCents(openingCents),
+        lines: rows.map((row: any) => {
+          // Signed by account type, so an expense reads positive as it grows and
+          // a liability does not read negative for being credited.
+          runningCents += signedBalance(account.type, toCents(row.debit), toCents(row.credit));
+          return {
+            entryId: row.entry_id,
+            date: isoDate(row.entry_date),
+            reference: row.reference || "",
+            memo: row.memo || row.entry_memo || "",
+            sourceType: row.source_type || "manual",
+            customerName: row.customer_name || "",
+            debit: Number(row.debit),
+            credit: Number(row.credit),
+            balance: fromCents(runningCents),
+          };
+        }),
+        closing: fromCents(runningCents),
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+
     return NextResponse.json(await snapshot(), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return failure(error);

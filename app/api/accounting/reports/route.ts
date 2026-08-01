@@ -103,9 +103,14 @@ export async function GET(request: NextRequest) {
         where b.organization_id = ${ORGANIZATION_ID}
           and b.status not in ('Void', 'Paid', 'Draft')
           and b.total > b.amount_paid
+          and b.bill_date <= ${to}::date
       `,
+      // Credit notes are included with the sign flipped. Counting invoices alone
+      // made this report disagree with the balance sheet the moment anyone
+      // credited a client — clients "owed" the full invoice while receivables
+      // on the balance sheet had already come down.
       sql`
-        select d.id, d.reference, d.title, d.due_date, d.value,
+        select d.id, d.type, d.reference, d.title, d.due_date, d.value,
           coalesce(a.amount_paid, 0) as amount_paid, c.name as customer_name
         from sales_documents d join customers c on c.id = d.customer_id
         left join (
@@ -115,8 +120,16 @@ export async function GET(request: NextRequest) {
           group by pa.sales_document_id
         ) a on a.sales_document_id = d.id
         where c.organization_id = ${ORGANIZATION_ID}
-          and d.type = 'Invoice' and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid')
+          and d.type in ('Invoice', 'Credit Note')
+          and d.status in ('Sent', 'Approved', 'Overdue', 'Partially paid')
           and d.value > coalesce(a.amount_paid, 0)
+          -- Only what the ledger has actually seen, and only as far as the
+          -- report date, so this and the balance sheet answer the same
+          -- question. Without the date bound a future-dated credit note showed
+          -- here while the control account had not yet taken it. Unposted
+          -- invoices are reported separately by unpostedInvoiceCount().
+          and d.journal_entry_id is not null
+          and coalesce(d.issue_date, d.created_at::date) <= ${to}::date
       `,
       // Per-client profitability: an agency's most useful report, and the one
       // the single-entry cash log could never produce.
@@ -168,7 +181,7 @@ export async function GET(request: NextRequest) {
     );
     const receivable = bucketise(
       receivableRows,
-      (row) => Number(row.value) - Number(row.amount_paid || 0),
+      (row) => (Number(row.value) - Number(row.amount_paid || 0)) * (row.type === "Credit Note" ? -1 : 1),
       (row) => (isoDate(row.due_date, "")),
     );
 
