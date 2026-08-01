@@ -40,6 +40,7 @@ Add `DATABASE_URL` to Vercel for Production, Preview, and Development, then rede
    | `0010_invoice_posting.sql` | Customer invoices post to the ledger |
    | `0011_unify_cash_and_settlements.sql` | Cash movements and settlements post to the ledger |
    | `0012_payroll_posting.sql` | Payroll posts to the ledger, with statutory payables |
+   | `0013_bank_reconciliation.sql` | Bank reconciliation, overpayment holding accounts, refunds |
 
 4. Open `/api/db/health` on the deployed KretivOS URL.
 
