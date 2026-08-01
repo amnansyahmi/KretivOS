@@ -65,7 +65,7 @@ async function snapshot() {
   const sql = getDatabase();
   const [
     accounts, vendors, bills, payments, periods, entries,
-    unpostedInvoices, unreconciledCash, cashRows, settlementRows,
+    unpostedInvoices, unreconciledCash, cashRows, settlementRows, customerRows,
   ] = await Promise.all([
     listAccounts(),
     sql`
@@ -128,6 +128,12 @@ async function snapshot() {
       where c.organization_id = ${ORGANIZATION_ID}
       order by s.period_end desc
       limit 100
+    `,
+    // Needed by the settlement editor, which now lives here.
+    sql`
+      select id, name from customers
+      where organization_id = ${ORGANIZATION_ID}
+      order by (status = 'Active') desc, name
     `,
   ]);
 
@@ -194,6 +200,7 @@ async function snapshot() {
       status: row.status, dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
       onLedger: Boolean(row.journal_entry_id),
     })),
+    customers: customerRows.map((row: any) => ({ id: row.id, name: row.name })),
   };
 }
 
@@ -707,6 +714,81 @@ export async function POST(request: NextRequest) {
 
     // ---- settlements ------------------------------------------------------
     if (resource === "settlement") {
+      // Settlements are created and edited here now: they are units times a fee
+      // plus reimbursement and incentive, with no workflow outside the money.
+      if (operation === "create" || operation === "update") {
+        const customerId = clean(data.customerId, 100);
+        const periodStart = clean(data.periodStart, 10);
+        const periodEnd = clean(data.periodEnd, 10);
+        if (!customerId) return NextResponse.json({ error: "Select a client." }, { status: 400 });
+        if (!isDate(periodStart) || !isDate(periodEnd)) return NextResponse.json({ error: "A valid period start and end are required." }, { status: 400 });
+        if (periodEnd < periodStart) return NextResponse.json({ error: "The period cannot end before it starts." }, { status: 400 });
+
+        const owned = await sql`select id from customers where id = ${customerId} and organization_id = ${ORGANIZATION_ID}`;
+        if (!owned.length) return NextResponse.json({ error: "Client was not found." }, { status: 404 });
+
+        const values = {
+          units: Math.max(0, num(data.units)),
+          feePerUnit: Math.max(0, num(data.feePerUnit)),
+          adReimbursement: Math.max(0, num(data.adReimbursement)),
+          incentive: Math.max(0, num(data.incentive)),
+          dueDate: isDate(clean(data.dueDate, 10)) ? clean(data.dueDate, 10) : null,
+          notes: clean(data.notes, 2000),
+        };
+
+        if (operation === "create") {
+          const rows = await sql`
+            insert into settlements (customer_id, period_start, period_end, units, fee_per_unit, ad_reimbursement, incentive, status, due_date, notes)
+            values (${customerId}, ${periodStart}, ${periodEnd}, ${values.units}, ${values.feePerUnit},
+                    ${values.adReimbursement}, ${values.incentive}, 'Draft', ${values.dueDate}, ${values.notes})
+            returning id
+          `;
+          return NextResponse.json({ id: rows[0].id, ...(await snapshot()) }, { status: 201 });
+        }
+
+        const id = clean(data.id, 100);
+        // A posted settlement's figures are on the ledger; changing them here
+        // would leave the entry describing something that no longer exists.
+        const current = await sql`select journal_entry_id from settlements where id = ${id}`;
+        if (!current.length) return NextResponse.json({ error: "Settlement was not found." }, { status: 404 });
+        if (current[0].journal_entry_id) {
+          return NextResponse.json({ error: "This settlement is on the ledger. Void its journal entry before editing it." }, { status: 409 });
+        }
+
+        await sql`
+          update settlements set customer_id = ${customerId}, period_start = ${periodStart}, period_end = ${periodEnd},
+            units = ${values.units}, fee_per_unit = ${values.feePerUnit}, ad_reimbursement = ${values.adReimbursement},
+            incentive = ${values.incentive}, due_date = ${values.dueDate}, notes = ${values.notes}
+          where id = ${id}
+        `;
+        return NextResponse.json(await snapshot());
+      }
+
+      if (operation === "advance") {
+        const id = clean(data.id, 100);
+        const rows = await sql`
+          update settlements
+          set status = case status when 'Draft' then 'Verified' when 'Verified' then 'Invoiced' else status end
+          where id = ${id} returning id
+        `;
+        if (!rows.length) return NextResponse.json({ error: "Settlement was not found." }, { status: 404 });
+        return NextResponse.json(await snapshot());
+      }
+
+      if (operation === "mark_paid") {
+        const id = clean(data.id, 100);
+        const rows = await sql`update settlements set status = 'Paid' where id = ${id} returning id`;
+        if (!rows.length) return NextResponse.json({ error: "Settlement was not found." }, { status: 404 });
+        const outcome = await postSettlementPayment(id, {
+          createdBy: session.userId,
+          bankAccountId: clean(data.bankAccountId, 100),
+        });
+        return NextResponse.json({
+          ...(await snapshot()),
+          ...(outcome.status === "failed" ? { ledgerError: outcome.reason } : {}),
+        });
+      }
+
       if (operation === "backfill") {
         const result = await backfillSettlements({ createdBy: session.userId });
         return NextResponse.json({ ...result, ...(await snapshot()) });

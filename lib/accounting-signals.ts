@@ -242,10 +242,11 @@ export function detectStaleReceivables(
 }
 
 /** Documents holding real money that never reached the ledger. */
-export function detectUnposted({ invoices, cash, settlements }: {
+export function detectUnposted({ invoices, cash, settlements, payroll }: {
   invoices: { count: number; value: number };
   cash: { count: number; net: number };
   settlements: { count: number };
+  payroll?: { count: number; value: number };
 }): Signal[] {
   const signals: Signal[] = [];
   if (invoices.count > 0) {
@@ -262,6 +263,14 @@ export function detectUnposted({ invoices, cash, settlements }: {
       title: `${settlements.count} paid settlement${settlements.count === 1 ? "" : "s"} not on the ledger`,
       detail: "Settlement income is missing from the reports until these are posted.",
       amount: 0, recordIds: [],
+    });
+  }
+  if (payroll && payroll.count > 0) {
+    signals.push({
+      kind: "unposted", severity: "high",
+      title: `${payroll.count} payroll record${payroll.count === 1 ? "" : "s"} not on the ledger`,
+      detail: `${money(payroll.value)} of staff cost is missing from the profit and loss, along with the EPF, SOCSO, EIS and PCB owed on it.`,
+      amount: payroll.value, recordIds: [],
     });
   }
   if (cash.count > 0) {

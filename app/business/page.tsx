@@ -45,7 +45,6 @@ const tabs: { id: Tab; label: string; icon: any }[] = [
   { id: "crm", label: "CRM", icon: Users },
   { id: "sales", label: "Sales", icon: FileText },
 
-  { id: "settlements", label: "Settlements", icon: HandCoins },
   { id: "projects", label: "Projects", icon: BriefcaseBusiness },
   { id: "onboarding", label: "Onboarding", icon: Check }
 ];
@@ -110,6 +109,9 @@ export default function BusinessOperationsPage() {
     // once on a real ledger. Existing links and bookmarks follow it rather than
     // landing on a tab that no longer exists.
     if (requested === "finance") { window.location.replace("/accounting?tab=transactions"); return; }
+    // Settlements are purely financial — units times a fee — so they moved to
+    // the app that owns money. Existing links follow rather than dead-ending.
+    if (requested === "settlements") { window.location.replace("/accounting?tab=settlements"); return; }
     if (requested && tabs.some((item) => item.id === requested)) setTab(requested);
     void loadData();
   }, []);

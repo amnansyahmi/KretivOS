@@ -14,7 +14,6 @@ Each of these owns real records and is reached from the sidebar as its own route
 | Customer Onboarding | `/business?tab=onboarding` |
 | CRM and Pipeline | `/business?tab=crm` |
 | Sales and Document Lifecycle | `/business?tab=sales` |
-| Weekly Tuesday Settlement | `/business?tab=settlements` |
 | Projects and Delivery | `/business?tab=projects` |
 | HR and Team | `/hr` |
 | Brand DNA and Asset Library | `/brands` |
@@ -67,7 +66,6 @@ the status chip. Each stage header shows how many of its activities are ready.
 
 - Company Command Centre — live figures read from `/api/business`
 - Approval Inbox — Sales, Settlement, HR, Automation, Brand DNA, Documents and overdue Knowledge reviews in one queue
-- Chef Ammar 12-Month Financial Projection — an editable scenario model, deliberately separate from actual sales
 - Marketing Plan Builder, Storyboard Studio, AI Prompt Lab — AI generation backed by `/api/*/generate`
 - Content Planner — shared weekly plan stored in `planner_entries`
 - Technology — static system inventory plus a live database health check
@@ -383,6 +381,50 @@ false positives are what make a review get ignored.
 
 Every AI path degrades to a deterministic answer, so the review still lists the
 same items when the service is unavailable — it just describes them more plainly.
+
+### Payroll
+
+Closing payroll expenses **gross** pay, not net: the deductions are the
+employee's money the company is holding on their behalf and passing to EPF,
+SOCSO and LHDN. Posting net would understate both the wage bill and the
+liability. Employer contributions are an additional cost on top, not a deduction
+from it.
+
+What is owed is split by who it is owed to — net pay, EPF, SOCSO and EIS, PCB —
+because a single payroll liability cannot answer "how much EPF do we owe this
+month", which is the question actually asked when a remittance falls due.
+
+Paying payroll moves only net pay out of the bank. The statutory portion stays a
+liability until it is remitted, which happens on a different date and to a
+different recipient; clearing it early would claim the government had been paid
+when it had not.
+
+The payroll records themselves stay in the HR workspace, where they are
+role-gated and employee-facing. Only the money comes across, and a posting
+failure leaves the payroll unposted and retryable rather than half-recorded.
+
+### What belongs in the accounting app
+
+The test is whether something **records or reports money**. If it does, it lives
+in Accounting; if it is a client-facing workflow that merely involves money, it
+stays where it is and posts to the ledger.
+
+| Moved in | Why |
+| --- | --- |
+| Money in / out | Was the Finance tab, recording the same money twice |
+| Settlements | Units times a fee — arithmetic on money with no workflow outside it |
+| Budget & forecast | A forecast nobody can compare against actuals is a spreadsheet with opinions |
+
+| Stayed out | Why |
+| --- | --- |
+| Sales & Documents | The composer, templates and quotations are a sales workflow; invoices post from there |
+| HR payroll and claims | Confidential and employee-facing; they post rather than move |
+| Approval Inbox | A cross-cutting queue, not an accounting one |
+| CRM, Projects, Proposal Package | None of them record money |
+
+Budget and forecast is deliberately never merged into the profit and loss. It is
+what the team intends; the ledger is what happened. The variance between them is
+the only reason to keep both.
 
 ### What a complete accounting system still needs
 

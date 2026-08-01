@@ -23,6 +23,7 @@ import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
 import {
   AccountingShell, ACCOUNTING_NAV_ITEMS, type AccountingTab,
 } from "@/components/accounting-shell";
+import { BudgetForecast } from "@/components/budget-forecast";
 import { cn } from "@/lib/utils";
 
 type Tab = AccountingTab;
@@ -34,14 +35,14 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 type Snapshot = {
   accounts: any[]; vendors: any[]; bills: any[]; payments: any[]; periods: any[]; entries: any[];
-  transactions?: any[]; settlements?: any[];
+  transactions?: any[]; settlements?: any[]; customers?: any[];
   unpostedInvoices?: { count: number; value: number };
   unreconciledCash?: { count: number; net: number };
 };
 
 const EMPTY: Snapshot = {
   accounts: [], vendors: [], bills: [], payments: [], periods: [], entries: [],
-  transactions: [], settlements: [],
+  transactions: [], settlements: [], customers: [],
 };
 
 export default function AccountingPage() {
@@ -161,6 +162,7 @@ export default function AccountingPage() {
     {tab === "settlements" && <Settlements data={data} loading={loading} submit={submit} />}
     {tab === "reports" && <Reports />}
     {tab === "journal" && <Journal data={data} submit={submit} />}
+    {tab === "forecast" && <BudgetForecast />}
     {tab === "accounts" && <Accounts data={data} submit={submit} />}
   </AccountingShell>;
 }
@@ -1104,10 +1106,49 @@ function Transactions({ data, loading, submit }: any) {
   </div>;
 }
 
-/** Weekly settlements, which are Kretivco's own income under the client MoU. */
+/**
+ * Weekly settlements — Kretivco's own income under a client MoU.
+ *
+ * Created and edited here rather than in the Business workspace, because a
+ * settlement is units times a fee plus reimbursement and incentive: arithmetic
+ * on money with no workflow outside it. Splitting the editor from the ledger
+ * status meant checking one screen and correcting on another.
+ */
 function Settlements({ data, loading, submit }: any) {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<string>("");
+  const blank = { customerId: "", periodStart: "", periodEnd: "", units: "", feePerUnit: "2", adReimbursement: "0", incentive: "0", dueDate: "", notes: "" };
+  const [form, setForm] = useState<any>(blank);
+  const set = (patch: any) => setForm((current: any) => ({ ...current, ...patch }));
+
   const rows = data.settlements ?? [];
   const unposted = rows.filter((item: any) => item.status === "Paid" && !item.onLedger);
+  const preview = (Number(form.units) || 0) * (Number(form.feePerUnit) || 0)
+    + (Number(form.adReimbursement) || 0) + (Number(form.incentive) || 0);
+
+  function edit(item: any) {
+    setEditing(item.id);
+    setForm({
+      customerId: item.customerId, periodStart: item.periodStart, periodEnd: item.periodEnd,
+      units: String(item.units), feePerUnit: String(item.feePerUnit),
+      adReimbursement: String(item.adReimbursement), incentive: String(item.incentive),
+      dueDate: item.dueDate || "", notes: "",
+    });
+    setOpen(true);
+  }
+
+  async function save() {
+    const result = await submit({
+      resource: "settlement",
+      operation: editing ? "update" : "create",
+      data: {
+        ...form, id: editing,
+        units: Number(form.units), feePerUnit: Number(form.feePerUnit),
+        adReimbursement: Number(form.adReimbursement), incentive: Number(form.incentive),
+      },
+    }, editing ? "Settlement updated." : "Settlement created.");
+    if (result) { setOpen(false); setEditing(""); setForm(blank); }
+  }
 
   return <div className="space-y-5">
     {unposted.length > 0 && <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
@@ -1116,9 +1157,43 @@ function Settlements({ data, loading, submit }: any) {
       <Button size="sm" className="shrink-0" onClick={() => submit({ resource: "settlement", operation: "backfill" }, "Settlements posted.")}>Post them</Button>
     </div>}
 
-    <p className="text-xs text-muted-foreground">
-      Settlements are managed in the Business workspace. This view shows whether each one has reached the ledger.
-    </p>
+    <div className="flex justify-end">
+      <Button onClick={() => { setOpen(!open); setEditing(""); setForm(blank); }}><Plus className="h-4 w-4" />New settlement</Button>
+    </div>
+
+    {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
+      <label className="text-xs font-medium">Client
+        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+          <option value="">Select…</option>
+          {(data.customers ?? []).map((customer: any) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium">Due date
+        <input type="date" value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Period start
+        <input type="date" value={form.periodStart} onChange={(event) => set({ periodStart: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Period end
+        <input type="date" value={form.periodEnd} onChange={(event) => set({ periodEnd: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Units sold
+        <input type="number" value={form.units} onChange={(event) => set({ units: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Fee per unit
+        <input type="number" step="0.01" value={form.feePerUnit} onChange={(event) => set({ feePerUnit: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Advertising reimbursement
+        <input type="number" step="0.01" value={form.adReimbursement} onChange={(event) => set({ adReimbursement: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium">Incentive
+        <input type="number" step="0.01" value={form.incentive} onChange={(event) => set({ incentive: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <div className="md:col-span-2 flex flex-wrap items-center gap-3">
+        <Button onClick={save}>{editing ? "Save changes" : "Create settlement"}</Button>
+        <span className="text-sm text-muted-foreground">Total <span className="font-semibold text-foreground">{money(preview)}</span></span>
+      </div>
+    </CardContent></Card>}
 
     <div className="grid gap-3 lg:grid-cols-2">
       {loading && <RowSkeleton rows={4} />}
@@ -1127,17 +1202,25 @@ function Settlements({ data, loading, submit }: any) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate font-medium">{item.customerName}</div>
-            <div className="truncate text-[11px] text-muted-foreground">{item.periodStart} → {item.periodEnd} · {item.units.toLocaleString()} units</div>
+            <div className="truncate text-[11px] text-muted-foreground">{item.periodStart} → {item.periodEnd} · {item.units.toLocaleString()} units at {money(item.feePerUnit)}</div>
           </div>
           <div className="shrink-0 text-right">
             <div className="font-semibold">{money(item.total)}</div>
             <div className="text-[10px] text-muted-foreground">{item.status}</div>
           </div>
         </div>
-        {item.status === "Paid" && !item.onLedger && <Button
-          size="sm" variant="outline" className="mt-3 bg-white"
-          onClick={() => submit({ resource: "settlement", operation: "post", data: { id: item.id } }, "Settlement posted.")}
-        >Post to ledger</Button>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {["Draft", "Verified"].includes(item.status) && <Button size="sm" variant="outline" className="bg-white"
+            onClick={() => submit({ resource: "settlement", operation: "advance", data: { id: item.id } }, "Settlement advanced.")}
+          >{item.status === "Draft" ? "Verify" : "Mark invoiced"}</Button>}
+          {item.status !== "Paid" && <Button size="sm"
+            onClick={() => submit({ resource: "settlement", operation: "mark_paid", data: { id: item.id } }, "Settlement paid and posted.")}
+          >Mark paid</Button>}
+          {!item.onLedger && <Button size="sm" variant="outline" className="bg-white" onClick={() => edit(item)}>Edit</Button>}
+          {item.status === "Paid" && !item.onLedger && <Button size="sm" variant="outline" className="bg-white"
+            onClick={() => submit({ resource: "settlement", operation: "post", data: { id: item.id } }, "Settlement posted.")}
+          >Post to ledger</Button>}
+        </div>
       </CardContent></Card>)}
     </div>
   </div>;

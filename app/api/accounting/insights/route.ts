@@ -25,6 +25,7 @@ import {
 } from "@/lib/accounting-signals";
 import { unpostedInvoiceCount } from "@/lib/invoice-posting";
 import { unreconciledCashCount } from "@/lib/cash-posting";
+import { unpostedPayrollCount } from "@/lib/payroll-posting";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     const historyFrom = `${new Date(Date.UTC(Number(period.slice(0, 4)), Number(period.slice(5, 7)) - 7, 1)).toISOString().slice(0, 7)}-01`;
 
     const sql = getDatabase();
-    const [factRows, periodBalances, cumulative, receivableRows, settlementRows, invoices, cash] = await Promise.all([
+    const [factRows, periodBalances, cumulative, receivableRows, settlementRows, invoices, cash, payroll] = await Promise.all([
       sql`
         select l.id, e.entry_date, a.code, a.name as account_name, a.type,
                l.debit, l.credit, l.vendor_id, v.name as vendor_name,
@@ -81,6 +82,19 @@ export async function GET(request: NextRequest) {
       `,
       unpostedInvoiceCount(),
       unreconciledCashCount(),
+      // Payroll lives in the HR state blob, so it is read from there rather than
+      // from a table of its own.
+      (async () => {
+        try {
+          const rows = await sql`
+            select data from workspace_state
+            where organization_id = ${ORGANIZATION_ID} and scope = 'hr-operations-v1' limit 1
+          `;
+          return await unpostedPayrollCount(rows[0]?.data?.payroll ?? []);
+        } catch {
+          return { count: 0, value: 0 };
+        }
+      })(),
     ]);
 
     // Flattened to one positive amount per line, with direction implied by the
@@ -108,6 +122,7 @@ export async function GET(request: NextRequest) {
         invoices,
         cash,
         settlements: { count: Number(settlementRows[0]?.count || 0) },
+        payroll,
       }),
       ...detectDuplicates(inPeriod),
       ...detectSpikes(facts, { period }),

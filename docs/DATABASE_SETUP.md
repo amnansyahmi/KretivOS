@@ -39,10 +39,11 @@ Add `DATABASE_URL` to Vercel for Production, Preview, and Development, then rede
    | `0009_capture_and_einvoice.sql` | OCR document capture and LHDN e-Invoice |
    | `0010_invoice_posting.sql` | Customer invoices post to the ledger |
    | `0011_unify_cash_and_settlements.sql` | Cash movements and settlements post to the ledger |
+   | `0012_payroll_posting.sql` | Payroll posts to the ledger, with statutory payables |
 
 4. Open `/api/db/health` on the deployed KretivOS URL.
 
-Migrations 0006 through 0011 are additive and safe to run on an existing database.
+Migrations 0006 through 0012 are additive and safe to run on an existing database.
 Until they are applied, knowledge retrieval falls back to the previous
 entry-level search, and the Content Planner and Financial Projection show a
 banner saying their inputs are not being shared.
