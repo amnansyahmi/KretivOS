@@ -26,6 +26,7 @@ type ApprovalItem = {
   href: string;
   approveLabel: string;
   rejectLabel?: string;
+  resource?: "leave" | "claims" | "attendance_corrections";
   record: any;
 };
 
@@ -102,10 +103,32 @@ export default function ApprovalInboxPage() {
         if (request.status !== "Pending") continue;
         const employee = hr.employees?.find((item: any) => item.id === request.employeeId);
         next.push({
-          id: `hr:${request.id}`, recordId: request.id, kind: "hr", source: "HR",
+          id: `hr-leave:${request.id}`, recordId: request.id, kind: "hr", source: "HR · Leave", resource: "leave",
           title: `${request.type} request`, context: employee?.name || "Team member",
           reference: `${dateLabel(request.startDate)} → ${dateLabel(request.endDate)}`, value: `${request.days} day${request.days === 1 ? "" : "s"}`,
           status: request.status, createdAt: request.updatedAt || request.createdAt, href: "/hr?section=leave", approveLabel: "Approve", rejectLabel: "Reject", record: request,
+        });
+      }
+
+      for (const claim of (["hr_admin", "manager"].includes(hr.session?.role) ? hr.claims : []) || []) {
+        if (claim.status !== "Pending") continue;
+        const employee = hr.employees?.find((item: any) => item.id === claim.employeeId);
+        next.push({
+          id: `hr-claim:${claim.id}`, recordId: claim.id, kind: "hr", source: "HR · Claims", resource: "claims",
+          title: `${claim.category || "Expense"} claim`, context: employee?.name || "Team member",
+          reference: dateLabel(claim.claimDate), value: money(claim.amount), status: claim.status,
+          createdAt: claim.updatedAt || claim.createdAt, href: "/hr?section=claims", approveLabel: "Approve", rejectLabel: "Reject", record: claim,
+        });
+      }
+
+      for (const correction of (["hr_admin", "manager"].includes(hr.session?.role) ? hr.attendanceCorrections : []) || []) {
+        if (correction.status !== "Pending") continue;
+        const employee = hr.employees?.find((item: any) => item.id === correction.employeeId);
+        next.push({
+          id: `hr-attendance:${correction.id}`, recordId: correction.id, kind: "hr", source: "HR · Attendance", resource: "attendance_corrections",
+          title: "Attendance correction", context: employee?.name || "Team member",
+          reference: dateLabel(correction.date), value: [correction.requestedCheckIn, correction.requestedCheckOut].filter(Boolean).join(" → ") || "Review time",
+          status: correction.status, createdAt: correction.updatedAt || correction.createdAt, href: "/hr?section=attendance", approveLabel: "Approve", rejectLabel: "Reject", record: correction,
         });
       }
 
@@ -177,7 +200,7 @@ export default function ApprovalInboxPage() {
       } else if (item.kind === "settlement") {
         await jsonRequest("/api/business", { method: "POST", body: JSON.stringify({ operation: "action", action: "advance-settlement", id: item.recordId }) });
       } else if (item.kind === "hr") {
-        await jsonRequest("/api/hr", { method: "POST", body: JSON.stringify({ operation: "action", resource: "leave", id: item.recordId, action: decision === "Approved" ? "approve" : "reject" }) });
+        await jsonRequest("/api/hr", { method: "POST", body: JSON.stringify({ operation: "action", resource: item.resource || "leave", id: item.recordId, action: decision === "Approved" ? "approve" : "reject" }) });
       } else if (item.kind === "automation") {
         await jsonRequest("/api/automations", { method: "POST", body: JSON.stringify({ operation: "resolve", approvalId: item.recordId, decision }) });
       } else if (item.kind === "brand") {
@@ -203,7 +226,7 @@ export default function ApprovalInboxPage() {
     <WorkspacePage
       eyebrow="Central decision queue"
       title="Approval Inbox"
-      description="Review commercial documents, settlements, HR leave, automation actions, Brand DNA, generated documents and stale knowledge from one shared queue."
+      description="Review commercial documents, settlements, HR leave, claims and attendance, automation actions, Brand DNA, generated documents and stale knowledge from one shared queue."
       actions={<Button variant="outline" className="bg-white" onClick={() => void load()} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Refresh</Button>}
     >
       {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}

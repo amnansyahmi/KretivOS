@@ -16,6 +16,8 @@ function href(entityType: string) {
     hr_attendance_correction: "/hr?section=attendance",
     hr_payroll: "/hr?section=payslips",
     hr_lifecycle: "/hr?section=lifecycle",
+    hr_announcement: "/hr?section=team",
+    hr_event: "/hr?section=team",
     employee: "/hr?section=people",
   } as Record<string, string>)[entityType] || "/hr";
 }
@@ -41,9 +43,9 @@ export async function GET() {
     const sql = getDatabase();
     let rows: any[];
     if (["hr_admin", "manager"].includes(session.role)) {
-      rows = await sql`select * from notifications where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status <> 'Archived' order by created_at desc limit 100`;
+      rows = await sql`select * from notifications where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status <> 'Archived' and (user_id = ${session.userId} or user_id is null) order by created_at desc limit 100`;
     } else if (session.role === "finance") {
-      rows = await sql`select * from notifications where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status <> 'Archived' and (user_id = ${session.userId} or entity_type in ('hr_claim', 'hr_payroll')) order by created_at desc limit 100`;
+      rows = await sql`select * from notifications where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status <> 'Archived' and (user_id = ${session.userId} or (user_id is null and entity_type in ('hr_claim', 'hr_payroll'))) order by created_at desc limit 100`;
     } else {
       rows = await sql`select * from notifications where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status <> 'Archived' and user_id = ${session.userId} order by created_at desc limit 100`;
     }
@@ -64,13 +66,13 @@ export async function POST(request: NextRequest) {
     const canManageAll = ["hr_admin", "manager"].includes(session.role);
 
     if (operation === "mark_read" && id) {
-      if (canManageAll) await sql`update notifications set status = 'Read', read_at = now() where id = ${id} and organization_id = ${ORGANIZATION_ID} and type = 'hr'`;
+      if (canManageAll) await sql`update notifications set status = 'Read', read_at = now() where id = ${id} and organization_id = ${ORGANIZATION_ID} and type = 'hr' and (user_id = ${session.userId} or user_id is null)`;
       else await sql`update notifications set status = 'Read', read_at = now() where id = ${id} and organization_id = ${ORGANIZATION_ID} and type = 'hr' and user_id = ${session.userId}`;
     } else if (operation === "mark_all_read") {
-      if (canManageAll) await sql`update notifications set status = 'Read', read_at = now() where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status = 'Unread'`;
+      if (canManageAll) await sql`update notifications set status = 'Read', read_at = now() where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status = 'Unread' and (user_id = ${session.userId} or user_id is null)`;
       else await sql`update notifications set status = 'Read', read_at = now() where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status = 'Unread' and user_id = ${session.userId}`;
     } else if (operation === "archive_read") {
-      if (canManageAll) await sql`update notifications set status = 'Archived' where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status = 'Read'`;
+      if (canManageAll) await sql`update notifications set status = 'Archived' where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status = 'Read' and (user_id = ${session.userId} or user_id is null)`;
       else await sql`update notifications set status = 'Archived' where organization_id = ${ORGANIZATION_ID} and type = 'hr' and status = 'Read' and user_id = ${session.userId}`;
     } else throw new Error("Unsupported notification operation.");
 

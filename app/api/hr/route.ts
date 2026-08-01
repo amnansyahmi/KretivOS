@@ -46,6 +46,8 @@ const defaultOperations = {
   claims: [] as any[],
   payroll: [] as any[],
   lifecycle: [] as any[],
+  announcements: [] as any[],
+  events: [] as any[],
   settings: {
     departments: ["Leadership", "Marketing", "Creative", "Technology", "Finance", "Operations"],
     leaveTypes: ["Annual Leave", "Medical Leave", "Emergency Leave", "Unpaid Leave", "Replacement Leave"],
@@ -91,6 +93,18 @@ function mapEmployee(row: any) {
     confirmationDate: clean(metadata.confirmationDate),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function directoryEmployee(employee: ReturnType<typeof mapEmployee>) {
+  return {
+    id: employee.id,
+    name: employee.name,
+    title: employee.title,
+    department: employee.department,
+    managerId: employee.managerId,
+    status: employee.status,
+    workMode: employee.workMode,
   };
 }
 
@@ -151,6 +165,14 @@ async function audit(action: string, entityType: string, entityId: string | null
 async function notify(title: string, body: string, entityType: string, entityId: string, userId?: string) {
   try {
     const sql = getDatabase();
+    if (userId === "*") {
+      await sql`
+        insert into notifications (organization_id, user_id, title, body, type, status, entity_type, entity_id)
+        select ${ORGANIZATION_ID}, id, ${title}, ${body}, 'hr', 'Unread', ${entityType}, ${entityId}
+        from users where organization_id = ${ORGANIZATION_ID} and status = 'active'
+      `;
+      return;
+    }
     await sql`
       insert into notifications (organization_id, user_id, title, body, type, status, entity_type, entity_id)
       values (${ORGANIZATION_ID}, ${userId || null}, ${title}, ${body}, 'hr', 'Unread', ${entityType}, ${entityId})
@@ -226,6 +248,9 @@ function deferredEffects() {
 
 function scopedSnapshot(value: Record<string, any>, session: HRSession) {
   const own = (items: any[]) => items.filter((item) => item.employeeId === session.userId);
+  const currentDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const publicAnnouncements = array(value.announcements).filter((item: any) => item.status === "Published" && (!clean(item.publishAt) || clean(item.publishAt).slice(0, 10) <= currentDate) && (!clean(item.expiresAt) || clean(item.expiresAt).slice(0, 10) >= currentDate));
+  const publicEvents = array(value.events).filter((item: any) => item.status === "Scheduled");
   if (session.role === "hr_admin") return { ...value, session: publicSession(session) };
   if (session.role === "finance") return {
     ...value,
@@ -237,6 +262,8 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
     documents: array(value.documents).filter((item: any) => !item.employeeId || item.employeeId === session.userId),
     lifecycle: own(array(value.lifecycle)),
     attendanceCorrections: own(array(value.attendanceCorrections)),
+    announcements: publicAnnouncements,
+    events: publicEvents,
     session: publicSession(session),
   };
   if (session.role === "manager") return {
@@ -257,6 +284,8 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
     claims: own(array(value.claims)),
     payroll: own(array(value.payroll)),
     lifecycle: own(array(value.lifecycle)),
+    announcements: publicAnnouncements,
+    events: publicEvents,
     settings: {
       ...object(value.settings),
       statutoryProfiles: [],
@@ -272,9 +301,11 @@ async function snapshot(session: HRSession) {
     sql`select * from users where organization_id = ${ORGANIZATION_ID} order by status asc, display_name asc`,
     loadOperations(),
   ]);
+  const employees = employeeRows.map(mapEmployee);
   return scopedSnapshot({
-    employees: employeeRows.map(mapEmployee),
     ...operations.data,
+    employees,
+    directory: employees.map(directoryEmployee),
     version: operations.version,
     syncedAt: new Date().toISOString(),
   }, session);
@@ -506,6 +537,7 @@ export async function POST(request: NextRequest) {
       const keyMap: Record<string, string> = {
         leave: "leaveRequests", attendance: "attendance", attendance_corrections: "attendanceCorrections",
         goals: "goals", learning: "learning", documents: "documents", claims: "claims", payroll: "payroll", lifecycle: "lifecycle",
+        announcements: "announcements", events: "events",
       };
       const key = keyMap[resource];
       if (!key) throw new Error("Unsupported HR resource.");
@@ -517,6 +549,7 @@ export async function POST(request: NextRequest) {
       if (operation === "create") {
         if (["documents", "attendance"].includes(resource)) requireRole(session, ["hr_admin"]);
         if (["goals", "learning", "lifecycle"].includes(resource)) requireRole(session, ["hr_admin", "manager"]);
+        if (["announcements", "events"].includes(resource)) requireRole(session, ["hr_admin", "manager"]);
         if (resource === "payroll") requireRole(session, ["hr_admin", "finance"]);
         const recordId = clean(data.id) || randomUUID();
         const employeeId = session.role === "employee" ? session.userId : clean(data.employeeId);
@@ -569,6 +602,38 @@ export async function POST(request: NextRequest) {
         } else if (resource === "documents") {
           record = { ...record, title: clean(data.title), category: clean(data.category) || "Policy", reference: clean(data.reference), expiryDate: clean(data.expiryDate), status: clean(data.status) || "Active", notes: clean(data.notes) };
           if (!record.title) throw new Error("Document title is required.");
+        } else if (resource === "announcements") {
+          const status = ["Draft", "Published", "Archived"].includes(clean(data.status)) ? clean(data.status) : "Draft";
+          record = {
+            ...record,
+            employeeId: "",
+            title: clean(data.title),
+            body: clean(data.body),
+            category: clean(data.category) || "General",
+            status,
+            publishAt: clean(data.publishAt),
+            expiresAt: clean(data.expiresAt),
+            pinned: bool(data.pinned),
+          };
+          if (!record.title || !record.body) throw new Error("Announcement title and content are required.");
+          if (record.expiresAt && record.publishAt && record.expiresAt < record.publishAt) throw new Error("Announcement expiry cannot be before its publish date.");
+          if (status === "Published") defer.notify("New HR announcement", record.title, "hr_announcement", recordId, "*");
+        } else if (resource === "events") {
+          const status = ["Scheduled", "Cancelled"].includes(clean(data.status)) ? clean(data.status) : "Scheduled";
+          record = {
+            ...record,
+            employeeId: "",
+            title: clean(data.title),
+            eventType: clean(data.eventType) || "Team event",
+            startDate: clean(data.startDate),
+            endDate: clean(data.endDate) || clean(data.startDate),
+            location: clean(data.location),
+            description: clean(data.description),
+            status,
+          };
+          if (!record.title || !record.startDate) throw new Error("Event title and start date are required.");
+          if (record.endDate < record.startDate) throw new Error("Event end date cannot be before its start date.");
+          if (status === "Scheduled") defer.notify("New team calendar event", `${record.title} · ${record.startDate}`, "hr_event", recordId, "*");
         }
         state[key] = [record, ...list];
         defer.audit(`hr.${resource}.created`, `hr_${resource}`, recordId, record, session.userId);
@@ -580,7 +645,8 @@ export async function POST(request: NextRequest) {
         if (resource === "documents") requireRole(session, ["hr_admin"]);
         if (resource === "attendance") requireRole(session, ["hr_admin"]);
         if (resource === "lifecycle" && !managers) throw new HRAuthError("Only HR Admin or Manager can update lifecycle records.", 403);
-        if (!["payroll", "documents", "attendance", "lifecycle"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
+        if (["announcements", "events"].includes(resource) && !managers) throw new HRAuthError("Only HR Admin or Manager can update the Team Hub.", 403);
+        if (!["payroll", "documents", "attendance", "lifecycle", "announcements", "events"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
         const now = new Date().toISOString();
         let updated: any;
         if (resource === "payroll") updated = { ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now };
@@ -595,6 +661,19 @@ export async function POST(request: NextRequest) {
         else if (resource === "attendance_corrections") updated = { ...existing, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), id, updatedAt: now };
         else if (resource === "lifecycle") updated = { ...existing, type: clean(data.type) || existing.type, title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || existing.status, notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label), id, updatedAt: now };
         else if (resource === "documents") updated = { ...existing, title: clean(data.title), category: clean(data.category) || existing.category, employeeId: clean(data.employeeId), reference: clean(data.reference), expiryDate: clean(data.expiryDate), status: clean(data.status) || existing.status, notes: clean(data.notes), assetId: clean(data.assetId), id, updatedAt: now };
+        else if (resource === "announcements") {
+          const status = ["Draft", "Published", "Archived"].includes(clean(data.status)) ? clean(data.status) : existing.status;
+          updated = { ...existing, title: clean(data.title), body: clean(data.body), category: clean(data.category) || "General", status, publishAt: clean(data.publishAt), expiresAt: clean(data.expiresAt), pinned: bool(data.pinned), id, employeeId: "", updatedAt: now };
+          if (!updated.title || !updated.body) throw new Error("Announcement title and content are required.");
+          if (updated.expiresAt && updated.publishAt && updated.expiresAt < updated.publishAt) throw new Error("Announcement expiry cannot be before its publish date.");
+          if (status === "Published" && existing.status !== "Published") defer.notify("New HR announcement", updated.title, "hr_announcement", id, "*");
+        } else if (resource === "events") {
+          const status = ["Scheduled", "Cancelled"].includes(clean(data.status)) ? clean(data.status) : existing.status;
+          updated = { ...existing, title: clean(data.title), eventType: clean(data.eventType) || "Team event", startDate: clean(data.startDate), endDate: clean(data.endDate) || clean(data.startDate), location: clean(data.location), description: clean(data.description), status, id, employeeId: "", updatedAt: now };
+          if (!updated.title || !updated.startDate) throw new Error("Event title and start date are required.");
+          if (updated.endDate < updated.startDate) throw new Error("Event end date cannot be before its start date.");
+          if (status === "Scheduled" && existing.status !== "Scheduled") defer.notify("New team calendar event", `${updated.title} · ${updated.startDate}`, "hr_event", id, "*");
+        }
         else updated = { ...existing, ...data, id, employeeId: existing.employeeId, updatedAt: now };
         if (resource === "leave" && ["Annual Leave", "Medical Leave"].includes(updated.type)) {
           const employeeRows = await sql`select * from users where id = ${existing.employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
@@ -621,7 +700,7 @@ export async function POST(request: NextRequest) {
       } else if (operation === "delete") {
         if (!existing) throw new Error("HR record was not found.");
         const ownerDraft = owns(existing, session) && ["leave", "claims", "attendance_corrections"].includes(resource) && ["Pending", "Rejected"].includes(existing.status);
-        const managerOwnedResource = session.role === "manager" && ["goals", "learning", "lifecycle"].includes(resource);
+        const managerOwnedResource = session.role === "manager" && ["goals", "learning", "lifecycle", "announcements", "events"].includes(resource);
         if (session.role !== "hr_admin" && !ownerDraft && !managerOwnedResource) throw new HRAuthError("You cannot delete this HR record.", 403);
         state[key] = list.filter((item: any) => item.id !== id);
         defer.audit(`hr.${resource}.deleted`, `hr_${resource}`, id, undefined, session.userId);

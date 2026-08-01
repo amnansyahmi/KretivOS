@@ -16,6 +16,7 @@ import {
   HandCoins,
   LayoutDashboard,
   LogOut,
+  MessagesSquare,
   Menu,
   ReceiptText,
   Settings2,
@@ -31,7 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export type HRMSRole = "hr_admin" | "manager" | "employee" | "finance";
-export type HRMSTab = "self" | "overview" | "people" | "attendance" | "leave" | "onboarding" | "lifecycle" | "goals" | "learning" | "claims" | "payslips" | "documents" | "settings";
+export type HRMSTab = "self" | "overview" | "team" | "people" | "attendance" | "leave" | "onboarding" | "lifecycle" | "goals" | "learning" | "claims" | "payslips" | "documents" | "settings";
 export type HRMSSession = {
   userId: string;
   name: string;
@@ -55,6 +56,7 @@ export type HRMSNavigationItem = {
 export const HRMS_NAV_ITEMS: HRMSNavigationItem[] = [
   { id: "self", label: "My HR", description: "Profile and personal requests", group: "Workspace", icon: UserCheck, href: "/hr?section=self" },
   { id: "overview", label: "Dashboard", description: "People operations overview", group: "Workspace", icon: LayoutDashboard, href: "/hr?section=overview" },
+  { id: "team", label: "Team Hub", description: "News, calendar and organisation", group: "Workspace", icon: MessagesSquare, href: "/hr?section=team" },
   { id: "people", label: "People", description: "Directory and employee profiles", group: "Workforce", icon: Users, href: "/hr?section=people" },
   { id: "attendance", label: "Attendance", description: "Clock-in and work records", group: "Workforce", icon: Clock3, href: "/hr?section=attendance" },
   { id: "leave", label: "Leave", description: "Balances, requests and approvals", group: "Workforce", icon: CalendarCheck, href: "/hr?section=leave" },
@@ -74,9 +76,9 @@ export function getPermittedHRMSNavigation(session: HRMSSession) {
 
   const permitted: Record<HRMSRole, HRMSTab[]> = {
     hr_admin: HRMS_NAV_ITEMS.map((item) => item.id),
-    manager: ["self", "overview", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
-    finance: ["self", "overview", "people", "claims", "payslips", "documents"],
-    employee: ["self", "attendance", "leave", "goals", "learning", "claims", "payslips", "documents"],
+    manager: ["self", "overview", "team", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
+    finance: ["self", "overview", "team", "people", "claims", "payslips", "documents"],
+    employee: ["self", "team", "attendance", "leave", "goals", "learning", "claims", "payslips", "documents"],
   };
 
   return HRMS_NAV_ITEMS.filter((item) => permitted[session.role].includes(item.id));
