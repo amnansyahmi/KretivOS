@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { isTextField } from "@/components/ui/textarea";
 import { DateInput } from "@/components/date-input";
 import { AIWritingButton } from "@/components/ai-writing-button";
 import { WorkspacePage } from "@/components/workspace-page";
@@ -406,7 +407,7 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
 function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
   const control = isValidElement<{ value?: unknown; onChange?: (event: any) => void }>(children) ? children : null;
   const value = typeof control?.props.value === "string" ? control.props.value : "";
-  const canImprove = control?.type === "textarea" && typeof control.props.onChange === "function";
+  const canImprove = control !== null && isTextField(control.type) && typeof control.props.onChange === "function";
   return <div className={cn("block text-sm font-medium", wide && "sm:col-span-2")}><div className="mb-2 flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS business record. Preserve customer names, commercial values, dates, references and commitments." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div>{children}</div>;
 }
 

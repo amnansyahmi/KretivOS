@@ -18,6 +18,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Check, Copy, History, Loader2, Plus, RefreshCw, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { MarkdownPreview } from "@/components/markdown-preview";
 import { cn } from "@/lib/utils";
 
@@ -66,6 +68,7 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // Follow the answer as it streams, but only when the operator is already at
   // the bottom — yanking the view while they are reading an earlier reply is worse
@@ -302,13 +305,20 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
 
   const streaming = messages.some((turn) => turn.streaming);
 
-  return <div className="fixed inset-0 z-[70] flex justify-end bg-black/25">
-    <div className="flex h-full w-full max-w-[460px] flex-col bg-[#f7f4ed] shadow-2xl">
+  return <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
+    <DialogContent
+      showCloseButton={false}
+      overlayClassName="z-[70] bg-black/25"
+      // A right-hand sheet rather than a centred box: full height, flush to the
+      // edge, so the conversation keeps the same shape it had before Radix.
+      className="left-auto right-0 top-0 z-[80] flex h-full max-h-full w-full max-w-[460px] translate-x-0 translate-y-0 flex-col rounded-none border-y-0 border-r-0 bg-[#f7f4ed] p-0"
+      onOpenAutoFocus={(event) => { event.preventDefault(); composerRef.current?.focus(); }}
+    >
       <div className="flex h-[76px] shrink-0 items-center gap-3 border-b px-5">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#202c25] text-white"><Bot className="h-5 w-5" /></div>
         <div className="min-w-0">
-          <div className="font-semibold">Kretiv AI</div>
-          <div className="truncate text-[10px] text-muted-foreground">{module} · reads live company records</div>
+          <DialogTitle className="font-semibold">Kretiv AI</DialogTitle>
+          <DialogDescription className="truncate text-[10px]">{module} · reads live company records</DialogDescription>
         </div>
         <div className="ml-auto flex items-center gap-1">
           <Button variant="ghost" size="icon" onClick={openHistory} aria-label="Conversation history"><History className="h-4 w-4" /></Button>
@@ -389,11 +399,12 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
         </div>
 
         <div className="flex items-end gap-2 rounded-xl border bg-white p-2 focus-within:border-[#ba5c42]">
-          <textarea
+          <Textarea
+            ref={composerRef}
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }}
-            className="min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+            className="min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-2 focus-visible:ring-0 focus-visible:ring-offset-0"
             placeholder="Ask about the business…"
           />
           {streaming
@@ -401,6 +412,6 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
             : <Button size="icon" onClick={() => void send()} disabled={!message.trim()} aria-label="Send"><Send className="h-4 w-4" /></Button>}
         </div>
       </div>
-    </div>
-  </div>;
+    </DialogContent>
+  </Dialog>;
 }

@@ -7,6 +7,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea, isTextField } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { AIWritingButton } from "@/components/ai-writing-button";
 import {
   DocumentBrandProfile,
@@ -386,17 +389,17 @@ export default function DocumentsPage() {
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ba5c42] text-white"><Sparkles className="h-4 w-4" /></div>
               <div className="min-w-0 flex-1"><div className="text-sm font-semibold">AI document assistant</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Describe what this reusable document needs. AI creates editable Markdown and variables without inventing prices, dates or claims.</p></div>
             </div>
-            <textarea value={templateBrief} onChange={(event) => setTemplateBrief(event.target.value)} className="textarea mt-4" placeholder="Example: Bilingual social media proposal for an F&B client, including objectives, scope, timeline, deliverables and approval section." />
+            <Textarea value={templateBrief} onChange={(event) => setTemplateBrief(event.target.value)} className="mt-4" placeholder="Example: Bilingual social media proposal for an F&B client, including objectives, scope, timeline, deliverables and approval section." />
             <div className="mt-3 flex flex-wrap gap-2">
               <Button type="button" onClick={() => assistTemplate("draft_template")} disabled={aiBusy === "template" || templateBrief.trim().length < 8}>{aiBusy === "template" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Generate from brief</Button>
               <Button type="button" variant="outline" className="bg-white" onClick={() => assistTemplate("improve_template")} disabled={aiBusy === "template" || draft.content.trim().length < 8}><Sparkles className="h-4 w-4" />Improve current template</Button>
             </div>
           </div>
-          <Field label="Template name"><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="control" /></Field>
-          <Field label="Category"><input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} className="control" /></Field>
-          <Field label="Layout"><select value={draft.layout} onChange={(event) => setDraft({ ...draft, layout: event.target.value as DocumentLayout })} className="control"><option value="proposal">Kretivco Proposal</option><option value="letterhead">Kretivco Letterhead</option><option value="commercial">Commercial Document</option><option value="report">Corporate Report</option><option value="plain">Clean Document</option></select></Field>
-          <Field label="Status"><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })} className="control"><option>Active</option><option>Draft</option><option>Archived</option></select></Field>
-          <Field label="Description" wide><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="textarea" /></Field>
+          <Field label="Template name"><Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></Field>
+          <Field label="Category"><Input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} /></Field>
+          <Field label="Layout"><Select value={draft.layout} onChange={(event) => setDraft({ ...draft, layout: event.target.value as DocumentLayout })} ><option value="proposal">Kretivco Proposal</option><option value="letterhead">Kretivco Letterhead</option><option value="commercial">Commercial Document</option><option value="report">Corporate Report</option><option value="plain">Clean Document</option></Select></Field>
+          <Field label="Status"><Select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })} ><option>Active</option><option>Draft</option><option>Archived</option></Select></Field>
+          <Field label="Description" wide><Textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></Field>
           <Field label="Markdown template content" wide><textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} className="min-h-[360px] w-full resize-y rounded-xl border bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42]" /></Field>
           <div className="md:col-span-2 rounded-xl border bg-[#f7f4ed] p-4 text-xs text-muted-foreground">Detected variables: {variables(draft.content).length ? variables(draft.content).map((item) => `{{${item}}}`).join(", ") : "None"}</div>
         </div>
@@ -409,12 +412,12 @@ export default function DocumentsPage() {
         footer={<><Button variant="outline" onClick={() => setSetupOpen(false)}>Cancel</Button><Button onClick={openComposer} disabled={aiBusy === "document"}><Sparkles className="h-4 w-4" />Open composer</Button></>}
       >
         <div className="space-y-4">
-          <Field label="Customer / workspace"><select value={customerId} onChange={(event) => setCustomerId(event.target.value)} className="control"><option value="">Kretivco / Internal</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-          <Field label="Document title"><input value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} className="control" /></Field>
+          <Field label="Customer / workspace"><Select value={customerId} onChange={(event) => setCustomerId(event.target.value)} ><option value="">Kretivco / Internal</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+          <Field label="Document title"><Input value={documentTitle} onChange={(event) => setDocumentTitle(event.target.value)} /></Field>
           <div className="rounded-2xl border border-[#d9b9a9] bg-[#fff8f4] p-4">
             <div className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-[#ba5c42]" />AI-fill document</div>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">Paste the approved facts or rough brief. Unknown prices, dates, terms and reference numbers stay blank.</p>
-            <textarea value={documentBrief} onChange={(event) => setDocumentBrief(event.target.value)} className="textarea mt-3" placeholder="Example: Proposal for Chef Ammar marketplace launch. Scope includes product photography, Shopee and TikTok Shop setup, and monthly reporting. Timeline and fees are not confirmed yet." />
+            <Textarea value={documentBrief} onChange={(event) => setDocumentBrief(event.target.value)} className="mt-3" placeholder="Example: Proposal for Chef Ammar marketplace launch. Scope includes product photography, Shopee and TikTok Shop setup, and monthly reporting. Timeline and fees are not confirmed yet." />
             <Button type="button" className="mt-3" onClick={assistDocument} disabled={aiBusy === "document" || documentBrief.trim().length < 8}>{aiBusy === "document" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Fill verified fields with AI</Button>
           </div>
           <div className="rounded-xl border bg-[#f7f4ed] p-4 text-xs leading-6 text-muted-foreground">Nothing is saved or sent automatically. Review every AI-assisted field in the composer before saving to Neon or exporting.</div>
@@ -422,12 +425,6 @@ export default function DocumentsPage() {
       </Modal>}
 
       {composerOpen && templateForDocument && <DocumentComposer template={{ id: templateForDocument.id, name: templateForDocument.name, category: templateForDocument.category, content: templateForDocument.content }} variables={templateForDocument.variables} values={values} onValuesChange={setValues} documentTitle={documentTitle} onDocumentTitleChange={setDocumentTitle} generatedContent={replaceVariables(templateForDocument.content, values)} onClose={() => setComposerOpen(false)} onSave={saveGeneratedDocument} />}
-
-      <style jsx>{`
-        .control { height: 2.75rem; width: 100%; border-radius: .75rem; border: 1px solid hsl(var(--border)); background: white; padding: 0 .8rem; font-size: .875rem; outline: none; }
-        .textarea { min-height: 6.5rem; width: 100%; resize: vertical; border-radius: .75rem; border: 1px solid hsl(var(--border)); background: white; padding: .8rem; font-size: .875rem; line-height: 1.55; outline: none; }
-        .control:focus, .textarea:focus { box-shadow: 0 0 0 4px rgba(186,92,66,.1); border-color: rgba(186,92,66,.6); }
-      `}</style>
     </WorkspacePage>
   );
 }
@@ -439,6 +436,6 @@ function Modal({ title, subtitle, onClose, footer, children }: { title: string; 
 function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
   const control = isValidElement<{ value?: unknown; onChange?: (event: any) => void }>(children) ? children : null;
   const value = typeof control?.props.value === "string" ? control.props.value : "";
-  const canImprove = control?.type === "textarea" && typeof control.props.onChange === "function";
+  const canImprove = control !== null && isTextField(control.type) && typeof control.props.onChange === "function";
   return <div className={cn("block text-xs font-medium text-[#4e5a52]", wide && "md:col-span-2")}><div className="flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS reusable document template. Preserve variables in double curly braces, names, dates, figures and legal or commercial meaning." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div><div className="mt-2">{children}</div></div>;
 }

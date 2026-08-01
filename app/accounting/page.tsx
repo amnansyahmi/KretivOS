@@ -17,6 +17,7 @@ import {
   RefreshCw, ScrollText, Sparkles, Trash2, TrendingDown, TrendingUp, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/toast";
 import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
@@ -571,13 +572,13 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
 }
 
 function Field({ label, flagged, children }: { label: string; flagged?: boolean; children: React.ReactNode }) {
-  return <label className="block text-xs font-medium">
+  return <Label className="block">
     <span className={cn("mb-2 flex items-center gap-1.5", flagged && "text-[#ba5c42]")}>
       {label}
       {flagged && <AlertTriangle className="h-3 w-3" />}
     </span>
     {children}
-  </label>;
+  </Label>;
 }
 
 // ---------------------------------------------------------------------------

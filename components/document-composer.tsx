@@ -6,6 +6,7 @@ import {
   Settings2, Table2, Trash2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MarkdownPreview } from "@/components/markdown-preview";
 import {
@@ -548,7 +549,7 @@ export function DocumentComposer({
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-2 block text-xs font-medium text-[#343a35]">{label}</span>{children}</label>;
+  return <Label className="block"><span className="mb-2 block text-[#343a35]">{label}</span>{children}</Label>;
 }
 
 function TotalRow({ label, value }: { label: string; value: string }) {

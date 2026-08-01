@@ -8,7 +8,10 @@ import {
   SlidersHorizontal, Sparkles, Tag, Trash2, Upload, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { MarkdownPreview } from "@/components/markdown-preview";
 import { DateInput } from "@/components/date-input";
 import { builtInKnowledge, KNOWLEDGE_STORAGE_KEY, KnowledgeEntry, slugifyFilename } from "@/lib/knowledge";
@@ -323,16 +326,16 @@ export default function KnowledgeLibraryPage() {
                 <CardContent className="p-4 md:p-7">
                   {editing && editDraft ? <div className="space-y-5">
                     <div className="grid gap-4 md:grid-cols-2">
-                      <Field label="Title"><input value={editDraft.title} onChange={(event) => setEditDraft({ ...editDraft, title: event.target.value })} className="field-control" /></Field>
-                      <Field label="Filename"><input value={editDraft.filename} onChange={(event) => setEditDraft({ ...editDraft, filename: event.target.value })} className="field-control" /></Field>
-                      <Field label="Customer / workspace"><select value={editDraft.customerId || ""} onChange={(event) => { const customerId = event.target.value; const customer = customers.find((item) => item.id === customerId); setEditDraft({ ...editDraft, customerId: customerId || undefined, brandId: undefined, brandName: undefined, client: customer?.name || "Kretivco" }); }} className="field-control"><option value="">Kretivco / Internal</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-                      <Field label="Brand"><select value={editDraft.brandId || ""} onChange={(event) => { const brand = draftBrands.find((item) => item.id === event.target.value); setEditDraft({ ...editDraft, brandId: brand?.id, brandName: brand?.name }); }} className="field-control" disabled={!editDraft.customerId}><option value="">No specific brand</option>{draftBrands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-                      <Field label="Category"><input value={editDraft.category} onChange={(event) => setEditDraft({ ...editDraft, category: event.target.value })} className="field-control" /></Field>
-                      <Field label="Tags (comma separated)"><input value={editDraft.tags.join(", ")} onChange={(event) => setEditDraft({ ...editDraft, tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} className="field-control" /></Field>
-                      <Field label="Knowledge owner"><input value={editDraft.owner || ""} onChange={(event) => setEditDraft({ ...editDraft, owner: event.target.value })} className="field-control" placeholder="Person or team responsible" /></Field>
-                      <Field label="Source URL"><input type="url" value={editDraft.sourceUrl || ""} onChange={(event) => setEditDraft({ ...editDraft, sourceUrl: event.target.value })} className="field-control" placeholder="https://…" /></Field>
-                      <Field label="Review interval"><select value={String(editDraft.reviewIntervalDays || 90)} onChange={(event) => setEditDraft({ ...editDraft, reviewIntervalDays: Number(event.target.value) })} className="field-control"><option value="30">Every 30 days</option><option value="60">Every 60 days</option><option value="90">Every 90 days</option><option value="180">Every 180 days</option><option value="365">Every year</option></select></Field>
-                      <Field label="Next review"><DateInput value={editDraft.nextReviewAt?.slice(0, 10) || ""} onChange={(event) => setEditDraft({ ...editDraft, nextReviewAt: event.target.value })} className="field-control" /></Field>
+                      <Field label="Title"><Input value={editDraft.title} onChange={(event) => setEditDraft({ ...editDraft, title: event.target.value })} /></Field>
+                      <Field label="Filename"><Input value={editDraft.filename} onChange={(event) => setEditDraft({ ...editDraft, filename: event.target.value })} /></Field>
+                      <Field label="Customer / workspace"><Select value={editDraft.customerId || ""} onChange={(event) => { const customerId = event.target.value; const customer = customers.find((item) => item.id === customerId); setEditDraft({ ...editDraft, customerId: customerId || undefined, brandId: undefined, brandName: undefined, client: customer?.name || "Kretivco" }); }} ><option value="">Kretivco / Internal</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+                      <Field label="Brand"><Select value={editDraft.brandId || ""} onChange={(event) => { const brand = draftBrands.find((item) => item.id === event.target.value); setEditDraft({ ...editDraft, brandId: brand?.id, brandName: brand?.name }); }} disabled={!editDraft.customerId}><option value="">No specific brand</option>{draftBrands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+                      <Field label="Category"><Input value={editDraft.category} onChange={(event) => setEditDraft({ ...editDraft, category: event.target.value })} /></Field>
+                      <Field label="Tags (comma separated)"><Input value={editDraft.tags.join(", ")} onChange={(event) => setEditDraft({ ...editDraft, tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} /></Field>
+                      <Field label="Knowledge owner"><Input value={editDraft.owner || ""} onChange={(event) => setEditDraft({ ...editDraft, owner: event.target.value })} placeholder="Person or team responsible" /></Field>
+                      <Field label="Source URL"><Input type="url" value={editDraft.sourceUrl || ""} onChange={(event) => setEditDraft({ ...editDraft, sourceUrl: event.target.value })} placeholder="https://…" /></Field>
+                      <Field label="Review interval"><Select value={String(editDraft.reviewIntervalDays || 90)} onChange={(event) => setEditDraft({ ...editDraft, reviewIntervalDays: Number(event.target.value) })} ><option value="30">Every 30 days</option><option value="60">Every 60 days</option><option value="90">Every 90 days</option><option value="180">Every 180 days</option><option value="365">Every year</option></Select></Field>
+                      <Field label="Next review"><DateInput value={editDraft.nextReviewAt?.slice(0, 10) || ""} onChange={(event) => setEditDraft({ ...editDraft, nextReviewAt: event.target.value })} /></Field>
                     </div>
                     <Field label="Markdown content"><textarea value={editDraft.content} onChange={(event) => setEditDraft({ ...editDraft, content: event.target.value })} className="min-h-[52vh] w-full resize-y rounded-xl border bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10 md:min-h-[520px]" /></Field>
                     <div className="sticky bottom-3 flex justify-end gap-2 rounded-2xl border bg-white/95 p-3 shadow-lg backdrop-blur"><Button variant="outline" onClick={() => { setEditing(false); setEditDraft(null); }}>Cancel</Button><Button onClick={saveEdit} disabled={syncing}><Save className="h-4 w-4" />Save changes</Button></div>
@@ -352,8 +355,6 @@ export default function KnowledgeLibraryPage() {
       </section></div>}
 
       <style jsx>{`
-        .field-control { height: 2.75rem; width: 100%; border-radius: .75rem; border: 1px solid hsl(var(--border)); background: white; padding: 0 .8rem; font-size: .875rem; outline: none; }
-        .field-control:focus { box-shadow: 0 0 0 4px rgba(186,92,66,.1); border-color: rgba(186,92,66,.6); }
         .scrollbar-none::-webkit-scrollbar { display: none; }
         .scrollbar-none { scrollbar-width: none; }
       `}</style>
@@ -362,6 +363,6 @@ export default function KnowledgeLibraryPage() {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block text-xs font-medium text-[#4e5a52]">{label}<div className="mt-2">{children}</div></label>;
+  return <Label className="block text-[#4e5a52]">{label}<div className="mt-2">{children}</div></Label>;
 }
 
