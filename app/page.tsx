@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AIWritingButton } from "@/components/ai-writing-button";
+import { ContentWriter } from "@/components/content-writer";
 import { KretivAIChat } from "@/components/kretiv-ai-chat";
 import { openCommandPalette } from "@/components/command-palette";
 import { NotificationBell } from "@/components/notification-bell";
@@ -615,13 +616,14 @@ function MarketingPlans() {
   </div>;
 }
 
-type MarketingStudioTab = "strategy" | "content" | "storyboard" | "funnels";
+type MarketingStudioTab = "writer" | "strategy" | "content" | "storyboard" | "funnels";
 
 function MarketingStudio() {
-  const [tab, setTab] = useState<MarketingStudioTab>("strategy");
+  const [tab, setTab] = useState<MarketingStudioTab>("writer");
   const tabs: { id: MarketingStudioTab; label: string }[] = [
+    { id: "writer", label: "Content Writer" },
+    { id: "content", label: "Planner" },
     { id: "strategy", label: "Strategy" },
-    { id: "content", label: "Content" },
     { id: "storyboard", label: "Storyboard" },
     { id: "funnels", label: "Funnel builder" },
   ];
@@ -631,6 +633,7 @@ function MarketingStudio() {
     <div className="mb-6 flex flex-wrap gap-2 rounded-xl border bg-white/75 p-1.5">
       {tabs.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={cn("min-h-10 rounded-lg px-4 text-sm font-medium transition", tab === item.id ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}>{item.label}</button>)}
     </div>
+    {tab === "writer" && <ContentWriter onOpenPlanner={() => setTab("content")} />}
     {tab === "strategy" && <MarketingPlans />}
     {tab === "content" && <ContentPlanner />}
     {tab === "storyboard" && <StoryboardStudio />}
@@ -638,11 +641,12 @@ function MarketingStudio() {
   </div>;
 }
 
-type PlannerSlot = { title: string; status: string };
+type PlannerSlot = { id?: string; title: string; status: string; channel: string; notes: string; customerId: string };
 
 function ContentPlanner() {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const start = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d; }, []);
+  const { data: business } = useBusinessSnapshot();
   const [slots, setSlots] = useState<Record<string, PlannerSlot>>({});
   const [shared, setShared] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -666,7 +670,14 @@ function ContentPlanner() {
         if (cancelled) return;
         if (!ok) { setShared(false); return; }
         const next: Record<string, PlannerSlot> = {};
-        for (const entry of payload.entries || []) next[entry.date] = { title: entry.title, status: entry.status };
+        for (const entry of payload.entries || []) next[entry.date] = {
+          id: entry.id,
+          title: entry.title,
+          status: entry.status,
+          channel: entry.channel || "",
+          notes: entry.notes || "",
+          customerId: entry.customerId || "",
+        };
         setSlots(next);
       })
       .catch(() => { if (!cancelled) setShared(false); })
@@ -686,7 +697,14 @@ function ContentPlanner() {
       const response = await fetch("/api/planner", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, title: slot?.title ?? "", status: slot?.status ?? "Planned" }),
+        body: JSON.stringify({
+          date,
+          title: slot?.title ?? "",
+          status: slot?.status ?? "Planned",
+          channel: slot?.channel ?? "",
+          notes: slot?.notes ?? "",
+          customerId: slot?.customerId ?? "",
+        }),
       });
       if (!response.ok) throw new Error((await response.json()).error || "Unable to save the plan.");
     } catch (cause) {
@@ -699,7 +717,14 @@ function ContentPlanner() {
   const update = (key: string, title: string) => {
     setSlots(current => {
       const next = { ...current };
-      if (title.trim()) next[key] = { title, status: next[key]?.status || "Planned" };
+      if (title.trim()) next[key] = {
+        id: next[key]?.id,
+        title,
+        status: next[key]?.status || "Planned",
+        channel: next[key]?.channel || "",
+        notes: next[key]?.notes || "",
+        customerId: next[key]?.customerId || "",
+      };
       else delete next[key];
       clearTimeout(saveTimers.current[key]);
       saveTimers.current[key] = setTimeout(() => void persist(key, next[key] ?? null), 600);
@@ -723,15 +748,18 @@ function ContentPlanner() {
     {!loading && !shared && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
       This plan is not being shared with the team. Apply <code className="rounded bg-white/70 px-1">db/migrations/0007_shared_planner_projection.sql</code> to the Neon database.
     </div>}
-    <Card className="overflow-hidden bg-white/80"><div className="grid min-w-[900px] grid-cols-7 divide-x">{days.map((day, index) => {
+    <Card className="overflow-hidden bg-white/80"><div className="grid grid-cols-1 divide-y md:min-w-[900px] md:grid-cols-7 md:divide-x md:divide-y-0">{days.map((day, index) => {
       const date = new Date(start); date.setDate(start.getDate() + index);
       const key = localDate(date);
       const slot = slots[key];
       const isToday = key === localDate(new Date());
-      return <div key={key} className="min-h-[460px]">
+      const customerName = slot?.customerId ? business.customers.find((item) => item.id === slot.customerId)?.name : "";
+      return <div key={key} className="min-h-[170px] md:min-h-[460px]">
         <div className={cn("border-b p-3 text-xs font-semibold", isToday ? "bg-[#26342b] text-white" : "bg-[#f7f4ed]")}>{day} {date.getDate()}</div>
         <div className="space-y-2 p-3">
           <textarea value={slot?.title || ""} onChange={e => update(key, e.target.value)} placeholder="Add content…" className="min-h-24 w-full resize-none rounded-lg border bg-white p-3 text-sm outline-none focus:border-[#ba5c42]" />
+          {slot && (slot.channel || customerName) && <div className="flex flex-wrap gap-1.5">{slot.channel && <span className="rounded-full bg-[#eee9df] px-2 py-1 text-[9px] font-medium">{slot.channel}</span>}{customerName && <span className="rounded-full border bg-white px-2 py-1 text-[9px] text-muted-foreground">{customerName}</span>}</div>}
+          {slot?.notes && <div className="max-h-32 overflow-hidden whitespace-pre-wrap rounded-lg border bg-[#faf8f3] p-2.5 text-[10px] leading-5 text-muted-foreground" title={slot.notes}>{slot.notes}</div>}
           {slot && <button onClick={() => cycle(key)} className="w-full"><Badge tone={slot.status === "Approved" ? "green" : slot.status === "Review" ? "amber" : "neutral"}>{slot.status}</Badge></button>}
         </div>
       </div>;

@@ -31,7 +31,7 @@ const DESTINATIONS: Destination[] = [
   { label: "Approval Inbox", href: "/approvals", group: "Company", icon: ClipboardCheck, keywords: "approve pending" },
   { label: "Accounting", href: "/accounting", group: "Finance", icon: CircleDollarSign, keywords: "finance cash ledger money in out bills vendors reports settlements budget" },
   { label: "AI Studio", href: "/ai-studio", group: "Creative", icon: Bot, keywords: "chat ai prompts image generation" },
-  { label: "Marketing Studio", href: "/?view=Marketing%20Studio", group: "Creative", icon: Sparkles, keywords: "marketing strategy content planner storyboard funnel campaigns" },
+  { label: "Marketing Studio", href: "/?view=Marketing%20Studio", group: "Creative", icon: Sparkles, keywords: "marketing strategy content writer copywriting planner storyboard funnel campaigns" },
   { label: "Brand DNA", href: "/brands", group: "Creative", icon: Palette, keywords: "brand assets colours tone claims" },
   { label: "AI Proposal Package", href: "/document-ai", group: "Actions", icon: Sparkles, keywords: "proposal quotation generate document" },
   { label: "Prompt Lab", href: "/?view=Prompt%20Lab", group: "Actions", icon: WandSparkles, keywords: "image prompt production prompt realism" },
