@@ -92,6 +92,22 @@ export default function AccountingPage() {
     else setTab("overview");
   }, [purchasesMode]);
 
+  // Tab changes are URL state, so the browser Back button should restore the
+  // previous section instead of leaving the workspace entirely.
+  useEffect(() => {
+    const onPopState = () => {
+      const requested = new URLSearchParams(window.location.search).get("tab");
+      const items = purchasesMode ? PURCHASES_NAV_ITEMS : ACCOUNTING_NAV_ITEMS;
+      if (!purchasesMode && requested && PURCHASES_NAV_ITEMS.some((item) => item.id === requested) && !ACCOUNTING_NAV_ITEMS.some((item) => item.id === requested)) {
+        window.location.replace(`/purchases?tab=${requested}`);
+        return;
+      }
+      setTab(requested && items.some((item) => item.id === requested) ? requested as Tab : "overview");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [purchasesMode]);
+
   /** Shared writer: every mutation returns a fresh snapshot, so state stays true. */
   const submit = useCallback(async (body: any, successMessage: string) => {
     try {
@@ -137,10 +153,10 @@ export default function AccountingPage() {
 
   function navigate(next: Tab) {
     setTab(next);
-    // Keeps the address bar shareable and the browser's back button honest.
+    // Keeps the address bar shareable and makes each section a browser history step.
     const url = new URL(window.location.href);
     url.searchParams.set("tab", next);
-    window.history.replaceState({}, "", url);
+    window.history.pushState({}, "", url);
   }
 
   const actions = <Button variant="outline" className="bg-white" onClick={() => void load()} disabled={loading}>

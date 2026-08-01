@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1540" viewBox="0 0 2400 1540" role="img" aria-labelledby="title desc">
+  <title id="title">KretivOS system flow and functionality map</title>
+  <desc id="desc">A map of KretivOS workspaces, shared services, and the main Sales, HR, Creative, and Finance flows.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#18221c" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#ba5c42"/>
+    </marker>
+    <style>
+      .sans { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .title { font-size: 42px; font-weight: 700; fill: #202820; }
+      .subtitle { font-size: 20px; font-weight: 400; fill: #667067; }
+      .section { font-size: 15px; font-weight: 700; letter-spacing: 3px; fill: #ba5c42; }
+      .card-title { font-size: 25px; font-weight: 700; fill: #202820; }
+      .card-subtitle { font-size: 16px; font-weight: 500; fill: #ba5c42; }
+      .line { font-size: 17px; font-weight: 400; fill: #4e5951; }
+      .core-title { font-size: 27px; font-weight: 700; fill: #ffffff; }
+      .core-line { font-size: 18px; font-weight: 400; fill: #dfe9e1; }
+      .pill { font-size: 16px; font-weight: 600; fill: #ffffff; }
+      .flow-title { font-size: 18px; font-weight: 700; fill: #202820; }
+      .flow-line { font-size: 17px; font-weight: 500; fill: #4e5951; }
+      .footer { font-size: 15px; font-weight: 400; fill: #667067; }
+    </style>
+  </defs>
+
+  <rect width="2400" height="1540" fill="#f5f2ea"/>
+  <rect x="45" y="45" width="2310" height="1450" rx="30" fill="#fffdf9" stroke="#e1ddd3" stroke-width="2"/>
+
+  <g class="sans">
+    <text x="105" y="125" class="title">KretivOS</text>
+    <text x="105" y="165" class="subtitle">System flow &amp; functionality map · one operating system for sales, people, money, marketing and knowledge</text>
+
+    <text x="105" y="230" class="section">SHARED CORE</text>
+    <rect x="105" y="255" width="2190" height="190" rx="24" fill="#202c25" filter="url(#shadow)"/>
+    <text x="155" y="310" class="core-title">Command Centre</text>
+    <text x="155" y="345" class="core-line">Live attention queue · cross-module alerts · approval inbox · AI operations briefing</text>
+    <text x="155" y="378" class="core-line">Every workspace reads and writes to the same organisation records.</text>
+    <rect x="155" y="397" width="225" height="38" rx="19" fill="#ef7f5f"/>
+    <text x="267" y="422" text-anchor="middle" class="pill">Neon PostgreSQL</text>
+    <rect x="395" y="397" width="245" height="38" rx="19" fill="#ba5c42"/>
+    <text x="517" y="422" text-anchor="middle" class="pill">ai-nonymauz-cloud</text>
+    <text x="1845" y="315" class="core-line">Global tools</text>
+    <text x="1845" y="348" class="core-line">⌘K search · notifications · Kretiv AI</text>
+    <text x="1845" y="381" class="core-line">settings · technology health · PWA install</text>
+
+    <path d="M330 445 L330 485" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M760 445 L760 485" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M1190 445 L1190 485" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M1620 445 L1620 485" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M2050 445 L2050 485" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+
+    <text x="105" y="505" class="section">WORKSPACES</text>
+
+    <!-- Sales -->
+    <rect x="105" y="530" width="400" height="405" rx="22" fill="#ffffff" stroke="#e1ddd3" stroke-width="2" filter="url(#shadow)"/>
+    <rect x="105" y="530" width="400" height="12" rx="6" fill="#ba5c42"/>
+    <text x="135" y="585" class="card-title">Sales &amp; CRM</text>
+    <text x="135" y="615" class="card-subtitle">/sales</text>
+    <text x="135" y="660" class="line">• CRM pipeline &amp; next actions</text>
+    <text x="135" y="692" class="line">• Customers, contacts &amp; brands</text>
+    <text x="135" y="724" class="line">• Quotations and cash sales</text>
+    <text x="135" y="756" class="line">• Sales / delivery / proforma orders</text>
+    <text x="135" y="788" class="line">• Invoices, receipts, credit notes</text>
+    <text x="135" y="820" class="line">• Client onboarding &amp; delivery handoff</text>
+    <text x="135" y="852" class="line">• Settlement overview → Accounting</text>
+
+    <!-- HR -->
+    <rect x="535" y="530" width="400" height="405" rx="22" fill="#ffffff" stroke="#e1ddd3" stroke-width="2" filter="url(#shadow)"/>
+    <rect x="535" y="530" width="400" height="12" rx="6" fill="#3d8a83"/>
+    <text x="565" y="585" class="card-title">HR &amp; Team</text>
+    <text x="565" y="615" class="card-subtitle">/hr</text>
+    <text x="565" y="660" class="line">• My HR, dashboard, team hub</text>
+    <text x="565" y="692" class="line">• People &amp; employee profiles</text>
+    <text x="565" y="724" class="line">• Attendance, leave, onboarding</text>
+    <text x="565" y="756" class="line">• Lifecycle, performance, learning</text>
+    <text x="565" y="788" class="line">• Claims and payroll / payslips</text>
+    <text x="565" y="820" class="line">• HR documents and policies</text>
+    <text x="565" y="852" class="line">• Settings, roles &amp; approval requests</text>
+
+    <!-- Finance -->
+    <rect x="965" y="530" width="400" height="405" rx="22" fill="#ffffff" stroke="#e1ddd3" stroke-width="2" filter="url(#shadow)"/>
+    <rect x="965" y="530" width="400" height="12" rx="6" fill="#d59538"/>
+    <text x="995" y="585" class="card-title">Finance</text>
+    <text x="995" y="615" class="card-subtitle">/purchases · /accounting</text>
+    <text x="995" y="660" class="line">• Receipt / supplier invoice capture</text>
+    <text x="995" y="692" class="line">• Purchase invoices and vendors</text>
+    <text x="995" y="724" class="line">• Supplier payments</text>
+    <text x="995" y="756" class="line">• Cash &amp; bank transactions</text>
+    <text x="995" y="788" class="line">• Client settlements</text>
+    <text x="995" y="820" class="line">• Reports, journal, budget forecast</text>
+    <text x="995" y="852" class="line">• Chart of accounts and ledger health</text>
+
+    <!-- Creative -->
+    <rect x="1395" y="530" width="400" height="405" rx="22" fill="#ffffff" stroke="#e1ddd3" stroke-width="2" filter="url(#shadow)"/>
+    <rect x="1395" y="530" width="400" height="12" rx="6" fill="#8c6aa9"/>
+    <text x="1425" y="585" class="card-title">Creative Studio</text>
+    <text x="1425" y="615" class="card-subtitle">AI Studio · Marketing Studio</text>
+    <text x="1425" y="660" class="line">• AI chat, image and prompt lab</text>
+    <text x="1425" y="692" class="line">• Content Writer by platform / goal</text>
+    <text x="1425" y="724" class="line">• Strategy and content planner</text>
+    <text x="1425" y="756" class="line">• Storyboard and funnel builder</text>
+    <text x="1425" y="788" class="line">• Brand DNA and channel context</text>
+    <text x="1425" y="820" class="line">• AI writing improvement buttons</text>
+    <text x="1425" y="852" class="line">• Uses ai-nonymauz-cloud where enabled</text>
+
+    <!-- Operations -->
+    <rect x="1825" y="530" width="400" height="405" rx="22" fill="#ffffff" stroke="#e1ddd3" stroke-width="2" filter="url(#shadow)"/>
+    <rect x="1825" y="530" width="400" height="12" rx="6" fill="#5476a8"/>
+    <text x="1855" y="585" class="card-title">Operations</text>
+    <text x="1855" y="615" class="card-subtitle">Shared control layer</text>
+    <text x="1855" y="660" class="line">• Approval Inbox</text>
+    <text x="1855" y="692" class="line">• Knowledge library + AI answers</text>
+    <text x="1855" y="724" class="line">• Automations and workflow recipes</text>
+    <text x="1855" y="756" class="line">• Notifications and audit log</text>
+    <text x="1855" y="788" class="line">• Documents and templates</text>
+    <text x="1855" y="820" class="line">• AI proposal package</text>
+    <text x="1855" y="852" class="line">• Print settings and generated files</text>
+
+    <text x="105" y="1010" class="section">HOW WORK MOVES</text>
+
+    <!-- Flows -->
+    <rect x="105" y="1040" width="1055" height="180" rx="22" fill="#fff7f2" stroke="#edc9ba" stroke-width="2"/>
+    <text x="140" y="1090" class="flow-title">Commercial flow</text>
+    <text x="140" y="1135" class="flow-line">Lead / CRM</text>
+    <path d="M260 1127 L318 1127" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="335" y="1135" class="flow-line">Quotation</text>
+    <path d="M445 1127 L503 1127" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="520" y="1135" class="flow-line">Order / delivery</text>
+    <path d="M682 1127 L740 1127" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="757" y="1135" class="flow-line">Invoice</text>
+    <path d="M835 1127 L893 1127" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="910" y="1135" class="flow-line">Receipt</text>
+    <path d="M983 1127 L1041 1127" stroke="#ba5c42" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="140" y="1178" class="flow-line">→ posted to Accounting ledger and surfaced in Command Centre</text>
+
+    <rect x="1240" y="1040" width="985" height="180" rx="22" fill="#f1f8f6" stroke="#b9dcd5" stroke-width="2"/>
+    <text x="1275" y="1090" class="flow-title">People flow</text>
+    <text x="1275" y="1135" class="flow-line">Employee</text>
+    <path d="M1375 1127 L1433 1127" stroke="#3d8a83" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="1450" y="1135" class="flow-line">Attendance / leave</text>
+    <path d="M1630 1127 L1688 1127" stroke="#3d8a83" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="1705" y="1135" class="flow-line">Approval</text>
+    <path d="M1795 1127 L1853 1127" stroke="#3d8a83" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="1870" y="1135" class="flow-line">Payroll / HR record</text>
+    <text x="1275" y="1178" class="flow-line">→ managers act in HR; cross-team decisions appear in Approval Inbox</text>
+
+    <rect x="105" y="1260" width="1055" height="155" rx="22" fill="#f5f1fa" stroke="#d9c9e8" stroke-width="2"/>
+    <text x="140" y="1310" class="flow-title">Creative flow</text>
+    <text x="140" y="1355" class="flow-line">Brief / brand context</text>
+    <path d="M315 1347 L373 1347" stroke="#8c6aa9" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="390" y="1355" class="flow-line">AI writer / strategy</text>
+    <path d="M568 1347 L626 1347" stroke="#8c6aa9" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="643" y="1355" class="flow-line">Planner / storyboard</text>
+    <path d="M832 1347 L890 1347" stroke="#8c6aa9" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="907" y="1355" class="flow-line">Funnel / documents</text>
+
+    <rect x="1240" y="1260" width="985" height="155" rx="22" fill="#fff8e9" stroke="#ead39d" stroke-width="2"/>
+    <text x="1275" y="1310" class="flow-title">Money flow</text>
+    <text x="1275" y="1355" class="flow-line">Receipt / bill capture</text>
+    <path d="M1440 1347 L1498 1347" stroke="#d59538" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="1515" y="1355" class="flow-line">Purchases</text>
+    <path d="M1612 1347 L1670 1347" stroke="#d59538" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="1687" y="1355" class="flow-line">Ledger</text>
+    <path d="M1755 1347 L1813 1347" stroke="#d59538" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="1830" y="1355" class="flow-line">Reports / forecast</text>
+
+    <text x="105" y="1460" class="footer">Top-level menu: Command Centre · Sales · HR &amp; Team · Approval Inbox · Purchases · Accounting · AI Studio · Marketing Studio · Brand DNA · Knowledge · Automations · Documents · Settings</text>
+  </g>
+</svg>

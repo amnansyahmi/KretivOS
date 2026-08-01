@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, Bot, Building2, CircleDollarSign, ClipboardCheck, Code2, FileText,
-  Library, Loader2, Palette, Search, Settings2, ShoppingCart, Sparkles, UsersRound, WandSparkles, Workflow,
+  Library, Loader2, Palette, Search, Settings2, ShoppingCart, Sparkles, UsersRound, WandSparkles, Workflow, X,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogTitle, VisuallyHidden,
@@ -157,6 +157,9 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           className="h-14 flex-1 rounded-none border-0 bg-transparent px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
         />
         {searching && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
+        <button type="button" onClick={() => onOpenChange(false)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-[#f4f1e8] hover:text-foreground" aria-label="Close search">
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <div ref={listRef} className="max-h-[52vh] overflow-y-auto p-2">

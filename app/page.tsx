@@ -7,9 +7,9 @@ import {
   ChevronRight, CircleDollarSign, Clapperboard, ClipboardCheck, Cloud, Code2,
   Calculator, Database, FileText, Film, GitBranch,
   HandCoins, LayoutDashboard, Library, Megaphone, Menu, MessageSquareText,
-  MonitorSmartphone, MoreHorizontal, Palette, PanelLeftClose, PanelLeftOpen,
+  MonitorSmartphone, Palette, PanelLeftClose, PanelLeftOpen,
   Plus, Presentation, Receipt, RefreshCw, Search, Send, Settings2, ShoppingCart,
-  Sparkles, Target, TrendingUp, UsersRound, WandSparkles, Workflow, X
+  Sparkles, TrendingUp, UsersRound, WandSparkles, Workflow, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -193,10 +193,10 @@ export default function Home() {
         </div>)}
       </div>
       <div className="z-10 flex h-20 w-full shrink-0 items-center border-t border-white/10 bg-[#202c25] px-3">
-        <button className={cn("flex w-full items-center rounded-lg p-2 hover:bg-white/5", collapsed ? "justify-center" : "gap-3")}>
+        <div className={cn("flex w-full items-center rounded-lg p-2", collapsed ? "justify-center" : "gap-3")}>
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ef7f5f] text-xs font-semibold">KT</div>
-          {!collapsed && <><div className="min-w-0 text-left"><div className="truncate text-xs font-medium">Kretivco Team</div><div className="text-[10px] text-white/40">Shared internal workspace</div></div><MoreHorizontal className="ml-auto h-4 w-4" /></>}
-        </button>
+          {!collapsed && <div className="min-w-0 text-left"><div className="truncate text-xs font-medium">Kretivco Team</div><div className="text-[10px] text-white/40">Shared internal workspace</div></div>}
+        </div>
       </div>
     </aside>
 
@@ -617,7 +617,7 @@ function MarketingPlans() {
   </div>;
 }
 
-type MarketingStudioTab = "writer" | "strategy" | "content" | "storyboard" | "funnels";
+type MarketingStudioTab = "writer" | "strategy" | "content" | "storyboard";
 
 function MarketingStudio() {
   const [tab, setTab] = useState<MarketingStudioTab>("writer");
@@ -626,11 +626,10 @@ function MarketingStudio() {
     { id: "content", label: "Planner" },
     { id: "strategy", label: "Strategy" },
     { id: "storyboard", label: "Storyboard" },
-    { id: "funnels", label: "Funnel builder" },
   ];
 
   return <div>
-    <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between"><div><div className="text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42]">Creative operations</div><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Marketing Studio keeps strategy, content, storyboards and funnel handoff together without duplicating the underlying workspaces.</p></div></div>
+    <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between"><div><div className="text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42]">Creative operations</div><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Marketing Studio keeps strategy, content, storyboards and funnel handoff together without duplicating the underlying workspaces.</p></div><Button asChild variant="outline" className="w-fit bg-white"><Link href="/funnels"><Clapperboard className="h-4 w-4" />Open Funnel Builder</Link></Button></div>
     <div className="mb-6 flex flex-wrap gap-2 rounded-xl border bg-white/75 p-1.5">
       {tabs.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={cn("min-h-10 rounded-lg px-4 text-sm font-medium transition", tab === item.id ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}>{item.label}</button>)}
     </div>
@@ -638,7 +637,6 @@ function MarketingStudio() {
     {tab === "strategy" && <MarketingPlans />}
     {tab === "content" && <ContentPlanner />}
     {tab === "storyboard" && <StoryboardStudio />}
-    {tab === "funnels" && <><PageHead eyebrow="Funnel handoff" title="Funnel Builder" description="Build and track TOFU, MOFU and BOFU stages in the shared campaign funnel workspace." /><Card className="bg-white/80"><CardContent className="flex flex-col items-start gap-4 p-8"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#eee9df]"><Target className="h-5 w-5 text-[#ba5c42]" /></div><p className="max-w-xl text-sm leading-relaxed text-muted-foreground">The funnel stays a dedicated record view so Marketing Studio remains focused on planning and production.</p><Button asChild><Link href="/funnels"><Target className="h-4 w-4" />Open Funnel Builder</Link></Button></CardContent></Card></>}
   </div>;
 }
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Fragment, type ReactNode, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowLeft, Banknote, BriefcaseBusiness, Building2, Check, Contact, FileCheck2,
+  ArrowLeft, Banknote, BriefcaseBusiness, Building2, Check, ChevronDown, Contact, FileCheck2,
   FilePlus2, FileText, HandCoins, LayoutDashboard, Menu, Plus, Receipt,
   RotateCcw, ShoppingCart, Truck, Users, X,
 } from "lucide-react";
@@ -44,7 +44,7 @@ export const BUSINESS_NAV_ITEMS: BusinessNavItem[] = [
   { id: "invoice", label: "Sales invoices", description: "Amounts billed to customers", group: "Sales documents", icon: Receipt },
   { id: "receipt", label: "Receipts", description: "Customer payment acknowledgements", group: "Sales documents", icon: HandCoins },
   { id: "credit-note", label: "Credit notes", description: "Reductions and customer credits", group: "Sales documents", icon: RotateCcw },
-  { id: "settlements", label: "Client settlements", description: "Weekly fees, incentives and status", group: "Revenue", icon: HandCoins },
+  { id: "settlements", label: "Settlement overview", description: "Weekly fees and status · managed in Accounting", group: "Revenue", icon: HandCoins },
   { id: "onboarding", label: "Client onboarding", description: "Commercial handoff and launch checklist", group: "Handoff", icon: Check },
   { id: "projects", label: "Delivery handoff", description: "Projects created from won work", group: "Handoff", icon: BriefcaseBusiness },
 ];
@@ -67,6 +67,9 @@ function SidebarContent({
   onClose?: () => void;
 }) {
   const act = (callback: () => void) => { onClose?.(); callback(); };
+  const [salesDocumentsOpen, setSalesDocumentsOpen] = useState(false);
+  const salesDocumentActive = BUSINESS_NAV_ITEMS.some((item) => item.group === "Sales documents" && item.id === activeId);
+  const salesDocumentsExpanded = salesDocumentsOpen || salesDocumentActive;
 
   return <div className="flex h-full min-h-0 flex-col bg-[#1c2b23] text-white">
     <div className="flex h-[88px] shrink-0 items-center gap-3 border-b border-white/10 px-5">
@@ -90,12 +93,15 @@ function SidebarContent({
 
     <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4" aria-label="Sales navigation">
       {BUSINESS_NAV_ITEMS.map((item, index) => {
+        if (item.group === "Sales documents" && item.id !== "sales" && !salesDocumentsExpanded) return null;
         const Icon = item.icon;
         const showGroup = index === 0 || BUSINESS_NAV_ITEMS[index - 1].group !== item.group;
         const active = activeId === item.id;
         const badge = badges?.[item.id];
         return <Fragment key={item.id}>
-          {showGroup && <div className={cn("px-3 pb-2 text-[9px] font-semibold uppercase tracking-[.18em] text-white/35", index > 0 && "pt-5")}>{item.group}</div>}
+          {showGroup && (item.group === "Sales documents"
+            ? <button type="button" onClick={() => setSalesDocumentsOpen((value) => !value)} aria-expanded={salesDocumentsExpanded} className={cn("flex w-full items-center justify-between px-3 pb-2 text-left text-[9px] font-semibold uppercase tracking-[.18em] text-white/35", index > 0 && "pt-5")}><span>{item.group}</span><ChevronDown className={cn("h-3.5 w-3.5 transition-transform", salesDocumentsExpanded && "rotate-180")} /></button>
+            : <div className={cn("px-3 pb-2 text-[9px] font-semibold uppercase tracking-[.18em] text-white/35", index > 0 && "pt-5")}>{item.group}</div>)}
           <button
             type="button"
             onClick={() => { onClose?.(); onNavigate(item.id); }}

@@ -131,7 +131,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     if (!permittedTabs.some((item) => item.id === next)) next = permittedTabs[0]?.id || "overview";
     setTab(next);
     setQuery("");
-    router.replace(next === (session.authEnabled === false ? "overview" : "self") ? "/hr" : `/hr?section=${next}`, { scroll: false });
+    router.push(next === (session.authEnabled === false ? "overview" : "self") ? "/hr" : `/hr?section=${next}`, { scroll: false });
   }
 
   const employeeName = (id: string) => data.employees.find((item) => item.id === id)?.name || "Unknown team member";

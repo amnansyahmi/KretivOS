@@ -131,13 +131,28 @@ export default function BusinessOperationsPage() {
       .catch(() => undefined);
   }, []);
 
+  // Keep in-workspace tab changes navigable with the browser Back button.
+  useEffect(() => {
+    const onPopState = () => {
+      const requested = new URLSearchParams(window.location.search).get("tab") as BusinessTab | "finance" | null;
+      if (requested === "finance") { window.location.replace("/accounting?tab=transactions"); return; }
+      if (requested === "brands") { window.location.replace("/brands"); return; }
+      if (requested === "channels") { window.location.replace("/?view=Marketing%20Studio"); return; }
+      setTab(requested && BUSINESS_NAV_ITEMS.some((item) => item.id === requested) ? requested : "overview");
+      setQuery("");
+      setEditor(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
   function changeTab(next: BusinessTab) {
     setTab(next);
     setQuery("");
     setEditor(null);
     const url = new URL(window.location.href);
     url.searchParams.set("tab", next);
-    window.history.replaceState({}, "", url);
+    window.history.pushState({}, "", url);
   }
 
   const customerName = (id: string) => data.customers.find((item) => item.id === id)?.name || "Unknown customer";
@@ -263,7 +278,7 @@ export default function BusinessOperationsPage() {
         settlements: data.settlements.filter((item) => !["Paid", "Cancelled"].includes(item.status)).length,
         onboarding: data.onboardings.filter((item) => item.status !== "Completed").length,
       }}
-      actions={<div className="flex gap-2"><Button variant="outline" size="icon" className="bg-white" onClick={() => loadData()} disabled={loading} aria-label="Sync sales data"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button><Button onClick={() => openCreate()}><Plus className="h-4 w-4" /><span className="hidden sm:inline">{tab === "overview" ? "New quotation" : tab === "settlements" ? "Manage settlements" : `Add ${currentLabel}`}</span></Button></div>}
+      actions={<div className="flex gap-2"><Button variant="outline" size="icon" className="bg-white" onClick={() => loadData()} disabled={loading} aria-label="Sync sales data"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button><Button onClick={() => openCreate()}><Plus className="h-4 w-4" /><span className="hidden sm:inline">{tab === "overview" ? "New quotation" : tab === "settlements" ? "Open Accounting" : `Add ${currentLabel}`}</span></Button></div>}
     >
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="inline-flex items-center gap-2 text-xs text-muted-foreground"><Database className="h-4 w-4 text-emerald-600" /><span>{loading ? "Connecting to Neon…" : error ? "Database needs attention" : `Synced ${data.syncedAt ? new Date(data.syncedAt).toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" }) : "just now"}`}</span></div>
@@ -299,7 +314,7 @@ export default function BusinessOperationsPage() {
 
       {!loading && isDocumentTab(tab) && <div className="space-y-3">{data.documents.filter((item) => (!DOCUMENT_TABS[tab] || item.type === DOCUMENT_TABS[tab]) && matches(item.title, item.reference, item.type, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_120px_140px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "No reference"}</div><div className="mt-1 font-semibold">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.type} · Due {item.dueDate || "—"}</div></div><Badge value={item.status} /><div className="font-semibold">{money(item.value)}</div><div className="flex flex-wrap gap-2 md:justify-end">{item.type === "Invoice" && item.status !== "Paid" && <Button size="sm" onClick={() => performAction("mark-document-paid", item.id, "Invoice paid and receipt posted to Accounting.")}>Record payment</Button>}{PRINTABLE_TYPES.includes(item.type) && <Button variant="outline" size="icon" asChild title={`Print ${item.type.toLowerCase()}`}><Link href={`/print/${item.id}?back=${encodeURIComponent(`/sales?tab=${tab}`)}`}><Printer className="h-4 w-4" /></Link></Button>}<Button variant="outline" size="icon" onClick={() => openEdit("sales", item)}><Pencil className="h-4 w-4" /></Button><Button variant="outline" size="icon" onClick={() => deleteRecord("sales", item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}</div>}
 
-      {!loading && tab === "settlements" && <div className="space-y-3">{data.settlements.filter((item) => matches(item.reference, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_130px_150px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "Weekly settlement"}</div><div className="mt-1 font-semibold">{item.periodStart} to {item.periodEnd}</div><div className="mt-1 text-xs text-muted-foreground">{Number(item.units || 0).toLocaleString("en-MY")} units · RM{Number(item.feePerUnit || 0).toFixed(2)} per unit</div></div><Badge value={item.status} /><div className="font-semibold">{money(Number(item.units || 0) * Number(item.feePerUnit || 0) + Number(item.adReimbursement || 0) + Number(item.incentive || 0))}</div><Button variant="outline" asChild><Link href="/accounting?tab=settlements">Review</Link></Button></CardContent></Card>)}</div>}
+      {!loading && tab === "settlements" && <div className="space-y-3">{data.settlements.filter((item) => matches(item.reference, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_130px_150px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "Weekly settlement"}</div><div className="mt-1 font-semibold">{item.periodStart} to {item.periodEnd}</div><div className="mt-1 text-xs text-muted-foreground">{Number(item.units || 0).toLocaleString("en-MY")} units · RM{Number(item.feePerUnit || 0).toFixed(2)} per unit</div></div><Badge value={item.status} /><div className="font-semibold">{money(Number(item.units || 0) * Number(item.feePerUnit || 0) + Number(item.adReimbursement || 0) + Number(item.incentive || 0))}</div><Button variant="outline" asChild><Link href="/accounting?tab=settlements">Open in Accounting</Link></Button></CardContent></Card>)}</div>}
 
       {!loading && tab === "projects" && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.projects.filter((item) => matches(item.name, item.status, item.owner, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between"><div><div className="text-[10px] uppercase tracking-wider text-[#ba5c42]">{item.customerId ? customerName(item.customerId) : "Internal"}</div><h3 className="mt-1 font-semibold">{item.name}</h3></div><Badge value={item.status} /></div><div className="mt-5 h-2 overflow-hidden rounded-full bg-[#ece8de]"><div className="h-full rounded-full bg-[#ba5c42]" style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }} /></div><div className="mt-2 text-xs text-muted-foreground">{item.progress}% · Due {item.dueDate || "—"}</div><div className="mt-4 grid grid-cols-2 gap-2"><Mini label="Owner" value={item.owner || "—"} /><Mini label="Budget" value={money(item.budget)} /></div><RecordActions onEdit={() => openEdit("projects", item)} onDelete={() => deleteRecord("projects", item.id)} /></CardContent></Card>)}</div>}
 

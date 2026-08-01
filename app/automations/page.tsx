@@ -1,8 +1,9 @@
 "use client";
 
 import { isValidElement, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
-  Activity, Bell, Check, ChevronRight, CircleAlert, Clock, List, Pause,
+  Activity, Bell, ChevronRight, CircleAlert, Clock, List, Pause,
   Pencil, Play, Plus, Save, Search, ShieldCheck, Trash2, Workflow, X, Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ import {
 } from "@/lib/automation-engine";
 import { cn } from "@/lib/utils";
 
-type ViewTab = "workflows" | "approvals" | "notifications" | "runs";
+type ViewTab = "workflows" | "notifications" | "runs";
 
 type Draft = AutomationRecipe;
 const SERVER_MIGRATED_KEY = "kretivos-automations-neon-migrated";
@@ -234,16 +235,6 @@ export default function AutomationsPage() {
     }
   }
 
-  async function resolveApproval(approvalId: string, decision: "Approved" | "Rejected") {
-    try {
-      await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "resolve", approvalId, decision }) });
-      await refresh(false);
-      setNotice(decision === "Approved" ? "Automation approved and executed on the server." : "Automation rejected.");
-    } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : "Approval could not be resolved.");
-    }
-  }
-
   async function markNotificationRead(id: string) {
     await request("/api/automations", { method: "POST", body: JSON.stringify({ operation: "notification", id, read: true }) });
     await refresh(false);
@@ -278,7 +269,6 @@ export default function AutomationsPage() {
 
   const tabs: Array<{ id: ViewTab; label: string; count?: number; icon: any }> = [
     { id: "workflows", label: "Workflows", count: recipes.length, icon: Workflow },
-    { id: "approvals", label: "Approvals", count: pendingApprovals.length, icon: ShieldCheck },
     { id: "notifications", label: "Notifications", count: unreadNotifications.length, icon: Bell },
     { id: "runs", label: "Audit log", count: runs.length, icon: Activity }
   ];
@@ -288,7 +278,7 @@ export default function AutomationsPage() {
       eyebrow="Cross-module workflow engine"
       title="Automations"
       description="Neon-backed workflows run on the server, continue when the browser is closed, queue higher-risk actions for approval and keep a shared execution audit trail."
-      actions={<div className="flex flex-wrap gap-2"><Button variant="outline" className="bg-white" onClick={() => void refresh(true)} disabled={loading}><Activity className={cn("h-4 w-4", loading && "animate-pulse")} />Sync server</Button><button onClick={() => setShowList((value) => !value)} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium xl:hidden"><List className="h-4 w-4" />{showList ? "Hide list" : "Show list"}</button><Button onClick={openCreate}><Plus className="h-4 w-4" />New automation</Button></div>}
+      actions={<div className="flex flex-wrap gap-2"><Button variant="outline" className="bg-white" onClick={() => void refresh(true)} disabled={loading}><Activity className={cn("h-4 w-4", loading && "animate-pulse")} />Sync server</Button><Button variant="outline" className="bg-white" asChild><Link href="/approvals"><ShieldCheck className="h-4 w-4" />Approval Inbox{pendingApprovals.length ? ` (${pendingApprovals.length})` : ""}</Link></Button><button onClick={() => setShowList((value) => !value)} className="inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium xl:hidden"><List className="h-4 w-4" />{showList ? "Hide list" : "Show list"}</button><Button onClick={openCreate}><Plus className="h-4 w-4" />New automation</Button></div>}
     >
       {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
@@ -313,8 +303,6 @@ export default function AutomationsPage() {
           </> : <EmptyCard icon={Workflow} title="No workflow selected" description="Create a workflow to connect KretivOS records." action={<Button onClick={openCreate}><Plus className="h-4 w-4" />New automation</Button>} />}
         </div>
       </div>}
-
-      {tab === "approvals" && <div className="space-y-4">{approvals.map((approval) => <Card key={approval.id} className="bg-white/80"><CardContent className="p-5"><div className="flex flex-col justify-between gap-4 md:flex-row md:items-start"><div><div className="flex flex-wrap items-center gap-2"><span className={cn("rounded-full px-2.5 py-1 text-[10px] font-medium", statusTone(approval.status))}>{approval.status}</span><span className="text-[10px] text-muted-foreground">{triggerLabel(approval.event.trigger)}</span></div><h3 className="mt-3 text-lg font-semibold">{approval.recipeName}</h3><p className="mt-2 text-sm text-muted-foreground">Entity: {approval.event.entityId}</p><p className="mt-1 text-xs text-muted-foreground">Queued {formatDate(approval.createdAt)}</p></div>{approval.status === "Pending" && <div className="flex gap-2"><Button variant="outline" onClick={() => resolveApproval(approval.id, "Rejected")}><X className="h-4 w-4" />Reject</Button><Button onClick={() => resolveApproval(approval.id, "Approved")}><Check className="h-4 w-4" />Approve & run</Button></div>}</div></CardContent></Card>)}{!approvals.length && <EmptyCard icon={ShieldCheck} title="No approvals" description="Higher-risk automations will appear here before execution." />}</div>}
 
       {tab === "notifications" && <div className="space-y-4"><div className="flex justify-end"><Button variant="outline" onClick={clearReadNotifications} disabled={!notifications.some((item) => item.read)}>Clear read</Button></div>{notifications.map((notification) => <Card key={notification.id} className={cn("bg-white/80", !notification.read && "border-[#ba5c42]/40")}><CardContent className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center"><div className="flex gap-3"><div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", notification.type === "Warning" ? "bg-amber-50 text-amber-700" : "bg-[#eee9df] text-[#ba5c42]")}>{notification.type === "Warning" ? <CircleAlert className="h-5 w-5" /> : <Bell className="h-5 w-5" />}</div><div><h3 className="text-sm font-semibold">{notification.title}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{notification.description}</p><p className="mt-2 text-[10px] text-muted-foreground">{formatDate(notification.createdAt)}</p></div></div><div className="flex gap-2">{notification.href && <a href={notification.href} className="inline-flex h-10 items-center rounded-lg bg-[#202c25] px-4 text-sm font-medium text-white">Open record</a>}{!notification.read && <Button variant="outline" onClick={() => markNotificationRead(notification.id)}>Mark read</Button>}</div></CardContent></Card>)}{!notifications.length && <EmptyCard icon={Bell} title="No notifications" description="The daily scan will surface records that require attention." />}</div>}
 

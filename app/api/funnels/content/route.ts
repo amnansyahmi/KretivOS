@@ -90,7 +90,6 @@ async function productionContext(funnelId: string) {
       from knowledge_entries
       where organization_id = ${ORGANIZATION_ID}
         and customer_id = ${funnel.customer_id}
-        and status = 'Active'
       order by updated_at desc
       limit 8
     `,

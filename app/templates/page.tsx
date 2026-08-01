@@ -201,12 +201,23 @@ export default function DocumentsPage() {
     if (requested && DOCUMENTS_NAV_ITEMS.some((item) => item.id === requested)) setTab(requested);
     void loadData(true);
   }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const requested = new URLSearchParams(window.location.search).get("section") as DocumentsTab | null;
+      setTab(requested && DOCUMENTS_NAV_ITEMS.some((item) => item.id === requested) ? requested : "templates");
+      setQuery("");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
   function changeTab(next: DocumentsTab) {
     setTab(next);
     setQuery("");
     const url = new URL(window.location.href);
     url.searchParams.set("section", next);
-    window.history.replaceState({}, "", url);
+    window.history.pushState({}, "", url);
   }
 
   const filteredTemplates = useMemo(() => {

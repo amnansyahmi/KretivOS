@@ -10,7 +10,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell, CalendarClock, Check, Info } from "lucide-react";
+import { AlertTriangle, Bell, CalendarClock, Check, Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -129,9 +129,14 @@ export function NotificationBell() {
     {open && <div className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-white shadow-xl">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="text-sm font-semibold">Notifications</div>
-        {unread > 0 && <button onClick={markAllRead} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
-          <Check className="h-3 w-3" />Mark all read
-        </button>}
+        <div className="ml-auto flex items-center gap-2">
+          {unread > 0 && <button onClick={markAllRead} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+            <Check className="h-3 w-3" />Mark all read
+          </button>}
+          <button type="button" onClick={() => setOpen(false)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-[#f7f4ed] hover:text-foreground" aria-label="Close notifications">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="max-h-[26rem] overflow-y-auto">
