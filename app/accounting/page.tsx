@@ -12,31 +12,20 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowLeft, ArrowLeftRight, BookOpen, Building2, Camera, Check,
-  ChevronRight, CircleDollarSign, FileText, HandCoins, Landmark, ListTree, Loader2,
-  Lock, LockOpen, Plus, Receipt, RefreshCw, ScrollText, Sparkles, Trash2,
-  TrendingDown, TrendingUp, Upload, X,
+  AlertTriangle, ArrowLeft, Camera, Check, ChevronRight, CircleDollarSign,
+  FileText, HandCoins, Landmark, Loader2, Lock, LockOpen, Plus, Receipt,
+  RefreshCw, ScrollText, Sparkles, Trash2, TrendingDown, TrendingUp, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/toast";
 import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
+import {
+  AccountingShell, ACCOUNTING_NAV_ITEMS, type AccountingTab,
+} from "@/components/accounting-shell";
 import { cn } from "@/lib/utils";
 
-type Tab = "overview" | "capture" | "transactions" | "bills" | "vendors" | "payments" | "settlements" | "reports" | "journal" | "accounts";
-
-const TABS: { id: Tab; label: string; icon: any }[] = [
-  { id: "overview", label: "Overview", icon: CircleDollarSign },
-  { id: "capture", label: "Capture", icon: Camera },
-  { id: "transactions", label: "Money in/out", icon: ArrowLeftRight },
-  { id: "bills", label: "Bills", icon: Receipt },
-  { id: "vendors", label: "Vendors", icon: Building2 },
-  { id: "payments", label: "Payments", icon: Landmark },
-  { id: "settlements", label: "Settlements", icon: HandCoins },
-  { id: "reports", label: "Reports", icon: TrendingUp },
-  { id: "journal", label: "Journal", icon: BookOpen },
-  { id: "accounts", label: "Accounts", icon: ListTree },
-];
+type Tab = AccountingTab;
 
 const money = (value: number, currency = "RM") =>
   `${value < 0 ? "−" : ""}${currency}${Math.abs(Number(value) || 0).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -82,7 +71,7 @@ export default function AccountingPage() {
   // tab they name rather than always landing on the overview.
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
-    if (requested && TABS.some((item) => item.id === requested)) setTab(requested as Tab);
+    if (requested && ACCOUNTING_NAV_ITEMS.some((item) => item.id === requested)) setTab(requested as Tab);
   }, []);
 
   /** Shared writer: every mutation returns a fresh snapshot, so state stays true. */
@@ -117,65 +106,63 @@ export default function AccountingPage() {
     return { payable, overdue, paidOut, paidIn };
   }, [data]);
 
-  return <div className="min-h-screen bg-[#f4f1e8] text-[#202820]">
-    <header className="sticky top-0 z-30 border-b border-black/5 bg-[#f4f1e8]/92 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-4 md:px-7">
-        <Button variant="ghost" size="icon" asChild><Link href="/" aria-label="Back to KretivOS"><ArrowLeft className="h-4 w-4" /></Link></Button>
-        <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold tracking-tight">Accounting</h1>
-          <p className="truncate text-[11px] text-muted-foreground">Money in, money out — posted to a double-entry ledger</p>
-        </div>
-        <Button variant="outline" className="ml-auto bg-white" onClick={() => void load()} disabled={loading}>
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          <span className="hidden sm:inline">Sync</span>
-        </Button>
-      </div>
-      <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 pb-2 md:px-7">
-        {TABS.map((item) => {
-          const Icon = item.icon;
-          return <button
-            key={item.id}
-            onClick={() => setTab(item.id)}
-            className={cn(
-              "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition",
-              tab === item.id ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-white",
-            )}
-          ><Icon className="h-3.5 w-3.5" />{item.label}</button>;
-        })}
-      </div>
-    </header>
+  // What is waiting in a section the operator is not currently looking at.
+  const badges = useMemo(() => ({
+    capture: undefined as number | undefined,
+    settlements: (data.settlements ?? []).filter((item: any) => item.status === "Paid" && !item.onLedger).length || undefined,
+    bills: data.bills.filter((bill: any) => !["Paid", "Void", "Draft"].includes(bill.status) && bill.aging !== "current").length || undefined,
+  }), [data]);
 
-    <main className="mx-auto max-w-7xl p-4 md:p-7">
-      {error && <div className="mb-5 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
-        <span>{error}</span>
-        <Button variant="outline" size="sm" className="bg-white" onClick={() => void load()}><RefreshCw className="h-3.5 w-3.5" />Retry</Button>
-      </div>}
+  const current = ACCOUNTING_NAV_ITEMS.find((item) => item.id === tab) ?? ACCOUNTING_NAV_ITEMS[0];
 
-      {!loading && Number(data.unpostedInvoices?.count) > 0 && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        <span className="flex-1">
-          {data.unpostedInvoices!.count} issued invoice{data.unpostedInvoices!.count === 1 ? " is" : "s are"} not on the ledger
-          ({money(data.unpostedInvoices!.value)}). Income and receivables are understated by that amount until they are posted.
-        </span>
-        <Button
-          size="sm"
-          className="shrink-0"
-          onClick={() => submit({ resource: "invoice", operation: "backfill" }, "Invoices posted to the ledger.")}
-        >Post them now</Button>
-      </div>}
+  function navigate(next: Tab) {
+    setTab(next);
+    // Keeps the address bar shareable and the browser's back button honest.
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", next);
+    window.history.replaceState({}, "", url);
+  }
 
-      {tab === "overview" && <Overview data={data} totals={totals} loading={loading} onGo={setTab} />}
-      {tab === "capture" && <CaptureQueue accounts={data.accounts} vendors={data.vendors} onPosted={load} submit={submit} />}
-      {tab === "transactions" && <Transactions data={data} loading={loading} submit={submit} />}
-      {tab === "settlements" && <Settlements data={data} loading={loading} submit={submit} />}
-      {tab === "accounts" && <Accounts data={data} submit={submit} />}
-      {tab === "bills" && <Bills data={data} loading={loading} submit={submit} />}
-      {tab === "vendors" && <Vendors data={data} loading={loading} submit={submit} />}
-      {tab === "payments" && <Payments data={data} loading={loading} submit={submit} />}
-      {tab === "reports" && <Reports />}
-      {tab === "journal" && <Journal data={data} submit={submit} />}
-    </main>
-  </div>;
+  return <AccountingShell
+    activeId={tab}
+    title={current.label}
+    description={current.description}
+    badges={badges}
+    onNavigate={navigate}
+    actions={<Button variant="outline" className="bg-white" onClick={() => void load()} disabled={loading}>
+      <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+      <span className="hidden sm:inline">Sync</span>
+    </Button>}
+  >
+    {error && <div className="mb-5 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
+      <span>{error}</span>
+      <Button variant="outline" size="sm" className="bg-white" onClick={() => void load()}><RefreshCw className="h-3.5 w-3.5" />Retry</Button>
+    </div>}
+
+    {!loading && Number(data.unpostedInvoices?.count) > 0 && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      <span className="flex-1">
+        {data.unpostedInvoices!.count} issued invoice{data.unpostedInvoices!.count === 1 ? " is" : "s are"} not on the ledger
+        ({money(data.unpostedInvoices!.value)}). Income and receivables are understated by that amount until they are posted.
+      </span>
+      <Button
+        size="sm"
+        className="shrink-0"
+        onClick={() => submit({ resource: "invoice", operation: "backfill" }, "Invoices posted to the ledger.")}
+      >Post them now</Button>
+    </div>}
+
+    {tab === "overview" && <Overview data={data} totals={totals} loading={loading} onGo={navigate} />}
+    {tab === "capture" && <CaptureQueue accounts={data.accounts} vendors={data.vendors} onPosted={load} submit={submit} />}
+    {tab === "transactions" && <Transactions data={data} loading={loading} submit={submit} />}
+    {tab === "bills" && <Bills data={data} loading={loading} submit={submit} />}
+    {tab === "vendors" && <Vendors data={data} loading={loading} submit={submit} />}
+    {tab === "payments" && <Payments data={data} loading={loading} submit={submit} />}
+    {tab === "settlements" && <Settlements data={data} loading={loading} submit={submit} />}
+    {tab === "reports" && <Reports />}
+    {tab === "journal" && <Journal data={data} submit={submit} />}
+    {tab === "accounts" && <Accounts data={data} submit={submit} />}
+  </AccountingShell>;
 }
 
 function Stat({ label, value, note, icon: Icon, tone }: any) {

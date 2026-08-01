@@ -45,7 +45,11 @@ export function KretivOSToolsNav() {
   const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState<Position>({ x: 20, y: 680 });
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
-  const hideOnFocusedMobile = pathname.startsWith("/knowledge") || pathname.startsWith("/hr");
+  // Routes with their own left navigation: the floating button lands on top of
+  // the sidebar footer, and those shells already offer "Back to KretivOS".
+  const hideOnFocusedMobile = pathname.startsWith("/knowledge")
+    || pathname.startsWith("/hr")
+    || pathname.startsWith("/accounting");
 
   useEffect(() => {
     const fallback = { x: 18, y: window.innerHeight - 76 };

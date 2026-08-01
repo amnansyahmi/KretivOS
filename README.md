@@ -290,6 +290,18 @@ one.
 Corrections post a reversing entry rather than deleting: a posted entry is a
 historical assertion, and erasing it defeats the audit trail.
 
+### Navigation
+
+`/accounting` uses the same left-hand shell as `/hr` (`components/accounting-shell.tsx`,
+following `components/hrms-shell.tsx`) rather than a tab strip. The strip had
+grown to ten items, which scrolled horizontally on a laptop and hid whichever
+section you were not already looking at. Grouping also says something a flat row
+cannot — that Bills, Vendors and Payments are one job.
+
+Sections carry a count when work is waiting in them: overdue bills, settlements
+that have not reached the ledger. `?tab=` deep links still work and the address
+bar tracks the section, so links remain shareable.
+
 ### One app, not two
 
 Finance and Accounting covered the same ground with two incompatible models, and
