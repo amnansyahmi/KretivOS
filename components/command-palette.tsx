@@ -26,7 +26,7 @@ type Hit = { id: string; type: string; title: string; subtitle: string; href: st
 
 const DESTINATIONS: Destination[] = [
   { label: "Command Centre", href: "/", group: "Company", icon: Sparkles, keywords: "home dashboard overview" },
-  { label: "Business", href: "/business?tab=customers", group: "Company", icon: Building2, keywords: "customers clients crm sales projects onboarding" },
+  { label: "Business", href: "/business?tab=overview", group: "Company", icon: Building2, keywords: "customers clients crm sales projects onboarding" },
   { label: "HR & Team", href: "/hr", group: "Company", icon: UsersRound, keywords: "hr people leave payroll attendance" },
   { label: "Approval Inbox", href: "/approvals", group: "Company", icon: ClipboardCheck, keywords: "approve pending" },
   { label: "Accounting", href: "/accounting", group: "Finance", icon: CircleDollarSign, keywords: "finance cash ledger money in out bills vendors reports settlements budget" },

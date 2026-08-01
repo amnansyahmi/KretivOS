@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { isValidElement, useEffect, useMemo, useState } from "react";
 import {
-  Download, FileText, List, Loader2, Pencil, Plus, RefreshCw, Save, Search,
+  Download, FileText, Loader2, Pencil, Plus, RefreshCw, Save, Search,
   Sparkles, Trash2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +17,12 @@ import {
   DocumentLayout,
   DocumentSavePayload,
 } from "@/components/document-composer";
-import { WorkspacePage } from "@/components/workspace-page";
+import {
+  DOCUMENTS_NAV_ITEMS,
+  DocumentsShell,
+  type DocumentsTab,
+} from "@/components/documents-shell";
+import { PrintTemplateSettings } from "@/components/print-template-settings";
 import { cn } from "@/lib/utils";
 
 type Template = {
@@ -56,7 +60,6 @@ type GeneratedDocument = {
 };
 
 type Customer = { id: string; name: string };
-type Tab = "templates" | "documents";
 type Draft = { id: string; name: string; category: string; description: string; layout: DocumentLayout; content: string; status: string };
 
 const TEMPLATE_CACHE = "kretivos-templates-cache";
@@ -100,12 +103,11 @@ function downloadHtml(document: GeneratedDocument) {
 }
 
 export default function DocumentsPage() {
-  const [tab, setTab] = useState<Tab>("templates");
+  const [tab, setTab] = useState<DocumentsTab>("templates");
   const [templates, setTemplates] = useState<Template[]>(parseLocal(TEMPLATE_CACHE, []));
   const [documents, setDocuments] = useState<GeneratedDocument[]>(parseLocal(DOC_CACHE, []));
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [templateForDocument, setTemplateForDocument] = useState<Template | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
@@ -187,10 +189,6 @@ export default function DocumentsPage() {
       setCustomers((businessData.customers || []).map((item: any) => ({ id: item.id, name: item.name })));
       localStorage.setItem(TEMPLATE_CACHE, JSON.stringify(serverTemplates));
       localStorage.setItem(DOC_CACHE, JSON.stringify(serverDocuments));
-      setSelectedId((current) => {
-        const active = tab === "templates" ? serverTemplates : serverDocuments;
-        return active.some((item) => item.id === current) ? current : active[0]?.id || "";
-      });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load shared templates.");
       setTemplates(parseLocal(TEMPLATE_CACHE, []));
@@ -198,11 +196,18 @@ export default function DocumentsPage() {
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { loadData(true); }, []);
   useEffect(() => {
-    const active = tab === "templates" ? templates : documents;
-    if (!active.some((item) => item.id === selectedId)) setSelectedId(active[0]?.id || "");
-  }, [tab, templates, documents, selectedId]);
+    const requested = new URLSearchParams(window.location.search).get("section") as DocumentsTab | null;
+    if (requested && DOCUMENTS_NAV_ITEMS.some((item) => item.id === requested)) setTab(requested);
+    void loadData(true);
+  }, []);
+  function changeTab(next: DocumentsTab) {
+    setTab(next);
+    setQuery("");
+    const url = new URL(window.location.href);
+    url.searchParams.set("section", next);
+    window.history.replaceState({}, "", url);
+  }
 
   const filteredTemplates = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -213,9 +218,6 @@ export default function DocumentsPage() {
     return documents.filter((item) => !term || [item.title, item.customerName, item.templateName, item.reference, item.status].join(" ").toLowerCase().includes(term));
   }, [documents, query]);
 
-  const selectedTemplate = templates.find((item) => item.id === selectedId) || filteredTemplates[0];
-  const selectedDocument = documents.find((item) => item.id === selectedId) || filteredDocuments[0];
-
   async function saveTemplate() {
     if (!draft || !draft.name.trim() || !draft.content.trim()) { setError("Template name and content are required."); return; }
     setSaving(true);
@@ -224,7 +226,6 @@ export default function DocumentsPage() {
       const payload = { resource: "template", ...draft, variables: variables(draft.content) };
       const data = await jsonRequest("/api/templates", { method: draft.id ? "PATCH" : "POST", body: JSON.stringify(payload) });
       setTemplates((current) => draft.id ? current.map((item) => item.id === data.template.id ? data.template : item) : [data.template, ...current]);
-      setSelectedId(data.template.id);
       setDraft(null);
       setNotice(draft.id ? "Template updated in Neon." : "Template created in Neon.");
     } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Unable to save template."); }
@@ -367,16 +368,23 @@ export default function DocumentsPage() {
   }
 
   return (
-    <WorkspacePage eyebrow="AI-assisted document workspace" title="Documents" description="Draft reusable templates with AI, fill document fields from a brief, compose branded files and keep every final record in Neon." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" className="bg-white" onClick={() => loadData(false)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button><Button asChild variant="outline" className="bg-white"><Link href="/document-ai"><Sparkles className="h-4 w-4" />AI proposal package</Link></Button>{tab === "templates" && <Button onClick={() => { setTemplateBrief(""); setDraft(emptyDraft()); }}><Plus className="h-4 w-4" />New template</Button>}</div>}>
+    <DocumentsShell
+      activeId={tab}
+      title={(DOCUMENTS_NAV_ITEMS.find((item) => item.id === tab) || DOCUMENTS_NAV_ITEMS[0]).label}
+      description={(DOCUMENTS_NAV_ITEMS.find((item) => item.id === tab) || DOCUMENTS_NAV_ITEMS[0]).description}
+      documentCount={documents.length}
+      onNavigate={changeTab}
+      onNewTemplate={() => { changeTab("templates"); setTemplateBrief(""); setDraft(emptyDraft()); }}
+      actions={<div className="flex gap-2">{tab !== "print" && <Button variant="outline" size="icon" className="bg-white" onClick={() => loadData(false)} disabled={loading} aria-label="Refresh documents"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>}{tab === "templates" && <Button onClick={() => { setTemplateBrief(""); setDraft(emptyDraft()); }}><Plus className="h-4 w-4" /><span className="hidden sm:inline">New template</span></Button>}</div>}
+    >
       {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
 
-      <div className="mb-5 flex rounded-xl border bg-white/80 p-1.5"><button onClick={() => { setTab("templates"); setQuery(""); }} className={cn("flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium", tab === "templates" ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}><FileText className="h-4 w-4" />Templates</button><button onClick={() => { setTab("documents"); setQuery(""); }} className={cn("flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium", tab === "documents" ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}><List className="h-4 w-4" />Generated documents <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px]">{documents.length}</span></button></div>
-
-      <div className="mb-4 flex h-11 items-center gap-2 rounded-xl border bg-white px-3"><Search className="h-4 w-4 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 text-sm outline-none" placeholder={tab === "templates" ? "Search templates..." : "Search generated documents..."} /></div>
+      {tab !== "print" && <div className="mb-4 flex h-11 items-center gap-2 rounded-xl border bg-white px-3"><Search className="h-4 w-4 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 text-sm outline-none" placeholder={tab === "templates" ? "Search templates..." : "Search generated documents..."} /></div>}
 
       {tab === "templates" ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filteredTemplates.map((template) => <Card key={template.id} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#eee9df]"><FileText className="h-5 w-5 text-[#ba5c42]" /></div><span className="rounded-full bg-[#eeeae0] px-2.5 py-1 text-[10px] text-[#5a605a]">{template.category}</span></div><h2 className="mt-5 text-lg font-semibold">{template.name}</h2><p className="mt-2 min-h-10 text-xs leading-5 text-muted-foreground">{template.description || "Reusable KretivOS document template."}</p><div className="mt-4 flex flex-wrap gap-1.5">{template.variables.slice(0, 5).map((item) => <span key={item} className="rounded-md border bg-white px-2 py-1 font-mono text-[9px] text-muted-foreground">{`{{${item}}}`}</span>)}{template.variables.length > 5 && <span className="rounded-md bg-[#f3efe7] px-2 py-1 text-[9px] text-muted-foreground">+{template.variables.length - 5}</span>}</div><div className="mt-5 grid grid-cols-[1fr_auto_auto] gap-2"><Button onClick={() => prepareDocument(template)}><Sparkles className="h-4 w-4" />Create document</Button><Button variant="outline" size="icon" onClick={() => setDraft({ id: template.id, name: template.name, category: template.category, description: template.description, layout: template.layout, content: template.content, status: template.status })}><Pencil className="h-4 w-4" /></Button><Button variant="outline" size="icon" onClick={() => deleteTemplate(template)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}{!filteredTemplates.length && <Card className="bg-white/80 md:col-span-2 xl:col-span-3"><CardContent className="p-12 text-center text-sm text-muted-foreground">No templates match the search.</CardContent></Card>}</div>
-      : <div className="space-y-3">{filteredDocuments.map((document) => <Card key={document.id} className="bg-white/80"><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#eee9df]"><FileText className="h-5 w-5 text-[#ba5c42]" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{document.title}</h2><span className="rounded-full bg-[#eeeae0] px-2.5 py-1 text-[10px] text-[#5a605a]">{document.status}</span></div><div className="mt-1 text-xs text-muted-foreground">{document.customerName} · {document.templateName}{document.reference ? ` · ${document.reference}` : ""}</div><div className="mt-2 text-[10px] text-muted-foreground">Saved {new Date(document.updatedAt).toLocaleString("en-MY")}</div></div><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => reopenDocument(document)}><Pencil className="h-3.5 w-3.5" />Reopen</Button><Button variant="outline" size="sm" onClick={() => downloadHtml(document)}><Download className="h-3.5 w-3.5" />HTML</Button><Button variant="outline" size="icon" onClick={() => deleteDocument(document)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}{!filteredDocuments.length && <Card className="bg-white/80"><CardContent className="p-12 text-center"><FileText className="mx-auto h-8 w-8 text-muted-foreground" /><div className="mt-4 font-semibold">No generated documents yet</div><p className="mt-2 text-sm text-muted-foreground">Open a template and save a composed document.</p></CardContent></Card>}</div>}
+      : tab === "documents" ? <div className="space-y-3">{filteredDocuments.map((document) => <Card key={document.id} className="bg-white/80"><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#eee9df]"><FileText className="h-5 w-5 text-[#ba5c42]" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{document.title}</h2><span className="rounded-full bg-[#eeeae0] px-2.5 py-1 text-[10px] text-[#5a605a]">{document.status}</span></div><div className="mt-1 text-xs text-muted-foreground">{document.customerName} · {document.templateName}{document.reference ? ` · ${document.reference}` : ""}</div><div className="mt-2 text-[10px] text-muted-foreground">Saved {new Date(document.updatedAt).toLocaleString("en-MY")}</div></div><div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => reopenDocument(document)}><Pencil className="h-3.5 w-3.5" />Reopen</Button><Button variant="outline" size="sm" onClick={() => downloadHtml(document)}><Download className="h-3.5 w-3.5" />HTML</Button><Button variant="outline" size="icon" onClick={() => deleteDocument(document)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}{!filteredDocuments.length && <Card className="bg-white/80"><CardContent className="p-12 text-center"><FileText className="mx-auto h-8 w-8 text-muted-foreground" /><div className="mt-4 font-semibold">No generated documents yet</div><p className="mt-2 text-sm text-muted-foreground">Open a template and save a composed document.</p></CardContent></Card>}</div>
+      : <PrintTemplateSettings />}
 
       {draft && <Modal
         title={draft.id ? "Edit template" : "Create template"}
@@ -426,7 +434,7 @@ export default function DocumentsPage() {
       </Modal>}
 
       {composerOpen && templateForDocument && <DocumentComposer template={{ id: templateForDocument.id, name: templateForDocument.name, category: templateForDocument.category, content: templateForDocument.content }} variables={templateForDocument.variables} values={values} onValuesChange={setValues} documentTitle={documentTitle} onDocumentTitleChange={setDocumentTitle} generatedContent={replaceVariables(templateForDocument.content, values)} onClose={() => setComposerOpen(false)} onSave={saveGeneratedDocument} />}
-    </WorkspacePage>
+    </DocumentsShell>
   );
 }
 

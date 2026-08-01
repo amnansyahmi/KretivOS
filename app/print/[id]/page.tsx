@@ -21,7 +21,10 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
   const { id } = use(params);
   const search = useSearchParams();
   const kind = search.get("kind") === "receipt" ? "receipt" : "document";
-  const back = search.get("back") || "/business?tab=sales";
+  const requestedBack = search.get("back") || "";
+  const back = requestedBack.startsWith("/") && !requestedBack.startsWith("//")
+    ? requestedBack
+    : "/business?tab=sales";
 
   const [model, setModel] = useState<PrintModel | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -55,7 +58,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
         <Link href={back}><ArrowLeft className="h-4 w-4" />Back</Link>
       </Button>
       <div className="flex-1" />
-      <Button size="sm" onClick={() => window.print()} disabled={!model}>
+      <Button size="sm" onClick={() => window.print()} disabled={!model || Boolean(warning)}>
         <Printer className="h-4 w-4" />Print or save as PDF
       </Button>
     </div>
@@ -64,12 +67,18 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
       <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
     </div>}
 
+    {warning && <div className="kdoc-chrome mx-auto mb-5 max-w-[210mm] px-4">
+      <div className="border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+        <strong>Printing is paused.</strong> {warning}
+      </div>
+    </div>}
+
     {!model && !error && <div className="kdoc-chrome flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
       <Loader2 className="h-4 w-4 animate-spin" />Preparing the document…
     </div>}
 
     {model && <div className="kdoc-sheet mx-auto max-w-[210mm] bg-white px-[20mm] py-[18mm] shadow-soft">
-      <PrintDocument model={model} warning={warning ?? undefined} />
+      <PrintDocument model={model} />
     </div>}
   </main>;
 }

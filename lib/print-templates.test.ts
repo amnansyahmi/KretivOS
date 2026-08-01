@@ -47,6 +47,8 @@ const invoice: PrintDocument = {
   subtotal: 5900,
   deliveryAmount: 0,
   discountAmount: 0,
+  taxLabel: "SST",
+  taxAmount: 0,
   total: 5900,
 };
 
@@ -116,6 +118,14 @@ test("delivery and discount print only when they carry a value", () => {
   assert.equal(withExtras.totals[3].bold, true, "the total is the emphasised figure");
 });
 
+test("tax is printed and included in the total check", () => {
+  const taxed = { ...invoice, taxLabel: "SST (8%)", taxAmount: 456, total: 6356 };
+  const model = buildPrintModel(taxed, company, invoiceTemplate);
+  assert.deepEqual(model.totals.map((row) => row.label), ["Subtotal:", "SST (8%):", "Total (MYR):"]);
+  assert.equal(model.totals[1].value, "456.00");
+  assert.equal(checkTotals(taxed).ok, true);
+});
+
 test("a receipt has its own columns and its own totals", () => {
   const receipt = buildPrintModel(
     {
@@ -141,11 +151,29 @@ test("a receipt has its own columns and its own totals", () => {
 
 test("a receipt prints the amount received, not the invoice value", () => {
   const receipt = buildPrintModel(
-    { ...invoice, type: "Receipt", amountPaid: 1000, balanceDue: 4900, paymentMethod: "Cash" },
+    { ...invoice, type: "Receipt", items: [{ description: "Part payment", quantity: 1, unit: "", unitPrice: 1000 }], amountPaid: 1000, balanceDue: 4900, paymentMethod: "Cash" },
     company,
     { ...invoiceTemplate, documentType: "Receipt" },
   );
   assert.equal(receipt.rows[0][3], "1,000.00", "not 5,900.00");
+});
+
+test("one receipt can list allocations across several invoices", () => {
+  const receipt = buildPrintModel(
+    {
+      ...invoice,
+      type: "Receipt",
+      items: [
+        { description: "Payment for INV-001", quantity: 1, unit: "", unitPrice: 1200 },
+        { description: "Payment for INV-002", quantity: 1, unit: "", unitPrice: 800 },
+      ],
+      amountPaid: 2000,
+      paymentMethod: "Bank transfer",
+    },
+    company,
+    { ...invoiceTemplate, documentType: "Receipt" },
+  );
+  assert.deepEqual(receipt.rows.map((row) => row[3]), ["1,200.00", "800.00"]);
 });
 
 test("signatures can be turned off", () => {

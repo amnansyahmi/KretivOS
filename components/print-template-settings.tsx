@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AIWritingButton } from "@/components/ai-writing-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -143,20 +144,21 @@ export function PrintTemplateSettings() {
               onChange={(event) => setDraft({ ...draft, paymentTermsDays: Number(event.target.value) })}
             />
           </Label>
-          <Label className="block">
-            <span className="mb-2 block">Closing line</span>
-            <Input value={draft.closingLine} onChange={(event) => setDraft({ ...draft, closingLine: event.target.value })} />
-          </Label>
+          <div>
+            <div className="mb-2 flex min-h-8 items-center justify-between gap-2"><Label htmlFor="print-closing-line">Closing line</Label><AIWritingButton value={draft.closingLine} field="Closing line" context="KretivOS commercial print template. Keep the sentence concise and professional; preserve names, facts and commitments." onApply={(closingLine) => setDraft({ ...draft, closingLine })} /></div>
+            <Input id="print-closing-line" value={draft.closingLine} onChange={(event) => setDraft({ ...draft, closingLine: event.target.value })} />
+          </div>
         </div>
 
-        <Label className="block">
-          <span className="mb-2 block">Notes — one per line, numbered automatically</span>
+        <div>
+          <div className="mb-2 flex min-h-8 items-center justify-between gap-2"><Label htmlFor="print-notes">Notes — one per line, numbered automatically</Label><AIWritingButton value={notesText} field="Commercial document notes" context="KretivOS quotation, invoice or receipt notes. Preserve every {{token}} exactly, keep one note per line, preserve payment/legal meaning, and do not invent bank details, amounts, dates or terms." onApply={setNotesText} /></div>
           <Textarea
+            id="print-notes"
             value={notesText}
             onChange={(event) => setNotesText(event.target.value)}
             className="min-h-44 font-mono text-[11px] leading-5"
           />
-        </Label>
+        </div>
 
         <div className="rounded-lg border bg-[#faf8f3] p-3">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Available in notes</div>

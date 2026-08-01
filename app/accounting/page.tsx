@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, Camera, Check, ChevronRight, CircleDollarSign,
   FileText, HandCoins, Landmark, Loader2, Lock, LockOpen, Plus, Receipt,
-  RefreshCw, ScrollText, Sparkles, Trash2, TrendingDown, TrendingUp, Upload, X,
+  Printer, RefreshCw, ScrollText, Sparkles, Trash2, TrendingDown, TrendingUp, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -793,6 +793,9 @@ function Payments({ data, loading, submit }: any) {
         <div className={cn("font-semibold", payment.direction === "out" ? "text-red-600" : "text-emerald-700")}>
           {payment.direction === "out" ? "−" : "+"}{money(payment.amount)}
         </div>
+        {payment.direction === "in" && payment.customerId && <Button variant="outline" size="icon" asChild title="Print receipt">
+          <Link href={`/print/${payment.id}?kind=receipt&back=${encodeURIComponent("/accounting?tab=payments")}`}><Printer className="h-4 w-4" /></Link>
+        </Button>}
       </CardContent></Card>)}
     </div>
   </div>;

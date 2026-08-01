@@ -107,6 +107,7 @@ function document(row: any) {
     reference: row.reference ?? "",
     status: row.status,
     value: Number(row.value),
+    deliveryAmount: Number(row.delivery_amount || 0),
     issueDate: row.issue_date ?? "",
     dueDate: row.due_date ?? "",
     notes: row.notes ?? "",
@@ -346,8 +347,8 @@ async function createResource(resource: string, data: Record<string, any>) {
     }
     case "sales": {
       const rows = await sql`
-        insert into sales_documents (id, customer_id, type, title, reference, status, value, issue_date, due_date, notes)
-        values (${id}, ${text(data.customerId)}, ${text(data.type)}, ${text(data.title)}, ${nullable(data.reference)}, ${text(data.status) || "Draft"}, ${number(data.value)}, ${nullable(data.issueDate)}, ${nullable(data.dueDate)}, ${nullable(data.notes)})
+        insert into sales_documents (id, customer_id, type, title, reference, status, value, delivery_amount, issue_date, due_date, notes)
+        values (${id}, ${text(data.customerId)}, ${text(data.type)}, ${text(data.title)}, ${nullable(data.reference)}, ${text(data.status) || "Draft"}, ${number(data.value)}, ${number(data.deliveryAmount)}, ${nullable(data.issueDate)}, ${nullable(data.dueDate)}, ${nullable(data.notes)})
         returning *
       `;
       return document(rows[0]);
@@ -440,7 +441,7 @@ async function updateResource(resource: string, id: string, data: Record<string,
     }
     case "sales": {
       const rows = await sql`
-        update sales_documents set customer_id = ${text(data.customerId)}, type = ${text(data.type)}, title = ${text(data.title)}, reference = ${nullable(data.reference)}, status = ${text(data.status)}, value = ${number(data.value)}, issue_date = ${nullable(data.issueDate)}, due_date = ${nullable(data.dueDate)}, notes = ${nullable(data.notes)}
+        update sales_documents set customer_id = ${text(data.customerId)}, type = ${text(data.type)}, title = ${text(data.title)}, reference = ${nullable(data.reference)}, status = ${text(data.status)}, value = ${number(data.value)}, delivery_amount = ${number(data.deliveryAmount)}, issue_date = ${nullable(data.issueDate)}, due_date = ${nullable(data.dueDate)}, notes = ${nullable(data.notes)}
         where id = ${id} returning *
       `;
       return document(rows[0]);

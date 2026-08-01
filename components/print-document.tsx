@@ -74,11 +74,6 @@ export const PRINT_STYLES = `
   .kdoc-signature-label { font-weight: bold; margin: 0 0 14mm; }
   .kdoc-signature-line { border-top: 1px solid #000; width: 62mm; }
 
-  .kdoc-warning {
-    margin-top: 6mm; padding: 2mm 3mm;
-    border: 1px solid #b45309; color: #7c2d12; font-size: 8.5pt;
-  }
-
   @media print {
     .kdoc { max-width: none; }
     /* A long item list must not orphan the totals from the table above it. */
@@ -88,7 +83,7 @@ export const PRINT_STYLES = `
   }
 `;
 
-export function PrintDocument({ model, warning }: { model: PrintModel; warning?: string }) {
+export function PrintDocument({ model }: { model: PrintModel }) {
   const { company } = model;
 
   return (
@@ -172,8 +167,6 @@ export function PrintDocument({ model, warning }: { model: PrintModel; warning?:
           </tbody>
         </table>
       </div>
-
-      {warning && <p className="kdoc-warning">{warning}</p>}
 
       {(model.notes.length > 0 || model.closingLine) && (
         <div className="kdoc-notes">

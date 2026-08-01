@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
-import { computeTotals, type LineItem } from "@/lib/line-items";
+import { computeTotals, parseLineItems, type LineItem } from "@/lib/line-items";
 import { isoDate } from "@/lib/dates";
 import { buildPrintModel, checkTotals, type PrintDocument } from "@/lib/print-templates";
 import { toCompany, toTemplate } from "@/lib/print-templates";
@@ -21,23 +21,29 @@ const ORGANIZATION_ID = "org-kretivco";
 
 /** Reads the priced rows off a stored document, or falls back to its header value. */
 function itemsFor(row: any) {
-  const content = row.content && typeof row.content === "object" ? row.content : {};
-  const items: LineItem[] = Array.isArray(content.lineItems) ? content.lineItems : [];
+  const stored = row.content && typeof row.content === "object" ? row.content : {};
+  const generated = row.generated_values && typeof row.generated_values === "object" ? row.generated_values : {};
+  const content = { ...generated, ...stored };
+  const restored = parseLineItems(content._line_items);
+  const items: LineItem[] = restored?.items ?? (Array.isArray(content.lineItems) ? content.lineItems : []);
 
   if (!items.length) {
     return {
       items: [{ description: row.title || "Services", quantity: 1, unit: "", unitPrice: Number(row.value) }],
       subtotal: Number(row.value),
       discountAmount: 0,
+      taxLabel: "Tax",
+      taxAmount: 0,
     };
   }
 
-  const totals = computeTotals(items, {
+  const settings = restored?.settings ?? {
     currency: String(content.currency || "RM"),
     taxLabel: String(content.taxLabel || "SST"),
     taxRate: Number(content.taxRate) || 0,
     discountPercent: Number(content.discountPercent) || 0,
-  });
+  };
+  const totals = computeTotals(items, settings);
   return {
     items: items.map((item) => ({
       description: item.description,
@@ -47,6 +53,8 @@ function itemsFor(row: any) {
     })),
     subtotal: totals.subtotal,
     discountAmount: totals.discountAmount,
+    taxLabel: settings.taxRate ? `${settings.taxLabel || "Tax"} (${settings.taxRate}%)` : settings.taxLabel || "Tax",
+    taxAmount: totals.taxAmount,
   };
 }
 
@@ -65,20 +73,41 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
 
     if (kind === "receipt") {
       const rows = await sql`
-        select p.*, c.name as customer_name, c.address_line1, c.address_line2,
-               d.title as document_title, d.reference as document_reference, d.value as document_value,
-               coalesce((select sum(pa2.amount) from payment_allocations pa2
-                          join payments p2 on p2.id = pa2.payment_id
-                         where pa2.sales_document_id = d.id), 0) as document_allocated
+        select p.*, c.name as customer_name, c.address_line1, c.address_line2
         from payments p
         left join customers c on c.id = p.customer_id
-        left join payment_allocations pa on pa.payment_id = p.id
-        left join sales_documents d on d.id = pa.sales_document_id
         where p.id = ${id} and p.organization_id = ${ORGANIZATION_ID}
         limit 1
       `;
       if (!rows.length) return NextResponse.json({ error: "Payment was not found." }, { status: 404 });
       const row = rows[0];
+      const allocations = await sql`
+        select sum(pa.amount) as amount, d.id, d.title, d.reference, d.value,
+               coalesce((select sum(pa2.amount) from payment_allocations pa2
+                          join payments p2 on p2.id = pa2.payment_id
+                            and p2.organization_id = ${ORGANIZATION_ID}
+                         where pa2.sales_document_id = d.id), 0) as document_allocated
+        from payment_allocations pa
+        join sales_documents d on d.id = pa.sales_document_id
+        join customers c on c.id = d.customer_id and c.organization_id = ${ORGANIZATION_ID}
+        where pa.payment_id = ${id}
+        group by d.id
+        order by min(pa.created_at), d.id
+      `;
+      const receiptItems = allocations.map((allocation: any) => ({
+        description: allocation.reference
+          ? `Payment for ${allocation.reference}`
+          : allocation.title || "Payment received",
+        quantity: 1,
+        unit: "",
+        unitPrice: Number(allocation.amount),
+      }));
+      if (Number(row.unallocated || 0) > 0) {
+        receiptItems.push({ description: "Unallocated customer credit", quantity: 1, unit: "", unitPrice: Number(row.unallocated) });
+      }
+      if (!receiptItems.length) {
+        receiptItems.push({ description: "Payment received", quantity: 1, unit: "", unitPrice: Number(row.amount) });
+      }
 
       documentType = "Receipt";
       printDocument = {
@@ -88,27 +117,25 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         issuedBy: session.name,
         customerName: row.customer_name || "Customer",
         customerAddressLines: [row.address_line1, row.address_line2].filter(Boolean),
-        title: row.document_title || "",
-        items: [{
-          description: row.document_reference
-            ? `Payment received for ${row.document_reference}`
-            : "Payment received",
-          quantity: 1, unit: "", unitPrice: Number(row.amount),
-        }],
+        title: allocations.length === 1 ? allocations[0].title || "" : "Payment receipt",
+        items: receiptItems,
         subtotal: Number(row.amount),
         deliveryAmount: 0,
         discountAmount: 0,
+        taxLabel: "Tax",
+        taxAmount: 0,
         total: Number(row.amount),
         amountPaid: Number(row.amount),
-        // What is still owed on the document this receipt settles, not on the
-        // whole account: the client is looking at one job.
-        balanceDue: Math.max(0, Number(row.document_value || 0) - Number(row.document_allocated || 0)),
+        balanceDue: allocations.reduce((sum: number, allocation: any) =>
+          sum + Math.max(0, Number(allocation.value || 0) - Number(allocation.document_allocated || 0)), 0),
         paymentMethod: row.method || "",
       };
     } else {
       const rows = await sql`
-        select d.*, c.name as customer_name, c.address_line1, c.address_line2
+        select d.*, c.name as customer_name, c.address_line1, c.address_line2,
+               g.field_values as generated_values
         from sales_documents d join customers c on c.id = d.customer_id
+        left join generated_documents g on g.id = d.generated_document_id and g.organization_id = c.organization_id
         where d.id = ${id} and c.organization_id = ${ORGANIZATION_ID}
       `;
       if (!rows.length) return NextResponse.json({ error: "Document was not found." }, { status: 404 });
@@ -129,6 +156,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         subtotal: priced.subtotal,
         deliveryAmount: delivery,
         discountAmount: priced.discountAmount,
+        taxLabel: priced.taxLabel,
+        taxAmount: priced.taxAmount,
         total: Number(row.value),
       };
     }

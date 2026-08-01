@@ -61,6 +61,8 @@ export type PrintDocument = {
   subtotal: number;
   deliveryAmount: number;
   discountAmount: number;
+  taxLabel: string;
+  taxAmount: number;
   total: number;
   /** Receipts only. */
   amountPaid?: number;
@@ -149,13 +151,17 @@ export function columnsFor(documentType: string): PrintColumn[] {
  * row and takes its amount from what was actually received.
  */
 function receiptRows(document: PrintDocument): string[][] {
-  const description = document.items[0]?.description || document.title || "Payment received";
-  return [[
-    "1",
-    description,
+  const items = document.items.length
+    ? document.items
+    : [{ description: document.title || "Payment received", quantity: 1, unit: "", unitPrice: document.amountPaid ?? document.total }];
+  return items.map((item, index) => [
+    String(index + 1),
+    item.description || document.title || "Payment received",
     document.paymentMethod || "",
-    money(document.amountPaid ?? document.total),
-  ]];
+    money(items.length === 1 && document.amountPaid !== undefined
+      ? document.amountPaid
+      : item.quantity * item.unitPrice),
+  ]);
 }
 
 function salesRows(document: PrintDocument): string[][] {
@@ -186,6 +192,9 @@ function totalsFor(document: PrintDocument): PrintTotalRow[] {
   }
   if (toCents(document.discountAmount) !== 0) {
     rows.push({ label: "Discount:", value: money(document.discountAmount), parenthesised: true });
+  }
+  if (toCents(document.taxAmount) !== 0) {
+    rows.push({ label: `${document.taxLabel || "Tax"}:`, value: money(document.taxAmount) });
   }
   rows.push({ label: `Total (${CURRENCY}):`, value: money(document.total), bold: true });
   return rows;
@@ -232,7 +241,7 @@ export function checkTotals(document: PrintDocument): { ok: boolean; expected: n
     (sum, item) => sum + toCents(item.quantity * item.unitPrice),
     0,
   );
-  const expectedCents = itemCents + toCents(document.deliveryAmount) - toCents(document.discountAmount);
+  const expectedCents = itemCents + toCents(document.deliveryAmount) - toCents(document.discountAmount) + toCents(document.taxAmount);
   const storedCents = toCents(document.total);
   return { ok: expectedCents === storedCents, expected: expectedCents / 100, stored: storedCents / 100 };
 }
