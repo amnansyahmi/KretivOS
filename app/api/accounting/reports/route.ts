@@ -10,6 +10,7 @@ import { getDatabase } from "@/lib/db";
 import { accountBalances, trialBalanceCheck } from "@/lib/accounting";
 import { agingBucket, fromCents, toCents } from "@/lib/accounting-math";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { isoDate, todayIso } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -89,7 +90,7 @@ export async function GET(request: NextRequest) {
     await requireHRSession(["hr_admin", "finance"]);
     const params = request.nextUrl.searchParams;
     const from = isDate(String(params.get("from"))) ? String(params.get("from")) : monthStart(-11);
-    const to = isDate(String(params.get("to"))) ? String(params.get("to")) : new Date().toISOString().slice(0, 10);
+    const to = isDate(String(params.get("to"))) ? String(params.get("to")) : todayIso();
 
     const sql = getDatabase();
     const [period, cumulative, check, payableRows, receivableRows, clientRows, bankRows] = await Promise.all([
@@ -163,12 +164,12 @@ export async function GET(request: NextRequest) {
     const payable = bucketise(
       payableRows,
       (row) => Number(row.total) - Number(row.amount_paid),
-      (row) => (row.due_date ? String(row.due_date).slice(0, 10) : ""),
+      (row) => (isoDate(row.due_date, "")),
     );
     const receivable = bucketise(
       receivableRows,
       (row) => Number(row.value) - Number(row.amount_paid || 0),
-      (row) => (row.due_date ? String(row.due_date).slice(0, 10) : ""),
+      (row) => (isoDate(row.due_date, "")),
     );
 
     const clients = clientRows

@@ -14,6 +14,7 @@ import { agingBucket, fromCents, lineTax, toCents } from "@/lib/accounting-math"
 import { backfillSalesInvoices, postSalesInvoice, unpostedInvoiceCount } from "@/lib/invoice-posting";
 import { backfillSettlements, postCashEntry, postSettlementPayment, unreconciledCashCount } from "@/lib/cash-posting";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { isoDate, todayIso } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,7 +28,7 @@ const num = (value: unknown) => {
 };
 const arr = (value: unknown) => (Array.isArray(value) ? value : []);
 const isDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 
 function tablesMissing(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -153,16 +154,16 @@ async function snapshot() {
     bills: bills.map((row: any) => ({
       id: row.id, vendorId: row.vendor_id, vendorName: row.vendor_name,
       billNumber: row.bill_number, reference: row.reference,
-      billDate: String(row.bill_date).slice(0, 10),
-      dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
+      billDate: isoDate(row.bill_date),
+      dueDate: isoDate(row.due_date, ""),
       currency: row.currency, subtotal: Number(row.subtotal), taxAmount: Number(row.tax_amount),
       total: Number(row.total), amountPaid: Number(row.amount_paid), balance: Number(row.balance),
       status: row.status, notes: row.notes, captureId: row.capture_id || "",
       journalEntryId: row.journal_entry_id || "",
-      aging: row.due_date && Number(row.balance) > 0 ? agingBucket(String(row.due_date).slice(0, 10)) : "current",
+      aging: row.due_date && Number(row.balance) > 0 ? agingBucket(isoDate(row.due_date)) : "current",
     })),
     payments: payments.map((row: any) => ({
-      id: row.id, direction: row.direction, paymentDate: String(row.payment_date).slice(0, 10),
+      id: row.id, direction: row.direction, paymentDate: isoDate(row.payment_date),
       bankAccountId: row.bank_account_id, bankAccountName: row.bank_account_name || "",
       vendorId: row.vendor_id || "", vendorName: row.vendor_name || "",
       customerId: row.customer_id || "", customerName: row.customer_name || "",
@@ -174,7 +175,7 @@ async function snapshot() {
       closedAt: row.closed_at, closedBy: row.closed_by || "",
     })),
     entries: entries.map((row: any) => ({
-      id: row.id, date: String(row.entry_date).slice(0, 10), memo: row.memo,
+      id: row.id, date: isoDate(row.entry_date), memo: row.memo,
       reference: row.reference, sourceType: row.source_type, sourceId: row.source_id || "",
       status: row.status, total: Number(row.total),
     })),
@@ -182,7 +183,7 @@ async function snapshot() {
     unreconciledCash,
     transactions: cashRows.map((row: any) => ({
       id: row.id, type: row.type, category: row.category,
-      amount: Number(row.amount), date: String(row.transaction_date).slice(0, 10),
+      amount: Number(row.amount), date: isoDate(row.transaction_date),
       status: row.status, reference: row.reference || "", notes: row.notes || "",
       customerId: row.customer_id || "", customerName: row.customer_name || "",
       bankAccountName: row.bank_account_name || "", ledgerAccountName: row.ledger_account_name || "",
@@ -193,11 +194,11 @@ async function snapshot() {
     })),
     settlements: settlementRows.map((row: any) => ({
       id: row.id, customerId: row.customer_id, customerName: row.customer_name,
-      periodStart: String(row.period_start).slice(0, 10), periodEnd: String(row.period_end).slice(0, 10),
+      periodStart: isoDate(row.period_start), periodEnd: isoDate(row.period_end),
       units: Number(row.units), feePerUnit: Number(row.fee_per_unit),
       adReimbursement: Number(row.ad_reimbursement), incentive: Number(row.incentive),
       total: Number(row.units) * Number(row.fee_per_unit) + Number(row.ad_reimbursement) + Number(row.incentive),
-      status: row.status, dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
+      status: row.status, dueDate: isoDate(row.due_date, ""),
       notes: row.notes || "",
       onLedger: Boolean(row.journal_entry_id),
     })),

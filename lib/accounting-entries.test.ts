@@ -3,8 +3,12 @@ import test from "node:test";
 import { checkBalance, toCents } from "./accounting-math.ts";
 import {
   billEntryInput,
+  creditNoteEntryInput,
   invoiceAmounts,
+  isIssuedCreditNote,
   isIssuedInvoice,
+  isPostableSalesDocument,
+  salesDocumentEntryInput,
   salesInvoiceEntryInput,
 } from "./accounting-entries.ts";
 
@@ -124,4 +128,53 @@ test("a bill line with no account falls back to the holding account", () => {
     "Vendor",
   );
   assert.equal(lineFor(entry.lines, "uncategorised").debit, 100);
+});
+
+test("a credit note is the invoice with every side reversed", () => {
+  const note = creditNoteEntryInput(invoice, "Chef Ammar");
+  const original = salesInvoiceEntryInput(invoice, "Chef Ammar");
+
+  assert.equal(checkBalance(note.lines).ok, true, "a credit note balances");
+  assert.equal(note.lines.length, original.lines.length, "same accounts, opposite sides");
+  assert.equal(sumBy(note.lines, "debit"), sumBy(original.lines, "credit"));
+  assert.equal(sumBy(note.lines, "credit"), sumBy(original.lines, "debit"));
+
+  // Receivables must fall, not rise: this is the whole point of the document.
+  const receivable = lineFor(note.lines, "accounts_receivable");
+  assert.equal(toCents(receivable.credit) > 0, true, "receivables are credited");
+  assert.equal(toCents(receivable.debit ?? 0), 0, "receivables are not debited");
+
+  const income = note.lines.find((line: any) => line.accountKey === "sales_income" || line.accountId);
+  assert.equal(toCents(income?.debit ?? 0) > 0, true, "revenue is taken back");
+  assert.equal(note.sourceType, "credit_note", "traceable to the credit note, not an invoice");
+});
+
+test("a credit note keeps the customer tag so per-client profit stays right", () => {
+  const note = creditNoteEntryInput(invoice, "Chef Ammar");
+  for (const line of note.lines) {
+    assert.equal(line.customerId, invoice.customerId, "every line stays attributed");
+  }
+});
+
+test("credit notes and invoices are both postable, quotations are not", () => {
+  assert.equal(isIssuedCreditNote("Credit Note", "Sent"), true);
+  assert.equal(isIssuedCreditNote("Credit Note", "Draft"), false, "a draft credit note is not posted");
+  assert.equal(isIssuedCreditNote("Invoice", "Sent"), false);
+
+  assert.equal(isPostableSalesDocument("Invoice", "Paid"), true);
+  assert.equal(isPostableSalesDocument("Credit Note", "Approved"), true);
+  assert.equal(isPostableSalesDocument("Quotation", "Approved"), false);
+  assert.equal(isPostableSalesDocument("Credit Note", "Cancelled"), false);
+});
+
+test("the dispatcher picks the builder from the document type", () => {
+  const asInvoice = salesDocumentEntryInput(invoice, "Invoice", "Chef Ammar");
+  const asNote = salesDocumentEntryInput(invoice, "Credit Note", "Chef Ammar");
+
+  assert.equal(sumBy(asInvoice.lines, "debit"), sumBy(asNote.lines, "credit"),
+    "the two are exact opposites");
+  // Posting an invoice and then crediting it in full must leave nothing behind.
+  const combined = [...asInvoice.lines, ...asNote.lines];
+  assert.equal(checkBalance(combined).ok, true);
+  assert.equal(sumBy(combined, "debit"), sumBy(combined, "credit"));
 });

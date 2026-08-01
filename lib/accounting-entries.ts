@@ -202,3 +202,53 @@ export const ISSUED_INVOICE_STATUSES = ["Sent", "Approved", "Overdue", "Partiall
 
 export const isIssuedInvoice = (type: string, status: string) =>
   type === "Invoice" && ISSUED_INVOICE_STATUSES.includes(status);
+
+/**
+ * A credit note is the correction instrument: it reduces what a client owes and
+ * takes back revenue already recognised. "Credit Note" has been a selectable
+ * document type since the sales module shipped, but only "Invoice" was ever
+ * posted, so issuing one left revenue overstated and receivables too high with
+ * nothing to show for it.
+ */
+export const isIssuedCreditNote = (type: string, status: string) =>
+  type === "Credit Note" && ISSUED_INVOICE_STATUSES.includes(status);
+
+/** Any sales document whose money belongs on the ledger. */
+export const isPostableSalesDocument = (type: string, status: string) =>
+  isIssuedInvoice(type, status) || isIssuedCreditNote(type, status);
+
+/**
+ * The invoice entry with every side reversed. Built by transposing rather than
+ * by writing a second set of lines, so the two can never drift apart: a credit
+ * note is exactly the undoing of an invoice, and stays that way when the
+ * invoice grows a line.
+ */
+export function creditNoteEntryInput(
+  note: InvoiceForEntry,
+  customerName: string,
+  createdBy?: string | null,
+): EntryInput {
+  const invoice = salesInvoiceEntryInput(note, customerName, createdBy);
+  return {
+    ...invoice,
+    memo: `Credit note to ${customerName}`,
+    sourceType: "credit_note",
+    lines: invoice.lines.map((line) => ({
+      ...line,
+      debit: line.credit,
+      credit: line.debit,
+    })),
+  };
+}
+
+/** Picks the right builder for a postable sales document. */
+export function salesDocumentEntryInput(
+  document: InvoiceForEntry,
+  type: string,
+  customerName: string,
+  createdBy?: string | null,
+): EntryInput {
+  return type === "Credit Note"
+    ? creditNoteEntryInput(document, customerName, createdBy)
+    : salesInvoiceEntryInput(document, customerName, createdBy);
+}

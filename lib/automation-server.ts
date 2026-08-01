@@ -7,6 +7,7 @@ import {
   AutomationTrigger,
   DEFAULT_AUTOMATION_RECIPES,
 } from "@/lib/automation-engine";
+import { isoDate, isoDateFrom } from "@/lib/dates";
 
 const ORGANIZATION_ID = "org-kretivco";
 const clean = (value: unknown) => String(value ?? "").trim();
@@ -20,7 +21,7 @@ const date = () => iso().slice(0, 10);
 function addDays(input: string, days: number) {
   const next = new Date(`${input}T00:00:00Z`);
   next.setUTCDate(next.getUTCDate() + days);
-  return next.toISOString().slice(0, 10);
+  return isoDateFrom(next);
 }
 
 function mapRecipe(row: any): AutomationRecipe {
@@ -131,7 +132,7 @@ export async function listAutomationData() {
       description: row.body ?? "",
       href: row.entity_type ? notificationHref(row.entity_type) : undefined,
       entityId: row.entity_id ?? undefined,
-      dueDate: row.due_at ? String(row.due_at).slice(0, 10) : undefined,
+      dueDate: isoDate(row.due_at) || undefined,
       read: row.status === "Read",
       createdAt: row.created_at,
     })),

@@ -14,6 +14,7 @@ import { extractDocument, suggestAccountKey, type CaptureKind } from "@/lib/ocr"
 import { suggestAccountWithAi } from "@/lib/accounting-ai";
 import { duplicateFingerprint, normaliseVendor } from "@/lib/ocr-parse";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { isoDate } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -58,7 +59,7 @@ function mapCapture(row: any) {
     assetId: row.asset_id || "",
     imageUrl: row.asset_id ? `/api/captures/image/${row.asset_id}` : "",
     originalFilename: row.original_filename,
-    documentDate: row.document_date ? String(row.document_date).slice(0, 10) : "",
+    documentDate: isoDate(row.document_date, ""),
     vendorName: row.vendor_name,
     vendorId: row.vendor_id || "",
     documentNumber: row.document_number,
