@@ -13,7 +13,7 @@ import { AccountingError, prepareEntry } from "@/lib/accounting";
 import {
   invoiceAmounts, isPostableSalesDocument, salesDocumentEntryInput,
 } from "@/lib/accounting-entries";
-import { computeTotals, type LineItem } from "@/lib/line-items";
+import { computeTotals, parseLineItems, type LineItem } from "@/lib/line-items";
 import { getDatabase } from "@/lib/db";
 import { isoDate, todayIso } from "@/lib/dates";
 
@@ -33,17 +33,21 @@ export type InvoicePostingOutcome =
  */
 function amountsFor(row: any) {
   const content = row.content && typeof row.content === "object" ? row.content : {};
-  const items: LineItem[] = Array.isArray(content.lineItems) ? content.lineItems : [];
+  const restored = parseLineItems(content._line_items);
+  const items: LineItem[] = restored?.items ?? (Array.isArray(content.lineItems) ? content.lineItems : []);
 
   if (!items.length) return invoiceAmounts({ value: Number(row.value), lineItemTotals: null });
 
-  const totals = computeTotals(items, {
+  const totals = computeTotals(items, restored?.settings ?? {
     currency: String(content.currency || "RM"),
     taxLabel: String(content.taxLabel || "SST"),
     taxRate: Number(content.taxRate) || 0,
     discountPercent: Number(content.discountPercent) || 0,
   });
-  return invoiceAmounts({ value: Number(row.value), lineItemTotals: totals });
+  return invoiceAmounts({
+    value: Number(row.value),
+    lineItemTotals: { ...totals, total: totals.total + Number(row.delivery_amount || 0) },
+  });
 }
 
 /**

@@ -19,6 +19,17 @@ import { toCents } from "./accounting-math.ts";
 
 export type PrintDocumentType = "Invoice" | "Quotation" | "Receipt";
 
+const TEMPLATE_PRESENTATION: Record<string, { base: PrintDocumentType; heading: string; numberLabel: string }> = {
+  "Cash Sale": { base: "Invoice", heading: "CASH SALE", numberLabel: "Cash Sale No#" },
+  Quotation: { base: "Quotation", heading: "QUOTATION", numberLabel: "QNo#" },
+  "Sales Order": { base: "Quotation", heading: "SALES ORDER", numberLabel: "Order No#" },
+  "Delivery Order": { base: "Quotation", heading: "DELIVERY ORDER", numberLabel: "D/O No#" },
+  "Proforma Invoice": { base: "Invoice", heading: "PROFORMA INVOICE", numberLabel: "Proforma No#" },
+  Invoice: { base: "Invoice", heading: "INVOICE", numberLabel: "Invoice No#" },
+  Receipt: { base: "Receipt", heading: "RECEIPT", numberLabel: "Receipt No#" },
+  "Credit Note": { base: "Invoice", heading: "CREDIT NOTE", numberLabel: "Credit Note No#" },
+};
+
 export type PrintCompany = {
   name: string;
   registrationNumber: string;
@@ -87,6 +98,30 @@ export type PrintModel = {
   closingLine: string;
   signatures: { issuedBy: string; acceptedBy: string } | null;
 };
+
+/**
+ * The database only needs three editable visual templates. The other sales
+ * documents reuse the closest commercial layout while retaining their own
+ * heading and reference label.
+ */
+export function printTemplateBaseType(documentType: string): PrintDocumentType {
+  return TEMPLATE_PRESENTATION[documentType]?.base ?? "Invoice";
+}
+
+export function adaptPrintTemplate(template: PrintTemplate, documentType: string): PrintTemplate {
+  if (template.documentType === documentType) return template;
+  const presentation = TEMPLATE_PRESENTATION[documentType] ?? {
+    base: printTemplateBaseType(documentType),
+    heading: documentType.toUpperCase(),
+    numberLabel: `${documentType} No#`,
+  };
+  return {
+    ...template,
+    documentType,
+    heading: presentation.heading,
+    numberLabel: presentation.numberLabel,
+  };
+}
 
 const CURRENCY = "MYR";
 

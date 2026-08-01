@@ -44,11 +44,12 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
     return () => { cancelled = true; };
   }, [id, kind]);
 
-  return <main className="min-h-screen bg-[#f5f2ea] py-6">
+  return <main className="kdoc-page min-h-screen bg-[#f5f2ea] py-6">
     <style>{`${PRINT_STYLES}
       @media print {
+        html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
         .kdoc-chrome { display: none !important; }
-        body { background: #fff !important; }
+        .kdoc-page { min-height: 0 !important; padding: 0 !important; background: #fff !important; }
         .kdoc-sheet { box-shadow: none !important; border: 0 !important; margin: 0 !important; padding: 0 !important; }
       }
     `}</style>

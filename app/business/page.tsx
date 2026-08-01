@@ -12,6 +12,10 @@ import { isTextField } from "@/components/ui/textarea";
 import { DateInput } from "@/components/date-input";
 import { AIWritingButton } from "@/components/ai-writing-button";
 import {
+  initialiseSalesRecord, SalesDocumentEditor, SALES_DOCUMENT_TYPES,
+  type SalesPrintSetup,
+} from "@/components/sales-document-editor";
+import {
   BUSINESS_NAV_ITEMS,
   BusinessShell,
   type BusinessTab,
@@ -59,11 +63,6 @@ const DOCUMENT_TABS: Partial<Record<BusinessTab, string>> = {
   "credit-note": "Credit Note",
 };
 
-const DOCUMENT_TYPES = [
-  "Cash Sale", "Quotation", "Sales Order", "Delivery Order",
-  "Proforma Invoice", "Invoice", "Receipt", "Credit Note",
-];
-
 const isDocumentTab = (value: BusinessTab) => value === "sales" || Boolean(DOCUMENT_TABS[value]);
 
 const channelCategories = [
@@ -71,7 +70,7 @@ const channelCategories = [
   "Paid Media", "Local Discovery", "Offline", "Partnership", "Community", "Other"
 ];
 
-const PRINTABLE_TYPES = ["Invoice", "Quotation", "Receipt"];
+const PRINTABLE_TYPES: readonly string[] = SALES_DOCUMENT_TYPES;
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (value: number) => `RM${Number(value || 0).toLocaleString("en-MY", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
@@ -84,6 +83,7 @@ export default function BusinessOperationsPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [printSetup, setPrintSetup] = useState<SalesPrintSetup | null>(null);
 
   async function loadData(showLoader = true) {
     if (showLoader) setLoading(true);
@@ -125,6 +125,10 @@ export default function BusinessOperationsPage() {
     if (requested === "channels") { window.location.replace("/?view=Marketing%20Studio"); return; }
     if (requested && BUSINESS_NAV_ITEMS.some((item) => item.id === requested)) setTab(requested as BusinessTab);
     void loadData();
+    fetch("/api/print-templates", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => { if (payload?.company && Array.isArray(payload.templates)) setPrintSetup(payload); })
+      .catch(() => undefined);
   }, []);
 
   function changeTab(next: BusinessTab) {
@@ -166,7 +170,7 @@ export default function BusinessOperationsPage() {
       brands: { id: businessId("brand"), customerId, name: "", description: "", status: "Active", websiteUrl: "" },
       channels: { id: businessId("channel"), name: "", category: "Social Media", status: "Active", description: "" },
       crm: { id: businessId("opp"), customerId, title: "", stage: "New", value: 0, probability: 25, nextAction: "", dueDate: today(), notes: "" },
-      sales: { id: businessId("doc"), customerId, type: DOCUMENT_TABS[target] || "Quotation", title: "", reference: "", status: "Draft", value: 0, deliveryAmount: 0, issueDate: today(), dueDate: today(), notes: "" },
+      sales: initialiseSalesRecord({ id: businessId("doc"), customerId, type: DOCUMENT_TABS[target] || "Quotation", title: "", reference: "", status: "Draft", value: 0, deliveryAmount: 0, issueDate: today(), dueDate: today(), notes: "", content: {} }),
       projects: { id: businessId("project"), customerId, name: "", status: "Planning", progress: 0, budget: 0, dueDate: today(), owner: "Kretivco Team", notes: "" },
       onboarding: { id: businessId("onboarding"), customerId, blueprint: "General Client Onboarding", status: "Not started", targetLaunch: today(), notes: "", steps: [
         { id: businessId("step"), label: "Customer profile", done: false },
@@ -180,7 +184,8 @@ export default function BusinessOperationsPage() {
   }
 
   function openEdit(target: ResourceTab, record: any) {
-    setEditor({ tab: target, record: JSON.parse(JSON.stringify(record)), isNew: false });
+    const copy = JSON.parse(JSON.stringify(record));
+    setEditor({ tab: target, record: target === "sales" ? initialiseSalesRecord(copy) : copy, isNew: false });
   }
 
   async function mutate(body: Record<string, unknown>, successMessage: string) {
@@ -302,7 +307,7 @@ export default function BusinessOperationsPage() {
 
       {!loading && tab !== "overview" && recordCount(data, tab) === 0 && <Card className="bg-white/75"><CardContent className="p-12 text-center"><div className="font-semibold">No {currentLabel.toLowerCase()} yet</div><p className="mt-2 text-sm text-muted-foreground">Create the first shared record in Neon PostgreSQL.</p><Button className="mt-4" onClick={() => openCreate()}><Plus className="h-4 w-4" />Create record</Button></CardContent></Card>}
 
-      {editor && <EditorModal editor={editor} customers={data.customers} saving={saving} onChange={(record) => setEditor({ ...editor, record })} onClose={() => setEditor(null)} onSave={saveEditor} />}
+      {editor && <EditorModal editor={editor} customers={data.customers} printSetup={printSetup} saving={saving} onChange={(record) => setEditor({ ...editor, record })} onClose={() => setEditor(null)} onSave={saveEditor} />}
     </BusinessShell>
   );
 }
@@ -317,15 +322,17 @@ function recordCount(data: Snapshot, tab: BusinessTab) {
   return map[tab]?.length ?? 0;
 }
 
-function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: { editor: NonNullable<EditorState>; customers: any[]; saving: boolean; onChange: (record: any) => void; onClose: () => void; onSave: () => void }) {
+function EditorModal({ editor, customers, printSetup, saving, onChange, onClose, onSave }: { editor: NonNullable<EditorState>; customers: any[]; printSetup: SalesPrintSetup | null; saving: boolean; onChange: (record: any) => void; onClose: () => void; onSave: () => void }) {
   const r = editor.record;
   const set = (key: string, value: any) => onChange({ ...r, [key]: value });
   const selectClass = "h-12 w-full rounded-xl border border-[#d9d3c7] bg-white px-3 text-sm outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10";
   const inputClass = selectClass;
   const textareaClass = "min-h-28 w-full rounded-xl border border-[#d9d3c7] bg-white px-3 py-3 text-sm outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10";
 
-  return <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 sm:items-center sm:p-4"><Card className="max-h-[95vh] w-full max-w-4xl overflow-y-auto rounded-b-none bg-[#f7f4ed] shadow-2xl sm:rounded-xl"><CardHeader className="sticky top-0 z-10 flex-row items-start justify-between border-b bg-[#f7f4ed] p-4 sm:p-6"><div><CardTitle className="text-xl">{editor.isNew ? "Create" : "Edit"} {editor.tab === "sales" ? editor.record.type : BUSINESS_NAV_ITEMS.find((item) => item.id === editor.tab)?.label}</CardTitle><p className="mt-1 text-xs text-muted-foreground">Changes are saved directly to Neon PostgreSQL.</p></div><Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="p-4 sm:p-6"><div className="grid gap-4 sm:grid-cols-2">
-    {!["customers", "channels"].includes(editor.tab) && <Field label="Customer"><select value={r.customerId} onChange={(event) => set("customerId", event.target.value)} className={selectClass}>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
+  return <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 sm:items-center sm:p-4"><Card className="max-h-[95vh] w-full max-w-[1500px] overflow-y-auto rounded-b-none bg-[#f7f4ed] shadow-2xl sm:rounded-xl"><CardHeader className="sticky top-0 z-20 flex-row items-start justify-between border-b bg-[#f7f4ed] p-4 sm:p-6"><div><CardTitle className="text-xl">{editor.isNew ? "Create" : "Edit"} {editor.tab === "sales" ? editor.record.type : BUSINESS_NAV_ITEMS.find((item) => item.id === editor.tab)?.label}</CardTitle><p className="mt-1 text-xs text-muted-foreground">Changes are saved directly to Neon PostgreSQL.</p></div><Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="p-4 sm:p-6">
+    {editor.tab === "sales" && <SalesDocumentEditor record={r} customers={customers} printSetup={printSetup} onChange={onChange} />}
+    <div className={cn("grid gap-4 sm:grid-cols-2", editor.tab === "sales" && "hidden")}>
+    {!["customers", "channels", "sales"].includes(editor.tab) && <Field label="Customer"><select value={r.customerId} onChange={(event) => set("customerId", event.target.value)} className={selectClass}>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
 
     {editor.tab === "customers" && <>
       <Field label="Customer / company name"><input value={r.name} onChange={(event) => set("name", event.target.value)} className={inputClass} /></Field>
@@ -364,21 +371,9 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
     {editor.tab === "crm" && <>
       <Field label="Opportunity title"><input value={r.title} onChange={(event) => set("title", event.target.value)} className={inputClass} /></Field>
       <Field label="Stage"><select value={r.stage} onChange={(event) => set("stage", event.target.value)} className={selectClass}>{["New", "Qualified", "Proposal", "Negotiation", "Won", "Lost"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label="Value"><input type="number" value={r.value} onChange={(event) => set("value", Number(event.target.value))} className={inputClass} /></Field>
+      <Field label="Value"><input type="number" min="0" step="0.01" value={r.value || ""} onChange={(event) => set("value", Number(event.target.value))} className={inputClass} placeholder="0.00" /></Field>
       <Field label={`Probability: ${r.probability}%`}><input type="range" min="0" max="100" value={r.probability} onChange={(event) => set("probability", Number(event.target.value))} className="mt-4 w-full accent-[#ba5c42]" /></Field>
       <Field label="Next action"><input value={r.nextAction} onChange={(event) => set("nextAction", event.target.value)} className={inputClass} /></Field>
-      <Field label="Due date"><DateInput value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} /></Field>
-      <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
-    </>}
-
-    {editor.tab === "sales" && <>
-      <Field label="Document type"><select value={r.type} onChange={(event) => set("type", event.target.value)} className={selectClass}>{DOCUMENT_TYPES.map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label="Status"><select value={r.status} onChange={(event) => set("status", event.target.value)} className={selectClass}>{["Draft", "Sent", "Approved", "Paid", "Overdue", "Cancelled"].map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label="Title" wide><input value={r.title} onChange={(event) => set("title", event.target.value)} className={inputClass} /></Field>
-      <Field label="Reference"><input value={r.reference} onChange={(event) => set("reference", event.target.value)} className={inputClass} /></Field>
-      <Field label="Value"><input type="number" value={r.value} onChange={(event) => set("value", Number(event.target.value))} className={inputClass} /></Field>
-      <Field label="Delivery charge"><input type="number" min="0" step="0.01" value={r.deliveryAmount || 0} onChange={(event) => set("deliveryAmount", Number(event.target.value))} className={inputClass} /></Field>
-      <Field label="Issue date"><DateInput value={r.issueDate} onChange={(event) => set("issueDate", event.target.value)} /></Field>
       <Field label="Due date"><DateInput value={r.dueDate} onChange={(event) => set("dueDate", event.target.value)} /></Field>
       <Field label="Notes" wide><textarea value={r.notes} onChange={(event) => set("notes", event.target.value)} className={textareaClass} /></Field>
     </>}

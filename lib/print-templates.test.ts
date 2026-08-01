@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildPrintModel, checkTotals, columnsFor, fillTokens, money, templateDate,
+  adaptPrintTemplate, buildPrintModel, checkTotals, columnsFor, fillTokens, money,
+  printTemplateBaseType, templateDate,
   type PrintCompany, type PrintDocument, type PrintTemplate,
 } from "./print-templates.ts";
 
@@ -101,6 +102,23 @@ test("the meta block uses the label the document type actually prints", () => {
   );
   assert.equal(quotation.heading, "QUOTATION");
   assert.equal(quotation.meta[0].label, "QNo#");
+});
+
+test("all commercial document types reuse a configured base template with their own identity", () => {
+  assert.equal(printTemplateBaseType("Sales Order"), "Quotation");
+  assert.equal(printTemplateBaseType("Delivery Order"), "Quotation");
+  assert.equal(printTemplateBaseType("Proforma Invoice"), "Invoice");
+  assert.equal(printTemplateBaseType("Credit Note"), "Invoice");
+  assert.equal(printTemplateBaseType("Receipt"), "Receipt");
+
+  const salesOrder = adaptPrintTemplate(
+    { ...invoiceTemplate, documentType: "Quotation", heading: "QUOTATION", numberLabel: "QNo#" },
+    "Sales Order",
+  );
+  assert.equal(salesOrder.documentType, "Sales Order");
+  assert.equal(salesOrder.heading, "SALES ORDER");
+  assert.equal(salesOrder.numberLabel, "Order No#");
+  assert.deepEqual(salesOrder.notes, invoiceTemplate.notes, "shared template terms are preserved");
 });
 
 test("delivery and discount print only when they carry a value", () => {

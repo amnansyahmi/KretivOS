@@ -11,7 +11,10 @@ import { getDatabase } from "@/lib/db";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 import { computeTotals, parseLineItems, type LineItem } from "@/lib/line-items";
 import { isoDate } from "@/lib/dates";
-import { buildPrintModel, checkTotals, type PrintDocument } from "@/lib/print-templates";
+import {
+  adaptPrintTemplate, buildPrintModel, checkTotals, printTemplateBaseType,
+  type PrintDocument,
+} from "@/lib/print-templates";
 import { toCompany, toTemplate } from "@/lib/print-templates";
 
 export const dynamic = "force-dynamic";
@@ -28,9 +31,10 @@ function itemsFor(row: any) {
   const items: LineItem[] = restored?.items ?? (Array.isArray(content.lineItems) ? content.lineItems : []);
 
   if (!items.length) {
+    const subtotal = Math.max(0, Number(row.value) - Number(row.delivery_amount || 0));
     return {
-      items: [{ description: row.title || "Services", quantity: 1, unit: "", unitPrice: Number(row.value) }],
-      subtotal: Number(row.value),
+      items: [{ description: row.title || "Services", quantity: 1, unit: "", unitPrice: subtotal }],
+      subtotal,
       discountAmount: 0,
       taxLabel: "Tax",
       taxAmount: 0,
@@ -159,13 +163,22 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         taxLabel: priced.taxLabel,
         taxAmount: priced.taxAmount,
         total: Number(row.value),
+        amountPaid: documentType === "Receipt" ? Number(row.value) : undefined,
+        paymentMethod: documentType === "Receipt" ? String(row.content?.paymentMethod || "") : undefined,
       };
     }
 
-    const templates = await sql`
+    let templates = await sql`
       select * from print_templates
       where organization_id = ${ORGANIZATION_ID} and document_type = ${documentType}
     `;
+    const baseType = printTemplateBaseType(documentType);
+    if (!templates.length && baseType !== documentType) {
+      templates = await sql`
+        select * from print_templates
+        where organization_id = ${ORGANIZATION_ID} and document_type = ${baseType}
+      `;
+    }
     if (!templates.length) {
       return NextResponse.json(
         { error: `No print template is set up for ${documentType}.` },
@@ -173,7 +186,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       );
     }
 
-    const model = buildPrintModel(printDocument, company, toTemplate(templates[0]));
+    const model = buildPrintModel(
+      printDocument,
+      company,
+      adaptPrintTemplate(toTemplate(templates[0]), documentType),
+    );
     // Printed on the page rather than logged: a client is about to read this,
     // and an invoice whose rows do not add up to its total should say so where
     // someone will see it before it goes out.

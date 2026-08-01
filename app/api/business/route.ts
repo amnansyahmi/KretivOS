@@ -25,6 +25,9 @@ const nullable = (value: unknown) => {
   return result || null;
 };
 const number = (value: unknown) => Number(value || 0);
+const jsonObject = (value: unknown) => value && typeof value === "object" && !Array.isArray(value)
+  ? value as Record<string, unknown>
+  : {};
 
 function customer(row: any) {
   return {
@@ -36,6 +39,11 @@ function customer(row: any) {
     contactName: row.primary_contact_name ?? "",
     email: row.email ?? "",
     phone: row.phone ?? "",
+    addressLine1: row.address_line1 ?? "",
+    addressLine2: row.address_line2 ?? "",
+    city: row.city ?? "",
+    postcode: row.postcode ?? "",
+    stateCode: row.state_code ?? "",
     notes: row.notes ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -111,6 +119,7 @@ function document(row: any) {
     issueDate: row.issue_date ?? "",
     dueDate: row.due_date ?? "",
     notes: row.notes ?? "",
+    content: jsonObject(row.content),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -346,9 +355,10 @@ async function createResource(resource: string, data: Record<string, any>) {
       return opportunity(rows[0]);
     }
     case "sales": {
+      const content = JSON.stringify(jsonObject(data.content));
       const rows = await sql`
-        insert into sales_documents (id, customer_id, type, title, reference, status, value, delivery_amount, issue_date, due_date, notes)
-        values (${id}, ${text(data.customerId)}, ${text(data.type)}, ${text(data.title)}, ${nullable(data.reference)}, ${text(data.status) || "Draft"}, ${number(data.value)}, ${number(data.deliveryAmount)}, ${nullable(data.issueDate)}, ${nullable(data.dueDate)}, ${nullable(data.notes)})
+        insert into sales_documents (id, customer_id, type, title, reference, status, value, delivery_amount, issue_date, due_date, notes, content)
+        values (${id}, ${text(data.customerId)}, ${text(data.type)}, ${text(data.title)}, ${nullable(data.reference)}, ${text(data.status) || "Draft"}, ${number(data.value)}, ${number(data.deliveryAmount)}, ${nullable(data.issueDate)}, ${nullable(data.dueDate)}, ${nullable(data.notes)}, ${content}::jsonb)
         returning *
       `;
       return document(rows[0]);
@@ -440,8 +450,9 @@ async function updateResource(resource: string, id: string, data: Record<string,
       return opportunity(rows[0]);
     }
     case "sales": {
+      const content = JSON.stringify(jsonObject(data.content));
       const rows = await sql`
-        update sales_documents set customer_id = ${text(data.customerId)}, type = ${text(data.type)}, title = ${text(data.title)}, reference = ${nullable(data.reference)}, status = ${text(data.status)}, value = ${number(data.value)}, delivery_amount = ${number(data.deliveryAmount)}, issue_date = ${nullable(data.issueDate)}, due_date = ${nullable(data.dueDate)}, notes = ${nullable(data.notes)}
+        update sales_documents set customer_id = ${text(data.customerId)}, type = ${text(data.type)}, title = ${text(data.title)}, reference = ${nullable(data.reference)}, status = ${text(data.status)}, value = ${number(data.value)}, delivery_amount = ${number(data.deliveryAmount)}, issue_date = ${nullable(data.issueDate)}, due_date = ${nullable(data.dueDate)}, notes = ${nullable(data.notes)}, content = ${content}::jsonb
         where id = ${id} returning *
       `;
       return document(rows[0]);

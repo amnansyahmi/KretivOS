@@ -215,7 +215,7 @@ const alignClass = (align: "left" | "center" | "right") =>
  */
 export function printableHtml(title: string, bodyHtml: string, origin: string) {
   const absolute = bodyHtml.replace(/src="\/(?!\/)/g, `src="${origin}/`);
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${PRINT_STYLES}</style></head><body>${absolute}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>html,body{margin:0;padding:0;background:#fff}${PRINT_STYLES}</style></head><body>${absolute}</body></html>`;
 }
 
 function escapeHtml(value: string) {
