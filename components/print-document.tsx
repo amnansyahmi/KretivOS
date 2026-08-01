@@ -13,7 +13,12 @@
  * print_templates and is edited in Settings.
  */
 
+import { useEffect, useRef, useState } from "react";
 import type { PrintModel } from "@/lib/print-templates";
+import { cn } from "@/lib/utils";
+
+const A4_WIDTH_PX = 794;
+const A4_MIN_HEIGHT_PX = 1123;
 
 export const PRINT_STYLES = `
   @page { size: A4; margin: 18mm 20mm; }
@@ -76,12 +81,96 @@ export const PRINT_STYLES = `
 
   @media print {
     .kdoc { max-width: none; }
+    .kdoc-responsive-host,
+    .kdoc-responsive-frame {
+      width: auto !important;
+      height: auto !important;
+      max-width: none !important;
+      overflow: visible !important;
+      margin: 0 !important;
+    }
+    .kdoc-responsive-sheet {
+      width: auto !important;
+      min-height: 0 !important;
+      padding: 0 !important;
+      transform: none !important;
+      box-shadow: none !important;
+    }
     /* A long item list must not orphan the totals from the table above it. */
     .kdoc-table { page-break-inside: auto; }
     .kdoc-table tr { page-break-inside: avoid; }
     .kdoc-totals, .kdoc-signatures { page-break-inside: avoid; }
   }
 `;
+
+/**
+ * Keeps the document at its real A4 layout, then scales the whole sheet to the
+ * available screen width. Unlike CSS `zoom`, transforms behave consistently in
+ * iOS Safari and leave the actual print layout untouched.
+ */
+export function ResponsivePrintDocument({
+  model,
+  className,
+}: {
+  model: PrintModel;
+  className?: string;
+}) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ scale: 1, height: A4_MIN_HEIGHT_PX });
+
+  useEffect(() => {
+    const measure = () => {
+      const availableWidth = hostRef.current?.clientWidth ?? A4_WIDTH_PX;
+      const scale = Math.min(1, availableWidth / A4_WIDTH_PX);
+      const height = Math.max(A4_MIN_HEIGHT_PX, sheetRef.current?.scrollHeight ?? A4_MIN_HEIGHT_PX);
+
+      setViewport((current) =>
+        Math.abs(current.scale - scale) < 0.001 && current.height === height
+          ? current
+          : { scale, height },
+      );
+    };
+
+    measure();
+    const frame = window.requestAnimationFrame(measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (hostRef.current) observer?.observe(hostRef.current);
+    if (sheetRef.current) observer?.observe(sheetRef.current);
+    window.addEventListener("resize", measure);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [model]);
+
+  return (
+    <div ref={hostRef} className={cn("kdoc-responsive-host w-full", className)}>
+      <div
+        className="kdoc-responsive-frame mx-auto"
+        style={{
+          width: A4_WIDTH_PX * viewport.scale,
+          height: viewport.height * viewport.scale,
+        }}
+      >
+        <div
+          ref={sheetRef}
+          className="kdoc-responsive-sheet box-border bg-white px-[20mm] py-[18mm] shadow-soft"
+          style={{
+            width: A4_WIDTH_PX,
+            minHeight: A4_MIN_HEIGHT_PX,
+            transform: `scale(${viewport.scale})`,
+            transformOrigin: "top left",
+          }}
+        >
+          <PrintDocument model={model} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function PrintDocument({ model }: { model: PrintModel }) {
   const { company } = model;
