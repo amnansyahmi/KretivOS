@@ -56,7 +56,7 @@ function emptyDraft(): Draft {
     id: "",
     name: "",
     description: "",
-    workspace: "Business",
+    workspace: "Sales",
     trigger: "customer.created",
     actions: ["create_onboarding"],
     status: "Active",

@@ -143,7 +143,7 @@ export async function postSalesInvoice(
 /**
  * Records payment of an invoice that was settled outside the Payments screen.
  *
- * The Business workspace has a "mark paid" action that predates the ledger. On
+ * The Sales workspace has a "record payment" action that predates the ledger. On
  * its own it would now leave receivables permanently debited: the invoice posts
  * on issue, but nothing clears it. This posts the matching receipt — bank up,
  * receivables down — so the two sides meet.

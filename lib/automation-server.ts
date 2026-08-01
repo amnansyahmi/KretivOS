@@ -141,10 +141,10 @@ export async function listAutomationData() {
 }
 
 function notificationHref(entityType: string) {
-  if (entityType === "invoice") return "/business?tab=sales";
-  if (entityType === "settlement") return "/business?tab=settlements";
-  if (entityType === "project") return "/business?tab=projects";
-  if (entityType === "opportunity") return "/business?tab=crm";
+  if (entityType === "invoice") return "/sales?tab=invoice";
+  if (entityType === "settlement") return "/sales?tab=settlements";
+  if (entityType === "project") return "/sales?tab=projects";
+  if (entityType === "opportunity") return "/sales?tab=crm";
   if (entityType === "knowledge") return "/knowledge";
   return undefined;
 }

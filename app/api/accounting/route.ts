@@ -404,7 +404,7 @@ export async function POST(request: NextRequest) {
     // ---- vendors ----------------------------------------------------------
     if (resource === "vendor") {
       const name = clean(data.name, 200);
-      if (!name) return NextResponse.json({ error: "A vendor name is required." }, { status: 400 });
+      if (!name) return NextResponse.json({ error: "A supplier name is required." }, { status: 400 });
 
       if (operation === "create") {
         const rows = await sql`
@@ -449,11 +449,11 @@ export async function POST(request: NextRequest) {
       if (operation === "create") {
         const vendorId = clean(data.vendorId, 100);
         const billDate = clean(data.billDate, 10);
-        if (!vendorId) return NextResponse.json({ error: "Select a vendor." }, { status: 400 });
+        if (!vendorId) return NextResponse.json({ error: "Select a supplier." }, { status: 400 });
         if (!isDate(billDate)) return NextResponse.json({ error: "A valid bill date is required." }, { status: 400 });
 
         const vendors = await sql`select id, name, payment_terms_days from vendors where id = ${vendorId} and organization_id = ${ORGANIZATION_ID}`;
-        if (!vendors.length) return NextResponse.json({ error: "Vendor was not found." }, { status: 404 });
+        if (!vendors.length) return NextResponse.json({ error: "Supplier was not found." }, { status: 404 });
 
         const totals = billTotals(arr(data.lines));
         if (toCents(totals.total) <= 0) return NextResponse.json({ error: "A bill needs at least one line with an amount." }, { status: 400 });
@@ -581,7 +581,7 @@ export async function POST(request: NextRequest) {
 
       if (vendorId) {
         const vendors = await sql`select id from vendors where id = ${vendorId} and organization_id = ${ORGANIZATION_ID}`;
-        if (!vendors.length) return NextResponse.json({ error: "Vendor was not found." }, { status: 404 });
+        if (!vendors.length) return NextResponse.json({ error: "Supplier was not found." }, { status: 404 });
       }
       if (customerId) {
         const customers = await sql`select id from customers where id = ${customerId} and organization_id = ${ORGANIZATION_ID}`;

@@ -486,28 +486,28 @@ function executeAction(action: AutomationAction, event: AutomationEvent, updated
       if (!invoice.dueDate || invoice.dueDate > date) continue;
       const id = `due-invoice-${invoice.id}-${date}`;
       if (notificationExists(notifications, id)) continue;
-      additions.push({ id, type: "Warning", title: `Invoice requires attention · ${customerName(business, invoice.customerId)}`, description: `${invoice.title} (${invoice.reference || "no reference"}) was due ${invoice.dueDate}.`, href: "/business?tab=sales", entityId: invoice.id, dueDate: invoice.dueDate, read: false, createdAt: now() });
+      additions.push({ id, type: "Warning", title: `Invoice requires attention · ${customerName(business, invoice.customerId)}`, description: `${invoice.title} (${invoice.reference || "no reference"}) was due ${invoice.dueDate}.`, href: "/sales?tab=invoice", entityId: invoice.id, dueDate: invoice.dueDate, read: false, createdAt: now() });
     }
 
     for (const settlement of business.settlements.filter((item) => item.status !== "Paid")) {
       if (!settlement.dueDate || settlement.dueDate > date) continue;
       const id = `due-settlement-${settlement.id}-${date}`;
       if (notificationExists(notifications, id)) continue;
-      additions.push({ id, type: "Warning", title: `Settlement due · ${customerName(business, settlement.customerId)}`, description: `${settlement.periodStart} to ${settlement.periodEnd} requires verification or payment.`, href: "/business?tab=settlements", entityId: settlement.id, dueDate: settlement.dueDate, read: false, createdAt: now() });
+      additions.push({ id, type: "Warning", title: `Settlement due · ${customerName(business, settlement.customerId)}`, description: `${settlement.periodStart} to ${settlement.periodEnd} requires verification or payment.`, href: "/sales?tab=settlements", entityId: settlement.id, dueDate: settlement.dueDate, read: false, createdAt: now() });
     }
 
     for (const project of business.projects.filter((item) => !["Completed", "On hold"].includes(item.status))) {
       if (!project.dueDate || project.dueDate < date || project.dueDate > upcoming) continue;
       const id = `due-project-${project.id}-${date}`;
       if (notificationExists(notifications, id)) continue;
-      additions.push({ id, type: "Reminder", title: `Project due soon · ${customerName(business, project.customerId)}`, description: `${project.name} is due ${project.dueDate} and is ${project.progress}% complete.`, href: "/business?tab=projects", entityId: project.id, dueDate: project.dueDate, read: false, createdAt: now() });
+      additions.push({ id, type: "Reminder", title: `Project due soon · ${customerName(business, project.customerId)}`, description: `${project.name} is due ${project.dueDate} and is ${project.progress}% complete.`, href: "/sales?tab=projects", entityId: project.id, dueDate: project.dueDate, read: false, createdAt: now() });
     }
 
     for (const opportunity of business.opportunities.filter((item) => !["Won", "Lost"].includes(item.stage))) {
       if (!opportunity.dueDate || opportunity.dueDate > date) continue;
       const id = `due-opportunity-${opportunity.id}-${date}`;
       if (notificationExists(notifications, id)) continue;
-      additions.push({ id, type: "Reminder", title: `CRM follow-up due · ${customerName(business, opportunity.customerId)}`, description: opportunity.nextAction || opportunity.title, href: "/business?tab=crm", entityId: opportunity.id, dueDate: opportunity.dueDate, read: false, createdAt: now() });
+      additions.push({ id, type: "Reminder", title: `CRM follow-up due · ${customerName(business, opportunity.customerId)}`, description: opportunity.nextAction || opportunity.title, href: "/sales?tab=crm", entityId: opportunity.id, dueDate: opportunity.dueDate, read: false, createdAt: now() });
     }
 
     if (additions.length) {

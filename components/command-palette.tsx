@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, Bot, Building2, CircleDollarSign, ClipboardCheck, Code2, FileText,
-  Library, Loader2, Palette, Search, Settings2, Sparkles, UsersRound, WandSparkles, Workflow,
+  Library, Loader2, Palette, Search, Settings2, ShoppingCart, Sparkles, UsersRound, WandSparkles, Workflow,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogTitle, VisuallyHidden,
@@ -26,10 +26,11 @@ type Hit = { id: string; type: string; title: string; subtitle: string; href: st
 
 const DESTINATIONS: Destination[] = [
   { label: "Command Centre", href: "/", group: "Company", icon: Sparkles, keywords: "home dashboard overview" },
-  { label: "Business", href: "/business?tab=overview", group: "Company", icon: Building2, keywords: "customers clients crm sales projects onboarding" },
+  { label: "Sales", href: "/sales?tab=overview", group: "Company", icon: Building2, keywords: "customers clients crm quotation order invoice receipt" },
   { label: "HR & Team", href: "/hr", group: "Company", icon: UsersRound, keywords: "hr people leave payroll attendance" },
   { label: "Approval Inbox", href: "/approvals", group: "Company", icon: ClipboardCheck, keywords: "approve pending" },
   { label: "Accounting", href: "/accounting", group: "Finance", icon: CircleDollarSign, keywords: "finance cash ledger money in out bills vendors reports settlements budget" },
+  { label: "Purchases", href: "/purchases", group: "Finance", icon: ShoppingCart, keywords: "expenses suppliers purchase invoice bills payment payable" },
   { label: "AI Studio", href: "/ai-studio", group: "Creative", icon: Bot, keywords: "chat ai prompts image generation" },
   { label: "Marketing Studio", href: "/?view=Marketing%20Studio", group: "Creative", icon: Sparkles, keywords: "marketing strategy content writer copywriting planner storyboard funnel campaigns" },
   { label: "Brand DNA", href: "/brands", group: "Creative", icon: Palette, keywords: "brand assets colours tone claims" },

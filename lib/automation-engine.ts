@@ -101,7 +101,7 @@ export const AUTOMATION_APPROVAL_REQUEST = "kretivos:automation-approval-request
 export const AUTOMATION_DATA_UPDATED = "kretivos:data-updated";
 
 export const TRIGGER_CATALOG: Array<{ id: AutomationTrigger; label: string; description: string; workspace: string }> = [
-  { id: "customer.created", label: "Customer created", description: "Runs after a new customer master record is saved.", workspace: "Business" },
+  { id: "customer.created", label: "Customer created", description: "Runs after a new customer master record is saved.", workspace: "Sales" },
   { id: "opportunity.won", label: "Opportunity marked Won", description: "Runs when a CRM opportunity moves into Won.", workspace: "CRM" },
   { id: "invoice.paid", label: "Invoice marked Paid", description: "Runs when an invoice changes to Paid.", workspace: "Finance" },
   { id: "settlement.paid", label: "Settlement marked Paid", description: "Runs when a weekly or client settlement is paid.", workspace: "Finance" },
@@ -139,7 +139,7 @@ export const DEFAULT_AUTOMATION_RECIPES: AutomationRecipe[] = [
     id: "auto-customer-foundation",
     name: "Customer foundation",
     description: "Provision the minimum KretivOS records required for every new customer.",
-    workspace: "Business",
+    workspace: "Sales",
     trigger: "customer.created",
     actions: ["create_onboarding", "create_onboarding_project", "create_customer_knowledge"],
     status: "Active",

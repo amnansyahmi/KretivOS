@@ -83,7 +83,7 @@ export default function ApprovalInboxPage() {
           id: `sales:${document.id}`, recordId: document.id, kind: "sales", source: "Sales",
           title: document.title, context: `${customerName(document.customerId)} · ${document.type}`,
           reference: document.reference || document.type, value: money(document.value), status: document.status,
-          createdAt: document.updatedAt || document.createdAt, href: "/business?tab=sales", approveLabel: "Approve", rejectLabel: "Reject", record: document,
+          createdAt: document.updatedAt || document.createdAt, href: "/sales?tab=sales", approveLabel: "Approve", rejectLabel: "Reject", record: document,
         });
       }
 
@@ -95,7 +95,7 @@ export default function ApprovalInboxPage() {
           title: settlement.status === "Draft" ? "Verify weekly settlement" : "Raise settlement invoice",
           context: customerName(settlement.customerId), reference: `${dateLabel(settlement.periodStart)} → ${dateLabel(settlement.periodEnd)}`,
           value: money(total), status: settlement.status, createdAt: settlement.updatedAt || settlement.createdAt,
-          href: "/business?tab=settlements", approveLabel: settlement.status === "Draft" ? "Verify" : "Create invoice", record: settlement,
+          href: "/sales?tab=settlements", approveLabel: settlement.status === "Draft" ? "Verify" : "Create invoice", record: settlement,
         });
       }
 

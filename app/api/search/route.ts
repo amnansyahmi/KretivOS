@@ -74,22 +74,22 @@ export async function GET(request: NextRequest) {
       ...customers.map((row: any) => ({
         id: `customer-${row.id}`, type: "Customer", title: row.name,
         subtitle: [row.industry, row.status].filter(Boolean).join(" · "),
-        href: "/business?tab=customers",
+        href: "/sales?tab=customers",
       })),
       ...opportunities.map((row: any) => ({
         id: `opportunity-${row.id}`, type: "Opportunity", title: row.title,
         subtitle: [row.customer_name, row.stage].filter(Boolean).join(" · "),
-        href: "/business?tab=crm",
+        href: "/sales?tab=crm",
       })),
       ...documents.map((row: any) => ({
         id: `document-${row.id}`, type: row.type || "Document", title: row.title,
         subtitle: [row.customer_name, row.reference, row.status].filter(Boolean).join(" · "),
-        href: "/business?tab=sales",
+        href: "/sales?tab=sales",
       })),
       ...projects.map((row: any) => ({
         id: `project-${row.id}`, type: "Project", title: row.name,
         subtitle: [row.customer_name || "Internal", row.status, `${row.progress}%`].filter(Boolean).join(" · "),
-        href: "/business?tab=projects",
+        href: "/sales?tab=projects",
       })),
       ...knowledge.map((row: any) => ({
         id: `knowledge-${row.id}`, type: "Knowledge", title: row.title,

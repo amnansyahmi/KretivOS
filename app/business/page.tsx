@@ -20,8 +20,8 @@ import { BUSINESS_STORAGE_KEY, CUSTOMER_STORAGE_KEY, businessId } from "@/lib/bu
 import { INDUSTRY_GROUPS } from "@/lib/industries";
 import { cn } from "@/lib/utils";
 
-type Tab = Exclude<BusinessTab, "overview">;
-type EditorState = { tab: Tab; record: any; isNew: boolean } | null;
+type ResourceTab = "customers" | "contacts" | "brands" | "channels" | "crm" | "sales" | "projects" | "onboarding";
+type EditorState = { tab: ResourceTab; record: any; isNew: boolean } | null;
 
 type Snapshot = {
   customers: any[];
@@ -42,11 +42,29 @@ const emptySnapshot: Snapshot = {
   documents: [], transactions: [], settlements: [], projects: [], onboardings: []
 };
 
-const resourceForTab: Record<Tab, string> = {
+const resourceForTab: Record<ResourceTab, string> = {
   customers: "customers", contacts: "contacts", brands: "brands", channels: "channels",
   crm: "crm", sales: "sales",
   projects: "projects", onboarding: "onboarding"
 };
+
+const DOCUMENT_TABS: Partial<Record<BusinessTab, string>> = {
+  "cash-sale": "Cash Sale",
+  quotation: "Quotation",
+  "sales-order": "Sales Order",
+  "delivery-order": "Delivery Order",
+  "proforma-invoice": "Proforma Invoice",
+  invoice: "Invoice",
+  receipt: "Receipt",
+  "credit-note": "Credit Note",
+};
+
+const DOCUMENT_TYPES = [
+  "Cash Sale", "Quotation", "Sales Order", "Delivery Order",
+  "Proforma Invoice", "Invoice", "Receipt", "Credit Note",
+];
+
+const isDocumentTab = (value: BusinessTab) => value === "sales" || Boolean(DOCUMENT_TABS[value]);
 
 const channelCategories = [
   "Social Media", "Video", "Messaging", "Owned Media", "Commerce", "Marketplace",
@@ -98,14 +116,13 @@ export default function BusinessOperationsPage() {
   }
 
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("tab") as BusinessTab | "finance" | "settlements" | null;
+    const requested = new URLSearchParams(window.location.search).get("tab") as BusinessTab | "finance" | null;
     // Finance moved into the Accounting app, where the same money is recorded
     // once on a real ledger. Existing links and bookmarks follow it rather than
     // landing on a tab that no longer exists.
     if (requested === "finance") { window.location.replace("/accounting?tab=transactions"); return; }
-    // Settlements are purely financial — units times a fee — so they moved to
-    // the app that owns money. Existing links follow rather than dead-ending.
-    if (requested === "settlements") { window.location.replace("/accounting?tab=settlements"); return; }
+    if (requested === "brands") { window.location.replace("/brands"); return; }
+    if (requested === "channels") { window.location.replace("/?view=Marketing%20Studio"); return; }
     if (requested && BUSINESS_NAV_ITEMS.some((item) => item.id === requested)) setTab(requested as BusinessTab);
     void loadData();
   }, []);
@@ -131,20 +148,25 @@ export default function BusinessOperationsPage() {
     return { pipeline, receivables, cash: income - expense, activeProjects: data.projects.filter((item) => item.status === "Active").length };
   }, [data]);
 
-  function openCreate(target: Tab = tab === "overview" ? "sales" : tab) {
-    if (!["customers", "channels"].includes(target) && data.customers.length === 0) {
+  function openCreate(target: BusinessTab = tab === "overview" ? "quotation" : tab) {
+    if (target === "settlements") {
+      window.location.href = "/accounting?tab=settlements";
+      return;
+    }
+    const resourceTab: ResourceTab = isDocumentTab(target) ? "sales" : target as ResourceTab;
+    if (!["customers", "channels"].includes(resourceTab) && data.customers.length === 0) {
       setNotice("Create a customer before adding linked records.");
       changeTab("customers");
       return;
     }
     const customerId = data.customers[0]?.id || "";
-    const defaults: Record<Tab, any> = {
+    const defaults: Record<ResourceTab, any> = {
       customers: { id: businessId("customer"), name: "", legalName: "", industry: "", status: "Lead", contactName: "", email: "", phone: "", notes: "" },
       contacts: { id: businessId("contact"), customerId, name: "", jobTitle: "", email: "", phone: "", isPrimary: false, notes: "" },
       brands: { id: businessId("brand"), customerId, name: "", description: "", status: "Active", websiteUrl: "" },
       channels: { id: businessId("channel"), name: "", category: "Social Media", status: "Active", description: "" },
       crm: { id: businessId("opp"), customerId, title: "", stage: "New", value: 0, probability: 25, nextAction: "", dueDate: today(), notes: "" },
-      sales: { id: businessId("doc"), customerId, type: "Quotation", title: "", reference: "", status: "Draft", value: 0, deliveryAmount: 0, issueDate: today(), dueDate: today(), notes: "" },
+      sales: { id: businessId("doc"), customerId, type: DOCUMENT_TABS[target] || "Quotation", title: "", reference: "", status: "Draft", value: 0, deliveryAmount: 0, issueDate: today(), dueDate: today(), notes: "" },
       projects: { id: businessId("project"), customerId, name: "", status: "Planning", progress: 0, budget: 0, dueDate: today(), owner: "Kretivco Team", notes: "" },
       onboarding: { id: businessId("onboarding"), customerId, blueprint: "General Client Onboarding", status: "Not started", targetLaunch: today(), notes: "", steps: [
         { id: businessId("step"), label: "Customer profile", done: false },
@@ -154,10 +176,10 @@ export default function BusinessOperationsPage() {
         { id: businessId("step"), label: "Launch checklist", done: false }
       ] }
     };
-    setEditor({ tab: target, record: defaults[target], isNew: true });
+    setEditor({ tab: resourceTab, record: defaults[resourceTab], isNew: true });
   }
 
-  function openEdit(target: Tab, record: any) {
+  function openEdit(target: ResourceTab, record: any) {
     setEditor({ tab: target, record: JSON.parse(JSON.stringify(record)), isNew: false });
   }
 
@@ -200,7 +222,7 @@ export default function BusinessOperationsPage() {
     }, editor.isNew ? "Record created in Neon." : "Record updated in Neon.");
   }
 
-  async function deleteRecord(target: Tab, id: string) {
+  async function deleteRecord(target: ResourceTab, id: string) {
     if (!window.confirm("Delete this record? Linked records may also be removed.")) return;
     await mutate({ operation: "delete", resource: resourceForTab[target], id }, "Record deleted from Neon.");
   }
@@ -226,14 +248,17 @@ export default function BusinessOperationsPage() {
       title={currentLabel}
       description={currentNavigation.description}
       onNavigate={changeTab}
-      onCreateQuotation={() => openCreate("sales")}
+      onCreateQuotation={() => openCreate("quotation")}
       onCreateCustomer={() => openCreate("customers")}
       badges={{
         crm: data.opportunities.filter((item) => !["Won", "Lost"].includes(item.stage)).length,
         sales: data.documents.filter((item) => ["Draft", "Overdue"].includes(item.status)).length,
+        invoice: data.documents.filter((item) => item.type === "Invoice" && ["Sent", "Approved", "Overdue"].includes(item.status)).length,
+        quotation: data.documents.filter((item) => item.type === "Quotation" && item.status === "Draft").length,
+        settlements: data.settlements.filter((item) => !["Paid", "Cancelled"].includes(item.status)).length,
         onboarding: data.onboardings.filter((item) => item.status !== "Completed").length,
       }}
-      actions={<div className="flex gap-2"><Button variant="outline" size="icon" className="bg-white" onClick={() => loadData()} disabled={loading} aria-label="Sync business data"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button><Button onClick={() => openCreate()}><Plus className="h-4 w-4" /><span className="hidden sm:inline">{tab === "overview" ? "New quotation" : `Add ${currentLabel}`}</span></Button></div>}
+      actions={<div className="flex gap-2"><Button variant="outline" size="icon" className="bg-white" onClick={() => loadData()} disabled={loading} aria-label="Sync sales data"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button><Button onClick={() => openCreate()}><Plus className="h-4 w-4" /><span className="hidden sm:inline">{tab === "overview" ? "New quotation" : tab === "settlements" ? "Manage settlements" : `Add ${currentLabel}`}</span></Button></div>}
     >
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="inline-flex items-center gap-2 text-xs text-muted-foreground"><Database className="h-4 w-4 text-emerald-600" /><span>{loading ? "Connecting to Neon…" : error ? "Database needs attention" : `Synced ${data.syncedAt ? new Date(data.syncedAt).toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" }) : "just now"}`}</span></div>
@@ -252,7 +277,7 @@ export default function BusinessOperationsPage() {
 
       {tab !== "overview" && <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex h-11 flex-1 items-center gap-2 rounded-xl border bg-white px-3"><Search className="h-4 w-4 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={`Search ${currentLabel.toLowerCase()}…`} /></div>
-        <Button onClick={() => openCreate()} className="w-full sm:w-auto"><Plus className="h-4 w-4" />Create new</Button>
+        <Button onClick={() => openCreate()} className="w-full sm:w-auto"><Plus className="h-4 w-4" />{tab === "settlements" ? "Manage in Accounting" : "Create new"}</Button>
       </div>}
 
       {loading && <Card className="bg-white/75"><CardContent className="p-12 text-center text-sm text-muted-foreground"><RefreshCw className="mx-auto mb-3 h-6 w-6 animate-spin" />Loading shared business records…</CardContent></Card>}
@@ -267,7 +292,9 @@ export default function BusinessOperationsPage() {
 
       {!loading && tab === "crm" && <div className="grid gap-4 lg:grid-cols-2">{data.opportunities.filter((item) => matches(item.title, item.stage, item.nextAction, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between gap-4"><div><div className="text-[10px] font-semibold uppercase tracking-wider text-[#ba5c42]">{customerName(item.customerId)}</div><h3 className="mt-1 font-semibold">{item.title}</h3></div><Badge value={item.stage} /></div><div className="mt-5 grid grid-cols-3 gap-2"><Mini label="Value" value={money(item.value)} /><Mini label="Probability" value={`${item.probability}%`} /><Mini label="Due" value={item.dueDate || "—"} /></div><div className="mt-4 rounded-lg bg-[#f7f4ed] p-3 text-xs"><span className="text-muted-foreground">Next action</span><div className="mt-1 font-medium">{item.nextAction || "Not set"}</div></div><RecordActions onEdit={() => openEdit("crm", item)} onDelete={() => deleteRecord("crm", item.id)} /></CardContent></Card>)}</div>}
 
-      {!loading && tab === "sales" && <div className="space-y-3">{data.documents.filter((item) => matches(item.title, item.reference, item.type, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_120px_140px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "No reference"}</div><div className="mt-1 font-semibold">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.type} · Due {item.dueDate || "—"}</div></div><Badge value={item.status} /><div className="font-semibold">{money(item.value)}</div><div className="flex flex-wrap gap-2 md:justify-end">{item.type === "Invoice" && item.status !== "Paid" && <Button size="sm" onClick={() => performAction("mark-document-paid", item.id, "Invoice paid and finance transaction created.")}>Mark paid</Button>}{PRINTABLE_TYPES.includes(item.type) && <Button variant="outline" size="icon" asChild title={`Print ${item.type.toLowerCase()}`}><Link href={`/print/${item.id}?back=${encodeURIComponent("/business?tab=sales")}`}><Printer className="h-4 w-4" /></Link></Button>}<Button variant="outline" size="icon" onClick={() => openEdit("sales", item)}><Pencil className="h-4 w-4" /></Button><Button variant="outline" size="icon" onClick={() => deleteRecord("sales", item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}</div>}
+      {!loading && isDocumentTab(tab) && <div className="space-y-3">{data.documents.filter((item) => (!DOCUMENT_TABS[tab] || item.type === DOCUMENT_TABS[tab]) && matches(item.title, item.reference, item.type, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_120px_140px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "No reference"}</div><div className="mt-1 font-semibold">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.type} · Due {item.dueDate || "—"}</div></div><Badge value={item.status} /><div className="font-semibold">{money(item.value)}</div><div className="flex flex-wrap gap-2 md:justify-end">{item.type === "Invoice" && item.status !== "Paid" && <Button size="sm" onClick={() => performAction("mark-document-paid", item.id, "Invoice paid and receipt posted to Accounting.")}>Record payment</Button>}{PRINTABLE_TYPES.includes(item.type) && <Button variant="outline" size="icon" asChild title={`Print ${item.type.toLowerCase()}`}><Link href={`/print/${item.id}?back=${encodeURIComponent(`/sales?tab=${tab}`)}`}><Printer className="h-4 w-4" /></Link></Button>}<Button variant="outline" size="icon" onClick={() => openEdit("sales", item)}><Pencil className="h-4 w-4" /></Button><Button variant="outline" size="icon" onClick={() => deleteRecord("sales", item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}</div>}
+
+      {!loading && tab === "settlements" && <div className="space-y-3">{data.settlements.filter((item) => matches(item.reference, item.status, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_130px_150px_auto] md:items-center"><div><div className="text-[10px] text-muted-foreground">{customerName(item.customerId)} · {item.reference || "Weekly settlement"}</div><div className="mt-1 font-semibold">{item.periodStart} to {item.periodEnd}</div><div className="mt-1 text-xs text-muted-foreground">{Number(item.units || 0).toLocaleString("en-MY")} units · RM{Number(item.feePerUnit || 0).toFixed(2)} per unit</div></div><Badge value={item.status} /><div className="font-semibold">{money(Number(item.units || 0) * Number(item.feePerUnit || 0) + Number(item.adReimbursement || 0) + Number(item.incentive || 0))}</div><Button variant="outline" asChild><Link href="/accounting?tab=settlements">Review</Link></Button></CardContent></Card>)}</div>}
 
       {!loading && tab === "projects" && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.projects.filter((item) => matches(item.name, item.status, item.owner, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between"><div><div className="text-[10px] uppercase tracking-wider text-[#ba5c42]">{item.customerId ? customerName(item.customerId) : "Internal"}</div><h3 className="mt-1 font-semibold">{item.name}</h3></div><Badge value={item.status} /></div><div className="mt-5 h-2 overflow-hidden rounded-full bg-[#ece8de]"><div className="h-full rounded-full bg-[#ba5c42]" style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }} /></div><div className="mt-2 text-xs text-muted-foreground">{item.progress}% · Due {item.dueDate || "—"}</div><div className="mt-4 grid grid-cols-2 gap-2"><Mini label="Owner" value={item.owner || "—"} /><Mini label="Budget" value={money(item.budget)} /></div><RecordActions onEdit={() => openEdit("projects", item)} onDelete={() => deleteRecord("projects", item.id)} /></CardContent></Card>)}</div>}
 
@@ -280,13 +307,14 @@ export default function BusinessOperationsPage() {
   );
 }
 
-function recordCount(data: Snapshot, tab: Tab) {
-  const map: Record<Tab, any[]> = {
+function recordCount(data: Snapshot, tab: BusinessTab) {
+  if (DOCUMENT_TABS[tab]) return data.documents.filter((item) => item.type === DOCUMENT_TABS[tab]).length;
+  const map: Partial<Record<BusinessTab, any[]>> = {
     customers: data.customers, contacts: data.contacts, brands: data.brands, channels: data.channels,
     crm: data.opportunities, sales: data.documents,
-    projects: data.projects, onboarding: data.onboardings
+    settlements: data.settlements, projects: data.projects, onboarding: data.onboardings
   };
-  return map[tab].length;
+  return map[tab]?.length ?? 0;
 }
 
 function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: { editor: NonNullable<EditorState>; customers: any[]; saving: boolean; onChange: (record: any) => void; onClose: () => void; onSave: () => void }) {
@@ -296,7 +324,7 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
   const inputClass = selectClass;
   const textareaClass = "min-h-28 w-full rounded-xl border border-[#d9d3c7] bg-white px-3 py-3 text-sm outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10";
 
-  return <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 sm:items-center sm:p-4"><Card className="max-h-[95vh] w-full max-w-4xl overflow-y-auto rounded-b-none bg-[#f7f4ed] shadow-2xl sm:rounded-xl"><CardHeader className="sticky top-0 z-10 flex-row items-start justify-between border-b bg-[#f7f4ed] p-4 sm:p-6"><div><CardTitle className="text-xl">{editor.isNew ? "Create" : "Edit"} {BUSINESS_NAV_ITEMS.find((item) => item.id === editor.tab)?.label}</CardTitle><p className="mt-1 text-xs text-muted-foreground">Changes are saved directly to Neon PostgreSQL.</p></div><Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="p-4 sm:p-6"><div className="grid gap-4 sm:grid-cols-2">
+  return <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/45 sm:items-center sm:p-4"><Card className="max-h-[95vh] w-full max-w-4xl overflow-y-auto rounded-b-none bg-[#f7f4ed] shadow-2xl sm:rounded-xl"><CardHeader className="sticky top-0 z-10 flex-row items-start justify-between border-b bg-[#f7f4ed] p-4 sm:p-6"><div><CardTitle className="text-xl">{editor.isNew ? "Create" : "Edit"} {editor.tab === "sales" ? editor.record.type : BUSINESS_NAV_ITEMS.find((item) => item.id === editor.tab)?.label}</CardTitle><p className="mt-1 text-xs text-muted-foreground">Changes are saved directly to Neon PostgreSQL.</p></div><Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button></CardHeader><CardContent className="p-4 sm:p-6"><div className="grid gap-4 sm:grid-cols-2">
     {!["customers", "channels"].includes(editor.tab) && <Field label="Customer"><select value={r.customerId} onChange={(event) => set("customerId", event.target.value)} className={selectClass}>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
 
     {editor.tab === "customers" && <>
@@ -344,7 +372,7 @@ function EditorModal({ editor, customers, saving, onChange, onClose, onSave }: {
     </>}
 
     {editor.tab === "sales" && <>
-      <Field label="Document type"><select value={r.type} onChange={(event) => set("type", event.target.value)} className={selectClass}>{["Proposal", "Quotation", "Sales Order", "Invoice", "Receipt", "Credit Note", "MoU"].map((value) => <option key={value}>{value}</option>)}</select></Field>
+      <Field label="Document type"><select value={r.type} onChange={(event) => set("type", event.target.value)} className={selectClass}>{DOCUMENT_TYPES.map((value) => <option key={value}>{value}</option>)}</select></Field>
       <Field label="Status"><select value={r.status} onChange={(event) => set("status", event.target.value)} className={selectClass}>{["Draft", "Sent", "Approved", "Paid", "Overdue", "Cancelled"].map((value) => <option key={value}>{value}</option>)}</select></Field>
       <Field label="Title" wide><input value={r.title} onChange={(event) => set("title", event.target.value)} className={inputClass} /></Field>
       <Field label="Reference"><input value={r.reference} onChange={(event) => set("reference", event.target.value)} className={inputClass} /></Field>
@@ -379,7 +407,7 @@ function Field({ label, wide, children }: { label: string; wide?: boolean; child
   const control = isValidElement<{ value?: unknown; onChange?: (event: any) => void }>(children) ? children : null;
   const value = typeof control?.props.value === "string" ? control.props.value : "";
   const canImprove = control !== null && isTextField(control.type) && typeof control.props.onChange === "function";
-  return <div className={cn("block text-sm font-medium", wide && "sm:col-span-2")}><div className="mb-2 flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS business record. Preserve customer names, commercial values, dates, references and commitments." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div>{children}</div>;
+  return <div className={cn("block text-sm font-medium", wide && "sm:col-span-2")}><div className="mb-2 flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS sales record. Preserve customer names, commercial values, dates, references and commitments." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div>{children}</div>;
 }
 
 function Stat({ label, value, note }: { label: string; value: string; note: string }) {

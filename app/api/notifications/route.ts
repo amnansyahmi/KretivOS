@@ -23,13 +23,13 @@ const clean = (value: unknown) => String(value ?? "").trim();
 /** Resolves a notification to the workspace that can act on it. */
 function href(entityType: string, entityId: string) {
   const routes: Record<string, string> = {
-    invoice: "/business?tab=sales",
-    sales: "/business?tab=sales",
-    settlement: "/business?tab=settlements",
-    project: "/business?tab=projects",
-    opportunity: "/business?tab=crm",
-    customer: "/business?tab=customers",
-    onboarding: "/business?tab=onboarding",
+    invoice: "/sales?tab=invoice",
+    sales: "/sales?tab=sales",
+    settlement: "/sales?tab=settlements",
+    project: "/sales?tab=projects",
+    opportunity: "/sales?tab=crm",
+    customer: "/sales?tab=customers",
+    onboarding: "/sales?tab=onboarding",
     knowledge: "/knowledge",
     automation: "/automations",
     approval: "/approvals",

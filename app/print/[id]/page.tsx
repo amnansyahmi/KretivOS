@@ -24,7 +24,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
   const requestedBack = search.get("back") || "";
   const back = requestedBack.startsWith("/") && !requestedBack.startsWith("//")
     ? requestedBack
-    : "/business?tab=sales";
+    : "/sales?tab=sales";
 
   const [model, setModel] = useState<PrintModel | null>(null);
   const [warning, setWarning] = useState<string | null>(null);

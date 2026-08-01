@@ -8,7 +8,7 @@ import {
   Calculator, Database, FileText, Film, GitBranch,
   HandCoins, LayoutDashboard, Library, Megaphone, Menu, MessageSquareText,
   MonitorSmartphone, MoreHorizontal, Palette, PanelLeftClose, PanelLeftOpen,
-  Plus, Presentation, Receipt, RefreshCw, Search, Send, Settings2,
+  Plus, Presentation, Receipt, RefreshCw, Search, Send, Settings2, ShoppingCart,
   Sparkles, Target, TrendingUp, UsersRound, WandSparkles, Workflow, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,11 +36,12 @@ type NavGroup = { label: string; items: NavItem[] };
 const navGroups: NavGroup[] = [
   { label: "Company", items: [
     { name: "Command Centre", icon: LayoutDashboard, view: "Command Centre" },
-    { name: "Business", icon: Building2, href: "/business?tab=overview" },
+    { name: "Sales", icon: Building2, href: "/sales?tab=overview" },
     { name: "HR & Team", icon: UsersRound, href: "/hr" },
     { name: "Approval Inbox", icon: ClipboardCheck, href: "/approvals" },
   ]},
   { label: "Finance", items: [
+    { name: "Purchases", icon: ShoppingCart, href: "/purchases" },
     { name: "Accounting", icon: Calculator, href: "/accounting" },
   ]},
   { label: "Creative Studio", items: [
@@ -324,7 +325,7 @@ function CommandCentre() {
   const today = new Date().toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return <div>
-    <PageHead eyebrow={today} title={`${greeting}, Kretivco`} description="Everything requiring attention across clients, revenue, delivery, marketing and technology—drawn live from the shared Neon workspace." action={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={reload} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Sync</Button><Button asChild><Link href="/business?tab=sales"><Plus className="h-4 w-4" />New document</Link></Button></div>} />
+    <PageHead eyebrow={today} title={`${greeting}, Kretivco`} description="Everything requiring attention across clients, revenue, delivery, marketing and technology—drawn live from the shared Neon workspace." action={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={reload} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Sync</Button><Button asChild><Link href="/sales?tab=quotation"><Plus className="h-4 w-4" />New quotation</Link></Button></div>} />
     <DataNotice loading={loading} error={error} onRetry={reload} />
 
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -356,7 +357,7 @@ function CommandCentre() {
         </div>
       </div></CardContent></Card>
 
-      <Card className="bg-white/75"><CardHeader className="flex-row items-center justify-between"><div><CardTitle>Today’s queue</CardTitle><p className="mt-1 text-xs text-muted-foreground">Soonest deadlines across KretivOS</p></div><Link href="/business?tab=crm" className="text-xs font-medium">View all</Link></CardHeader><CardContent className="space-y-3">
+      <Card className="bg-white/75"><CardHeader className="flex-row items-center justify-between"><div><CardTitle>Today’s queue</CardTitle><p className="mt-1 text-xs text-muted-foreground">Soonest deadlines across KretivOS</p></div><Link href="/sales?tab=crm" className="text-xs font-medium">View all</Link></CardHeader><CardContent className="space-y-3">
         {loading && <RowSkeleton rows={3} />}
         {queue.length === 0 && !loading && <p className="py-6 text-center text-sm text-muted-foreground">Nothing is waiting. Add an opportunity or document to populate this queue.</p>}
         {queue.map(item => { const due = dueLabel(item.date); return <div key={item.id} className="rounded-lg border bg-white p-3">
@@ -367,9 +368,9 @@ function CommandCentre() {
     </div>
 
     <div className="mt-5 grid gap-5 lg:grid-cols-3">
-      <Card className="bg-white/75 lg:col-span-2"><CardHeader className="flex-row items-center justify-between"><CardTitle>Client pulse</CardTitle><Link href="/business?tab=customers" className="text-xs font-medium">All customers</Link></CardHeader><CardContent className="grid gap-4 md:grid-cols-3">
-        {clients.length === 0 && !loading && <p className="py-6 text-center text-sm text-muted-foreground md:col-span-3">No active customers yet. Create one in the Business Workspace.</p>}
-        {clients.map(c => <Link key={c.id} href="/business?tab=customers" className="rounded-xl border bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md">
+      <Card className="bg-white/75 lg:col-span-2"><CardHeader className="flex-row items-center justify-between"><CardTitle>Client pulse</CardTitle><Link href="/sales?tab=customers" className="text-xs font-medium">All customers</Link></CardHeader><CardContent className="grid gap-4 md:grid-cols-3">
+        {clients.length === 0 && !loading && <p className="py-6 text-center text-sm text-muted-foreground md:col-span-3">No active customers yet. Create one in Sales.</p>}
+        {clients.map(c => <Link key={c.id} href="/sales?tab=customers" className="rounded-xl border bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md">
           <div className="flex items-center justify-between"><div className="truncate font-semibold">{c.name}</div><ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" /></div>
           <div className="mt-1 truncate text-xs text-muted-foreground">{c.industry || "Industry not set"}</div>
           <div className="mt-5 text-lg font-semibold">{money(c.value)}</div>
@@ -379,9 +380,9 @@ function CommandCentre() {
       </CardContent></Card>
       <CashOutlook />
       <Card className="bg-white/75"><CardHeader><CardTitle>Quick create</CardTitle></CardHeader><CardContent className="grid grid-cols-2 gap-2">{[
-        [FileText, "Quotation", "/business?tab=sales"], [MessageSquareText, "Opportunity", "/business?tab=crm"],
+        [FileText, "Quotation", "/sales?tab=quotation"], [MessageSquareText, "Opportunity", "/sales?tab=crm"],
         [Clapperboard, "Funnel", "/funnels"], [Megaphone, "Brand DNA", "/brands"],
-        [Building2, "Customer", "/business?tab=customers"], [Workflow, "Automation", "/automations"]
+        [Building2, "Customer", "/sales?tab=customers"], [Workflow, "Automation", "/automations"]
       ].map(([Icon, label, href]: any) => <Link key={label} href={href} className="rounded-lg border bg-white p-3 text-left text-xs font-medium hover:bg-[#f7f4ed]"><Icon className="mb-3 h-4 w-4" />{label}</Link>)}</CardContent></Card>
     </div>
   </div>;
@@ -530,7 +531,7 @@ function Approvals() {
     {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
     {failure && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{failure}</span><button onClick={() => setFailure("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
-    {!loading && items.length === 0 && <Empty title="Nothing is waiting for a decision" description="Draft or sent sales documents, unverified settlements and pending leave requests all appear here automatically." action={<Button asChild variant="outline" className="bg-white"><Link href="/business?tab=sales">Open Sales</Link></Button>} />}
+    {!loading && items.length === 0 && <Empty title="Nothing is waiting for a decision" description="Draft or sent sales documents, unverified settlements and pending leave requests all appear here automatically." action={<Button asChild variant="outline" className="bg-white"><Link href="/sales?tab=sales">Open Sales</Link></Button>} />}
 
     <div className="space-y-3">{items.map(item => <Card key={item.id} className="bg-white/80"><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center">
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#eee9df]"><ClipboardCheck className="h-5 w-5" /></div>
@@ -1043,7 +1044,7 @@ function Technology() {
 
 function Settings() {
   const cards: [any, string, string, string][] = [
-    [Building2, "Company profile", "Kretivco Mediaworks, registration, address and signatories", "/business?tab=customers"],
+    [Building2, "Company profile", "Kretivco Mediaworks, registration, address and signatories", "/sales?tab=customers"],
     [FileText, "Documents", "AI-assisted proposals, quotations, invoices, memos and agreements", "/documents"],
     [UsersRound, "HRMS", "People, attendance, leave, onboarding, performance and learning", "/hr"],
     [Palette, "Brand DNA", "Colours, typography, tone and approved claims per brand", "/brands"],

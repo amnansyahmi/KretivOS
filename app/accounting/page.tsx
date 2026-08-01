@@ -10,6 +10,7 @@
  */
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, Camera, Check, ChevronRight, CircleDollarSign,
@@ -26,12 +27,15 @@ import { DateInput } from "@/components/date-input";
 import {
   AccountingShell, ACCOUNTING_NAV_ITEMS, type AccountingTab,
 } from "@/components/accounting-shell";
+import {
+  PurchasesShell, PURCHASES_NAV_ITEMS, type PurchasesTab,
+} from "@/components/purchases-shell";
 import { BudgetForecast } from "@/components/budget-forecast";
 import { fromCents, toCents } from "@/lib/accounting-math";
 import { isoDate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
-type Tab = AccountingTab;
+type Tab = AccountingTab | PurchasesTab;
 
 const money = (value: number, currency = "RM") =>
   `${value < 0 ? "−" : ""}${currency}${Math.abs(Number(value) || 0).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -51,6 +55,8 @@ const EMPTY: Snapshot = {
 };
 
 export default function AccountingPage() {
+  const pathname = usePathname();
+  const purchasesMode = pathname === "/purchases";
   const [tab, setTab] = useState<Tab>("overview");
   const [data, setData] = useState<Snapshot>(EMPTY);
   const [loading, setLoading] = useState(true);
@@ -77,8 +83,14 @@ export default function AccountingPage() {
   // tab they name rather than always landing on the overview.
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
-    if (requested && ACCOUNTING_NAV_ITEMS.some((item) => item.id === requested)) setTab(requested as Tab);
-  }, []);
+    const items = purchasesMode ? PURCHASES_NAV_ITEMS : ACCOUNTING_NAV_ITEMS;
+    if (!purchasesMode && requested && PURCHASES_NAV_ITEMS.some((item) => item.id === requested) && !ACCOUNTING_NAV_ITEMS.some((item) => item.id === requested)) {
+      window.location.replace(`/purchases?tab=${requested}`);
+      return;
+    }
+    if (requested && items.some((item) => item.id === requested)) setTab(requested as Tab);
+    else setTab("overview");
+  }, [purchasesMode]);
 
   /** Shared writer: every mutation returns a fresh snapshot, so state stays true. */
   const submit = useCallback(async (body: any, successMessage: string) => {
@@ -120,7 +132,8 @@ export default function AccountingPage() {
     bills: data.bills.filter((bill: any) => !["Paid", "Void", "Draft"].includes(bill.status) && bill.aging !== "current").length || undefined,
   }), [data]);
 
-  const current = ACCOUNTING_NAV_ITEMS.find((item) => item.id === tab) ?? ACCOUNTING_NAV_ITEMS[0];
+  const navigationItems = purchasesMode ? PURCHASES_NAV_ITEMS : ACCOUNTING_NAV_ITEMS;
+  const current = navigationItems.find((item) => item.id === tab) ?? navigationItems[0];
 
   function navigate(next: Tab) {
     setTab(next);
@@ -130,23 +143,18 @@ export default function AccountingPage() {
     window.history.replaceState({}, "", url);
   }
 
-  return <AccountingShell
-    activeId={tab}
-    title={current.label}
-    description={current.description}
-    badges={badges}
-    onNavigate={navigate}
-    actions={<Button variant="outline" className="bg-white" onClick={() => void load()} disabled={loading}>
+  const actions = <Button variant="outline" className="bg-white" onClick={() => void load()} disabled={loading}>
       <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
       <span className="hidden sm:inline">Sync</span>
-    </Button>}
-  >
+    </Button>;
+
+  const content = <>
     {error && <div className="mb-5 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
       <span>{error}</span>
       <Button variant="outline" size="sm" className="bg-white" onClick={() => void load()}><RefreshCw className="h-3.5 w-3.5" />Retry</Button>
     </div>}
 
-    {!loading && Number(data.unpostedInvoices?.count) > 0 && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
+    {!purchasesMode && !loading && Number(data.unpostedInvoices?.count) > 0 && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
       <AlertTriangle className="h-4 w-4 shrink-0" />
       <span className="flex-1">
         {data.unpostedInvoices!.count} issued sales document{data.unpostedInvoices!.count === 1 ? " is" : "s are"} not on the ledger
@@ -159,18 +167,42 @@ export default function AccountingPage() {
       >Post them now</Button>
     </div>}
 
-    {tab === "overview" && <Overview data={data} totals={totals} loading={loading} onGo={navigate} />}
+    {tab === "overview" && (purchasesMode
+      ? <PurchaseOverview data={data} totals={totals} loading={loading} onGo={navigate} />
+      : <Overview data={data} totals={totals} loading={loading} onGo={navigate} />)}
     {tab === "capture" && <CaptureQueue accounts={data.accounts} vendors={data.vendors} onPosted={load} submit={submit} />}
     {tab === "transactions" && <Transactions data={data} loading={loading} submit={submit} />}
     {tab === "bills" && <Bills data={data} loading={loading} submit={submit} />}
     {tab === "vendors" && <Vendors data={data} loading={loading} submit={submit} />}
-    {tab === "payments" && <Payments data={data} loading={loading} submit={submit} />}
+    {tab === "payments" && <Payments data={data} loading={loading} submit={submit} directionLock={purchasesMode ? "out" : undefined} />}
     {tab === "settlements" && <Settlements data={data} loading={loading} submit={submit} />}
     {tab === "reports" && <Reports />}
     {tab === "journal" && <Journal data={data} submit={submit} />}
     {tab === "forecast" && <BudgetForecast />}
     {tab === "accounts" && <Accounts data={data} submit={submit} />}
-  </AccountingShell>;
+  </>;
+
+  if (purchasesMode) {
+    return <PurchasesShell
+      activeId={tab as PurchasesTab}
+      title={current.label}
+      description={current.description}
+      badges={badges}
+      onNavigate={navigate}
+      onNewExpense={() => navigate("capture")}
+      onNewBill={() => navigate("bills")}
+      actions={actions}
+    >{content}</PurchasesShell>;
+  }
+
+  return <AccountingShell
+    activeId={tab as AccountingTab}
+    title={current.label}
+    description={current.description}
+    badges={badges}
+    onNavigate={navigate}
+    actions={actions}
+  >{content}</AccountingShell>;
 }
 
 function Stat({ label, value, note, icon: Icon, tone }: any) {
@@ -206,7 +238,7 @@ function Overview({ data, totals, loading, onGo }: any) {
       <Card className="bg-white/80">
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle>Due next</CardTitle>
-          <button onClick={() => onGo("bills")} className="text-xs font-medium">All bills</button>
+          <Link href="/purchases?tab=bills" className="text-xs font-medium">Open Purchases</Link>
         </CardHeader>
         <CardContent className="space-y-3">
           {loading && <RowSkeleton rows={3} />}
@@ -226,10 +258,71 @@ function Overview({ data, totals, loading, onGo }: any) {
         <CardHeader><CardTitle>Start here</CardTitle></CardHeader>
         <CardContent className="grid gap-2">
           {[
-            [Camera, "Photograph a receipt", "capture"],
-            [Receipt, "Record a bill", "bills"],
-            [Landmark, "Record a payment", "payments"],
-            [TrendingUp, "See the reports", "reports"],
+            [Landmark, "Record cash movement", "transactions"],
+            [HandCoins, "Review settlements", "settlements"],
+            [TrendingUp, "Financial reports", "reports"],
+            [ScrollText, "Chart of accounts", "accounts"],
+          ].map(([Icon, label, target]: any) => <button
+            key={label}
+            onClick={() => onGo(target)}
+            className="flex items-center gap-3 rounded-lg border bg-white p-3 text-left text-sm hover:bg-[#f7f4ed]"
+          ><Icon className="h-4 w-4 text-[#ba5c42]" />{label}<ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" /></button>)}
+        </CardContent>
+      </Card>
+    </div>
+  </div>;
+}
+
+function PurchaseOverview({ data, totals, loading, onGo }: any) {
+  const openBills = data.bills.filter((bill: any) => !["Paid", "Void", "Draft"].includes(bill.status));
+  const dueSoon = [...openBills]
+    .sort((a: any, b: any) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"))
+    .slice(0, 6);
+  const thisMonth = today().slice(0, 7);
+  const monthSpend = data.payments
+    .filter((payment: any) => payment.direction === "out" && String(payment.paymentDate).startsWith(thisMonth))
+    .reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0);
+
+  return <div className="space-y-5">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {loading
+        ? Array.from({ length: 4 }, (_, index) => <StatSkeleton key={index} />)
+        : <>
+          <Stat label="Owed to suppliers" value={money(totals.payable)} note={`${openBills.length} open purchase invoices`} icon={TrendingDown} />
+          <Stat label="Overdue" value={money(totals.overdue)} note="Past the supplier due date" icon={AlertTriangle} tone={totals.overdue > 0 ? "bad" : undefined} />
+          <Stat label="Paid this month" value={money(monthSpend)} note="Supplier payments in the current month" icon={Landmark} />
+          <Stat label="Active suppliers" value={String(data.vendors.filter((vendor: any) => vendor.status !== "Inactive").length)} note="Available for new purchases" icon={Receipt} />
+        </>}
+    </div>
+
+    <div className="grid gap-5 lg:grid-cols-[1.3fr_.7fr]">
+      <Card className="bg-white/80">
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle>Payments due next</CardTitle>
+          <button onClick={() => onGo("bills")} className="text-xs font-medium">All purchase invoices</button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loading && <RowSkeleton rows={3} />}
+          {!loading && !dueSoon.length && <p className="py-8 text-center text-sm text-muted-foreground">Nothing is owed to suppliers.</p>}
+          {dueSoon.map((bill: any) => <div key={bill.id} className="flex items-center gap-3 rounded-lg border bg-white p-3">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{bill.vendorName}</div>
+              <div className="truncate text-[11px] text-muted-foreground">{bill.billNumber || "No invoice number"} · due {bill.dueDate || "—"}</div>
+            </div>
+            {bill.aging !== "current" && <span className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-medium text-red-700">{bill.aging}</span>}
+            <div className="text-sm font-semibold">{money(bill.balance)}</div>
+          </div>)}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-white/80">
+        <CardHeader><CardTitle>Purchase flow</CardTitle></CardHeader>
+        <CardContent className="grid gap-2">
+          {[
+            [Camera, "Upload a receipt", "capture"],
+            [Receipt, "Record purchase invoice", "bills"],
+            [Landmark, "Pay supplier", "payments"],
+            [FileText, "Review suppliers", "vendors"],
           ].map(([Icon, label, target]: any) => <button
             key={label}
             onClick={() => onGo(target)}
@@ -608,7 +701,7 @@ function Bills({ data, loading, submit }: any) {
     <div className="flex justify-end"><Button onClick={() => setOpen(!open)}><Plus className="h-4 w-4" />Record a bill</Button></div>
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
-      <label className="text-xs font-medium">Vendor
+      <label className="text-xs font-medium">Supplier
         <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
           <option value="">Select…</option>
           {data.vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
@@ -620,7 +713,7 @@ function Bills({ data, loading, submit }: any) {
       <label className="text-xs font-medium">Bill date
         <DateInput value={form.billDate} onChange={(event) => set({ billDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
-      <label className="text-xs font-medium">Due date <span className="text-muted-foreground">(defaults to the vendor's terms)</span>
+      <label className="text-xs font-medium">Due date <span className="text-muted-foreground">(defaults to the supplier's terms)</span>
         <DateInput value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Expense account
@@ -669,15 +762,15 @@ function Vendors({ data, loading, submit }: any) {
   const set = (patch: any) => setForm((current) => ({ ...current, ...patch }));
 
   async function create() {
-    const result = await submit({ resource: "vendor", operation: "create", data: form }, "Vendor added.");
+    const result = await submit({ resource: "vendor", operation: "create", data: form }, "Supplier added.");
     if (result) { setOpen(false); setForm({ name: "", tin: "", sstNumber: "", email: "", phone: "", paymentTermsDays: "30", defaultExpenseAccountId: "" }); }
   }
 
   return <div className="space-y-5">
-    <div className="flex justify-end"><Button onClick={() => setOpen(!open)}><Plus className="h-4 w-4" />Add a vendor</Button></div>
+    <div className="flex justify-end"><Button onClick={() => setOpen(!open)}><Plus className="h-4 w-4" />Add a supplier</Button></div>
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
-      <label className="text-xs font-medium">Name
+      <label className="text-xs font-medium">Supplier name
         <input value={form.name} onChange={(event) => set({ name: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">TIN <span className="text-muted-foreground">(needed for e-Invoice)</span>
@@ -698,12 +791,12 @@ function Vendors({ data, loading, submit }: any) {
           {data.accounts.filter((a: any) => a.type === "expense").map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
         </select>
       </label>
-      <div className="md:col-span-2"><Button onClick={create}>Save vendor</Button></div>
+      <div className="md:col-span-2"><Button onClick={create}>Save supplier</Button></div>
     </CardContent></Card>}
 
     <div className="grid gap-3 md:grid-cols-2">
       {loading && <RowSkeleton rows={4} />}
-      {!loading && !data.vendors.length && <Card className="bg-white/80 md:col-span-2"><CardContent className="p-12 text-center text-sm text-muted-foreground">No vendors yet. Add the suppliers you pay.</CardContent></Card>}
+      {!loading && !data.vendors.length && <Card className="bg-white/80 md:col-span-2"><CardContent className="p-12 text-center text-sm text-muted-foreground">No suppliers yet. Add the first supplier you purchase from.</CardContent></Card>}
       {data.vendors.map((vendor: any) => <Card key={vendor.id} className="bg-white/80"><CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -717,12 +810,13 @@ function Vendors({ data, loading, submit }: any) {
   </div>;
 }
 
-function Payments({ data, loading, submit }: any) {
+function Payments({ data, loading, submit, directionLock }: any) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" });
+  const [form, setForm] = useState({ direction: directionLock || "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" });
   const set = (patch: any) => setForm((current) => ({ ...current, ...patch }));
 
   const openBills = data.bills.filter((bill: any) => bill.vendorId === form.vendorId && Number(bill.balance) > 0);
+  const visiblePayments = directionLock ? data.payments.filter((payment: any) => payment.direction === directionLock) : data.payments;
 
   async function create() {
     const allocations = form.billId ? [{ billId: form.billId, amount: Number(form.amount) }] : [];
@@ -730,19 +824,19 @@ function Payments({ data, loading, submit }: any) {
       resource: "payment", operation: "create",
       data: { ...form, amount: Number(form.amount), allocations },
     }, "Payment recorded and posted.");
-    if (result) { setOpen(false); setForm({ direction: "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" }); }
+    if (result) { setOpen(false); setForm({ direction: directionLock || "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" }); }
   }
 
   return <div className="space-y-5">
     <div className="flex justify-end"><Button onClick={() => setOpen(!open)}><Plus className="h-4 w-4" />Record a payment</Button></div>
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
-      <label className="text-xs font-medium">Direction
+      {!directionLock && <label className="text-xs font-medium">Direction
         <select value={form.direction} onChange={(event) => set({ direction: event.target.value, vendorId: "", customerId: "", billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
           <option value="out">Money out — paying a supplier</option>
           <option value="in">Money in — receiving from a client</option>
         </select>
-      </label>
+      </label>}
       <label className="text-xs font-medium">Date
         <DateInput value={form.paymentDate} onChange={(event) => set({ paymentDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
@@ -752,7 +846,7 @@ function Payments({ data, loading, submit }: any) {
           {data.accounts.filter((a: any) => a.isBank).map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
         </select>
       </label>
-      {form.direction === "out" && <label className="text-xs font-medium">Vendor
+      {form.direction === "out" && <label className="text-xs font-medium">Supplier
         <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value, billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
           <option value="">Select…</option>
           {data.vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
@@ -781,8 +875,8 @@ function Payments({ data, loading, submit }: any) {
 
     <div className="space-y-3">
       {loading && <RowSkeleton rows={4} />}
-      {!loading && !data.payments.length && <Card className="bg-white/80"><CardContent className="p-12 text-center text-sm text-muted-foreground">No payments recorded yet.</CardContent></Card>}
-      {data.payments.map((payment: any) => <Card key={payment.id} className="bg-white/80"><CardContent className="flex items-center gap-3 p-4">
+      {!loading && !visiblePayments.length && <Card className="bg-white/80"><CardContent className="p-12 text-center text-sm text-muted-foreground">No payments recorded yet.</CardContent></Card>}
+      {visiblePayments.map((payment: any) => <Card key={payment.id} className="bg-white/80"><CardContent className="flex items-center gap-3 p-4">
         <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", payment.direction === "out" ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600")}>
           {payment.direction === "out" ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />}
         </div>
@@ -794,7 +888,7 @@ function Payments({ data, loading, submit }: any) {
           {payment.direction === "out" ? "−" : "+"}{money(payment.amount)}
         </div>
         {payment.direction === "in" && payment.customerId && <Button variant="outline" size="icon" asChild title="Print receipt">
-          <Link href={`/print/${payment.id}?kind=receipt&back=${encodeURIComponent("/accounting?tab=payments")}`}><Printer className="h-4 w-4" /></Link>
+          <Link href={`/print/${payment.id}?kind=receipt&back=${encodeURIComponent(directionLock ? "/purchases?tab=payments" : "/accounting?tab=payments")}`}><Printer className="h-4 w-4" /></Link>
         </Button>}
       </CardContent></Card>)}
     </div>
@@ -1358,7 +1452,7 @@ function Transactions({ data, loading, submit }: any) {
 /**
  * Weekly settlements — Kretivco's own income under a client MoU.
  *
- * Created and edited here rather than in the Business workspace, because a
+ * Created and edited here rather than in the Sales workspace, because a
  * settlement is units times a fee plus reimbursement and incentive: arithmetic
  * on money with no workflow outside it. Splitting the editor from the ledger
  * status meant checking one screen and correcting on another.
