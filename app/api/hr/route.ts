@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { createPinCredential, HRAuthError, publicSession, requireHRSession, roleFromMetadata, type HRSession } from "@/lib/hr-auth";
 import { mutateWorkspaceState, WorkspaceConflictError } from "@/lib/workspace-state";
+import { postPayrollAccrual, postPayrollPayment, payrollAlreadyPosted, toPayrollRecord } from "@/lib/payroll-posting";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -155,6 +156,45 @@ async function notify(title: string, body: string, entityType: string, entityId:
       values (${ORGANIZATION_ID}, ${userId || null}, ${title}, ${body}, 'hr', 'Unread', ${entityType}, ${entityId})
     `;
   } catch {}
+}
+
+/**
+ * Sends closed and paid payroll to the ledger.
+ *
+ * Staff cost is the largest expense a small agency has and none of it used to
+ * reach the accounts, so the profit and loss understated costs by the entire
+ * wage bill and EPF, SOCSO, EIS and PCB liabilities did not exist at all.
+ *
+ * Never throws: closing payroll must not fail because accounting is unavailable
+ * or the period is closed. The payroll stays unposted and retryable, and the
+ * reason comes back to the caller.
+ */
+async function recordPayrollOnLedger(pending: { record: any; action: string } | null, userId: string) {
+  if (!pending) return null;
+
+  const record = toPayrollRecord(pending.record);
+  if (!record.id) return null;
+
+  const stage = pending.action === "close" ? "payroll" : "payroll_payment";
+  if (await payrollAlreadyPosted(record.id, stage)) return null;
+
+  let employeeName = "Team member";
+  try {
+    const rows = await getDatabase()`
+      select display_name from users where id = ${record.employeeId} and organization_id = ${ORGANIZATION_ID} limit 1
+    `;
+    if (rows[0]?.display_name) employeeName = String(rows[0].display_name);
+  } catch {
+    // The name is only a memo; an unreadable one must not stop the posting.
+  }
+
+  const outcome = pending.action === "close"
+    ? await postPayrollAccrual(record, employeeName, { createdBy: userId })
+    : await postPayrollPayment(record, employeeName, { createdBy: userId });
+
+  if (outcome.status === "posted") return { posted: true, entryId: outcome.entryId };
+  if (outcome.status === "failed") return { posted: false, error: outcome.reason };
+  return null;
 }
 
 /**
@@ -411,6 +451,10 @@ export async function POST(request: NextRequest) {
     }
 
     const defer = deferredEffects();
+    // Posting is a side effect, and the mutation below can re-run on a write
+    // conflict. What to post is recorded here and acted on after the state has
+    // actually committed, the same way notifications and audits are deferred.
+    let payrollToPost: { record: any; action: string } | null = null;
     // Re-run against fresh state if anyone commits first. Everything inside is
     // side-effect free: notifications and audits are queued, and the read-only
     // `select users` lookups are safe to repeat.
@@ -633,13 +677,15 @@ export async function POST(request: NextRequest) {
         if (action === "reopen" && !["Closed", "Paid"].includes(existing.status)) throw new Error("Only closed or paid payroll can be reopened.");
         const updated = { ...existing, status: action === "close" ? "Closed" : action === "reopen" ? "Draft" : "Paid", paidAt: action === "mark_paid" ? new Date().toISOString() : existing.paidAt, updatedAt: new Date().toISOString() };
         state.payroll = list.map((item: any) => item.id === id ? updated : item);
+        payrollToPost = ["close", "mark_paid"].includes(action) ? { record: updated, action } : null;
         defer.audit(`hr.payroll.${action}`, "hr_payroll", id, updated, session.userId);
         defer.notify(action === "mark_paid" ? "Payroll marked paid" : `Payroll ${updated.status.toLowerCase()}`, `Payroll for ${existing.period} is now ${updated.status.toLowerCase()}.`, "hr_payroll", id, existing.employeeId);
       } else throw new Error("Unsupported HR operation.");
     });
     await defer.flush();
+    const ledger = await recordPayrollOnLedger(payrollToPost, session.userId);
 
-    return NextResponse.json(await snapshot(session));
+    return NextResponse.json({ ...(await snapshot(session)), ...(ledger ? { ledger } : {}) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "HR operation failed.";
     // A conflict means the write is still valid, just contended — 409 tells the

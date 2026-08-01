@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
  * records lives on its own route instead, and is reached through `href` below.
  */
 type View =
-  | "Command Centre" | "Financial Projection" | "Approvals" | "Marketing Plans"
+  | "Command Centre" | "Approvals" | "Marketing Plans"
   | "Content Planner" | "Storyboard Studio" | "Prompt Lab" | "Technology" | "Settings";
 
 type NavItem = { name: string; icon: any; view?: View; href?: string };
@@ -45,8 +45,6 @@ const navGroups: NavGroup[] = [
     { name: "AI Proposal Package", icon: Sparkles, href: "/document-ai" },
     { name: "Sales & Documents", icon: FileCheck2, href: "/business?tab=sales" },
     { name: "Accounting", icon: Calculator, href: "/accounting" },
-    { name: "Weekly Settlement", icon: HandCoins, href: "/business?tab=settlements" },
-    { name: "Financial Projection", icon: BarChart3, view: "Financial Projection" },
     { name: "Projects & Delivery", icon: FolderKanban, href: "/business?tab=projects" },
   ]},
   { label: "Creative Studio", items: [
@@ -220,7 +218,6 @@ export default function Home() {
 function ViewRouter({ view }: { view: View }) {
   switch (view) {
     case "Command Centre": return <CommandCentre />;
-    case "Financial Projection": return <FinancialProjection />;
     case "Approvals": return <Approvals />;
     case "Marketing Plans": return <MarketingPlans />;
     case "Content Planner": return <ContentPlanner />;
@@ -437,74 +434,6 @@ function useBriefing(data: BusinessSnapshot) {
   ];
 
   return { ...state, insights: state.insights.length ? state.insights : (state.loading ? [] : fallback) };
-}
-
-/**
- * Shared scenario inputs. The sliders write through to Neon on release rather
- * than on every pixel of drag, so one adjustment is one round trip and the
- * numbers on screen stay live while it saves.
- */
-function useProjectionScenario() {
-  const { error: toastError } = useToast();
-  const [scenario, setScenario] = useState({ companyPct: 10, members: 5, totalFees: 572000, totalIncentive: 150700 });
-  const [loading, setLoading] = useState(true);
-  const [shared, setShared] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/projection", { cache: "no-store" })
-      .then(response => response.json().then(payload => ({ ok: response.ok, payload })))
-      .then(({ ok, payload }) => {
-        if (cancelled) return;
-        if (!ok || !payload.scenario) { setShared(false); return; }
-        setScenario({
-          companyPct: payload.scenario.companyPct,
-          members: payload.scenario.members,
-          totalFees: payload.scenario.totalFees,
-          totalIncentive: payload.scenario.totalIncentive,
-        });
-      })
-      .catch(() => { if (!cancelled) setShared(false); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  const commit = useCallback(async (next: { companyPct: number; members: number }) => {
-    if (!shared) return;
-    try {
-      const response = await fetch("/api/projection", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      if (!response.ok) throw new Error((await response.json()).error || "Unable to save the scenario.");
-    } catch (cause) {
-      toastError(cause instanceof Error ? cause.message : "Unable to save the scenario.");
-    }
-  }, [shared, toastError]);
-
-  return { scenario, setScenario, commit, loading, shared };
-}
-
-function FinancialProjection() {
-  const { scenario, setScenario, commit, loading, shared } = useProjectionScenario();
-  const { companyPct, members, totalFees, totalIncentive } = scenario;
-  const grand = totalFees + totalIncentive;
-  const company = grand * companyPct / 100; const teamTotal = grand - company; const perPerson = teamTotal / members;
-  const set = (patch: Partial<typeof scenario>) => setScenario(current => ({ ...current, ...patch }));
-
-  return <div>
-    <PageHead eyebrow="Kretivco × Chef Ammar" title="Financial Projection" description="An editable 12-month scenario model. It is deliberately kept separate from actual sales and settlements, which live in the Finance and Settlement workspaces." action={<Button asChild variant="outline" className="bg-white"><Link href="/business?tab=settlements"><HandCoins className="h-4 w-4" />Open actual settlements</Link></Button>} />
-    {!loading && !shared && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-      These inputs are not being shared with the team. Apply <code className="rounded bg-white/70 px-1">db/migrations/0007_shared_planner_projection.sql</code> to the Neon database.
-    </div>}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Stat label="12-month Kretivco income" value={money(grand)} note="Fees + performance incentive" /><Stat label="Company / year" value={money(company)} note={`${companyPct}% of total`} /><Stat label="Team / year" value={money(teamTotal)} note={`${100 - companyPct}% distributed`} /><Stat label="Per person / year" value={money(perPerson)} note={`${members} team members`} /></div>
-    <Card className="mt-5 bg-white/80"><CardContent className="grid gap-5 p-5 md:grid-cols-2"><label className="text-xs font-medium">Company share: {companyPct}%<input type="range" min="0" max="50" value={companyPct} onChange={e => set({ companyPct: Number(e.target.value) })} onPointerUp={() => commit({ companyPct, members })} onKeyUp={() => commit({ companyPct, members })} className="mt-3 w-full accent-[#ba5c42]" /></label><label className="text-xs font-medium">Team members: {members}<input type="range" min="1" max="10" value={members} onChange={e => set({ members: Number(e.target.value) })} onPointerUp={() => commit({ companyPct, members })} onKeyUp={() => commit({ companyPct, members })} className="mt-3 w-full accent-[#ba5c42]" /></label></CardContent></Card>
-    <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_.75fr]">
-      <Card className="overflow-hidden bg-white/80"><CardHeader><CardTitle>Monthly projection</CardTitle></CardHeader><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-[#f7f4ed] text-muted-foreground"><tr><th className="px-4 py-3">Month</th><th className="px-4 py-3 text-right">Units / week</th><th className="px-4 py-3 text-right">Fee / month</th><th className="px-4 py-3 text-right">Incentive</th><th className="px-4 py-3 text-right">Company</th><th className="px-4 py-3 text-right">Per person</th></tr></thead><tbody>{projectionRows.map(r => { const total = r.monthly + r.incentive, co = total * companyPct / 100, pp = (total - co) / members; return <tr key={r.month} className="border-t"><td className="px-4 py-3 font-medium">{r.month}<div className="text-[9px] text-muted-foreground">{r.stage}</div></td><td className="px-4 py-3 text-right">{r.unitsWeek.toLocaleString()}</td><td className="px-4 py-3 text-right">{money(r.monthly)}</td><td className="px-4 py-3 text-right">{r.incentive ? money(r.incentive) : "—"}</td><td className="px-4 py-3 text-right">{money(co)}</td><td className="px-4 py-3 text-right font-semibold">{money(pp)}</td></tr>})}</tbody></table></div></Card>
-      <Card className="bg-[#26342b] text-white"><CardHeader><CardTitle>Annual distribution</CardTitle></CardHeader><CardContent><div className="rounded-xl bg-white/5 p-4"><div className="text-xs text-white/45">Kretivco company allocation</div><div className="mt-2 text-3xl font-semibold">{money(company)}</div><div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-[#ef9a75]" style={{ width: `${companyPct}%` }} /></div></div><div className="mt-5 space-y-3">{team.slice(0, members).map((x, i) => <div key={i} className="flex items-center justify-between border-b border-white/10 pb-3 text-sm"><span className="text-white/65">{x || `Member ${i + 1}`}</span><span className="font-medium">{money(perPerson)}</span></div>)}</div><div className="mt-5 rounded-lg border border-white/10 p-3 text-xs leading-relaxed text-white/55">Scenario reference: management fees {money(totalFees)} + incentive {money(totalIncentive)}. Marketplace surplus is excluded and can be added as a separate actual-data line.</div></CardContent></Card>
-    </div>
-  </div>;
 }
 
 type ApprovalItem = {

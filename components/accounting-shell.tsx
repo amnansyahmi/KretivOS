@@ -18,16 +18,16 @@ import { Fragment, type ReactNode, useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft, ArrowLeftRight, BookOpen, Building2, Camera, CircleDollarSign,
-  HandCoins, Landmark, ListTree, Menu, Receipt, TrendingUp, X,
+  HandCoins, Landmark, LineChart, ListTree, Menu, Receipt, TrendingUp, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type AccountingTab =
   | "overview" | "capture" | "transactions" | "bills" | "vendors"
-  | "payments" | "settlements" | "reports" | "journal" | "accounts";
+  | "payments" | "settlements" | "reports" | "journal" | "forecast" | "accounts";
 
-type NavigationGroup = "Workspace" | "Daily" | "Payables" | "Receivables" | "Reports" | "Setup";
+type NavigationGroup = "Workspace" | "Daily" | "Payables" | "Receivables" | "Reports" | "Planning" | "Setup";
 
 export type AccountingNavItem = {
   id: AccountingTab;
@@ -47,6 +47,7 @@ export const ACCOUNTING_NAV_ITEMS: AccountingNavItem[] = [
   { id: "settlements", label: "Settlements", description: "Weekly per-unit client fees", group: "Receivables", icon: HandCoins },
   { id: "reports", label: "Reports", description: "Profit, balance sheet and review", group: "Reports", icon: TrendingUp },
   { id: "journal", label: "Journal", description: "Every posting, for the accountant", group: "Reports", icon: BookOpen },
+  { id: "forecast", label: "Budget & forecast", description: "The plan, against what happened", group: "Planning", icon: LineChart },
   { id: "accounts", label: "Chart of accounts", description: "Accounts and period close", group: "Setup", icon: ListTree },
 ];
 

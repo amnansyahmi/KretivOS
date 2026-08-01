@@ -154,10 +154,17 @@ test("money that never reached the ledger is the loudest signal", () => {
     invoices: { count: 3, value: 12000 },
     cash: { count: 2, net: -400 },
     settlements: { count: 1 },
+    payroll: { count: 5, value: 25000 },
   });
-  assert.equal(signals.length, 3);
-  assert.equal(signals.filter((signal) => signal.severity === "high").length, 2);
-  assert.equal(detectUnposted({ invoices: { count: 0, value: 0 }, cash: { count: 0, net: 0 }, settlements: { count: 0 } }).length, 0);
+  assert.equal(signals.length, 4);
+  assert.equal(signals.filter((signal) => signal.severity === "high").length, 3);
+  assert.match(signals.find((s) => s.title.includes("payroll"))!.detail, /EPF, SOCSO, EIS and PCB/);
+  assert.equal(detectUnposted({ invoices: { count: 0, value: 0 }, cash: { count: 0, net: 0 }, settlements: { count: 0 }, payroll: { count: 0, value: 0 } }).length, 0);
+});
+
+test("payroll is optional so the review works before that migration is applied", () => {
+  const signals = detectUnposted({ invoices: { count: 1, value: 100 }, cash: { count: 0, net: 0 }, settlements: { count: 0 } });
+  assert.equal(signals.length, 1);
 });
 
 test("ranking puts severity first, then size", () => {
