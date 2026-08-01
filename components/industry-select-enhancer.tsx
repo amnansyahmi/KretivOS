@@ -175,8 +175,8 @@ function IndustryPicker({ input }: { input: HTMLInputElement }) {
             {!customMode ? (
               <>
                 <div className="border-b bg-white p-3">
-                  <div className="flex h-11 items-center gap-2 rounded-xl border bg-[#fcfbf8] px-3 focus-within:border-[#ba5c42]/60 focus-within:ring-4 focus-within:ring-[#ba5c42]/10">
-                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="kretivos-search-control flex h-11 items-center gap-2 rounded-xl border bg-[#fcfbf8] px-3 focus-within:border-[#ba5c42]/60 focus-within:ring-4 focus-within:ring-[#ba5c42]/10">
+                    <Search className="h-5 w-5 shrink-0 text-muted-foreground" />
                     <input
                       ref={searchRef}
                       value={query}
