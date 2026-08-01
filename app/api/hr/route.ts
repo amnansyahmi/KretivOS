@@ -48,6 +48,8 @@ const defaultOperations = {
   lifecycle: [] as any[],
   announcements: [] as any[],
   events: [] as any[],
+  shifts: [] as any[],
+  paymentVouchers: [] as any[],
   settings: {
     departments: ["Leadership", "Marketing", "Creative", "Technology", "Finance", "Operations"],
     leaveTypes: ["Annual Leave", "Medical Leave", "Emergency Leave", "Unpaid Leave", "Replacement Leave"],
@@ -264,11 +266,13 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
     attendanceCorrections: own(array(value.attendanceCorrections)),
     announcements: publicAnnouncements,
     events: publicEvents,
+    shifts: own(array(value.shifts)),
     session: publicSession(session),
   };
   if (session.role === "manager") return {
     ...value,
     payroll: own(array(value.payroll)),
+    paymentVouchers: [],
     documents: array(value.documents).filter((item: any) => !item.employeeId || item.employeeId === session.userId),
     session: publicSession(session),
   };
@@ -283,6 +287,8 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
     documents: array(value.documents).filter((item: any) => !item.employeeId || item.employeeId === session.userId),
     claims: own(array(value.claims)),
     payroll: own(array(value.payroll)),
+    paymentVouchers: [],
+    shifts: own(array(value.shifts)),
     lifecycle: own(array(value.lifecycle)),
     announcements: publicAnnouncements,
     events: publicEvents,
@@ -473,7 +479,8 @@ export async function POST(request: NextRequest) {
         if (id === session.userId) throw new HRAuthError("You cannot delete your active administrator account.", 400);
         await sql`delete from users where id = ${id} and organization_id = ${ORGANIZATION_ID}`;
         await mutateWorkspaceState(operationsStore, () => ({ ...defaultOperations }), (next) => {
-          for (const key of ["leaveRequests", "attendance", "attendanceCorrections", "goals", "learning", "claims", "payroll", "lifecycle"]) next[key] = array(next[key]).filter((item: any) => item.employeeId !== id);
+          for (const key of ["leaveRequests", "attendance", "attendanceCorrections", "goals", "learning", "claims", "payroll", "lifecycle", "shifts"]) next[key] = array(next[key]).filter((item: any) => item.employeeId !== id);
+          next.paymentVouchers = array(next.paymentVouchers).map((item: any) => item.employeeId === id ? { ...item, employeeId: "" } : item);
           next.documents = array(next.documents).map((item: any) => item.employeeId === id ? { ...item, employeeId: "" } : item);
         });
         await audit("hr.employee.deleted", "employee", id, undefined, session.userId);
@@ -537,7 +544,7 @@ export async function POST(request: NextRequest) {
       const keyMap: Record<string, string> = {
         leave: "leaveRequests", attendance: "attendance", attendance_corrections: "attendanceCorrections",
         goals: "goals", learning: "learning", documents: "documents", claims: "claims", payroll: "payroll", lifecycle: "lifecycle",
-        announcements: "announcements", events: "events",
+        announcements: "announcements", events: "events", shifts: "shifts", payment_vouchers: "paymentVouchers",
       };
       const key = keyMap[resource];
       if (!key) throw new Error("Unsupported HR resource.");
@@ -550,6 +557,8 @@ export async function POST(request: NextRequest) {
         if (["documents", "attendance"].includes(resource)) requireRole(session, ["hr_admin"]);
         if (["goals", "learning", "lifecycle"].includes(resource)) requireRole(session, ["hr_admin", "manager"]);
         if (["announcements", "events"].includes(resource)) requireRole(session, ["hr_admin", "manager"]);
+        if (resource === "shifts") requireRole(session, ["hr_admin", "manager"]);
+        if (resource === "payment_vouchers") requireRole(session, ["hr_admin", "finance"]);
         if (resource === "payroll") requireRole(session, ["hr_admin", "finance"]);
         const recordId = clean(data.id) || randomUUID();
         const employeeId = session.role === "employee" ? session.userId : clean(data.employeeId);
@@ -634,6 +643,17 @@ export async function POST(request: NextRequest) {
           if (!record.title || !record.startDate) throw new Error("Event title and start date are required.");
           if (record.endDate < record.startDate) throw new Error("Event end date cannot be before its start date.");
           if (status === "Scheduled") defer.notify("New team calendar event", `${record.title} · ${record.startDate}`, "hr_event", recordId, "*");
+        } else if (resource === "shifts") {
+          const daysOfWeek = array(data.daysOfWeek).map(number).filter((day) => day >= 0 && day <= 6);
+          record = { ...record, label: clean(data.label) || "Standard shift", startDate: clean(data.startDate), endDate: clean(data.endDate) || clean(data.startDate), startTime: clean(data.startTime) || clean(state.settings?.attendance?.shiftStart) || "09:00", endTime: clean(data.endTime) || clean(state.settings?.attendance?.shiftEnd) || "18:00", daysOfWeek: daysOfWeek.length ? daysOfWeek : [1, 2, 3, 4, 5], status: clean(data.status) === "Off" ? "Off" : "Scheduled", notes: clean(data.notes) };
+          if (!employeeId || !record.startDate || !record.endDate || record.endDate < record.startDate) throw new Error("Employee and a valid shift date range are required.");
+          if (record.status === "Scheduled" && record.endTime <= record.startTime) throw new Error("Shift end time must be after its start time.");
+          defer.notify("Shift schedule updated", `${record.label} · ${record.startDate} to ${record.endDate}`, "hr_shift", recordId, employeeId);
+        } else if (resource === "payment_vouchers") {
+          const year = (clean(data.paymentDate) || new Date().toISOString()).slice(0, 4);
+          const sequence = list.filter((item: any) => clean(item.reference).startsWith(`PV-${year}-`)).reduce((max: number, item: any) => Math.max(max, number(clean(item.reference).split("-").pop())), 0) + 1;
+          record = { ...record, employeeId: clean(data.employeeId), reference: `PV-${year}-${String(sequence).padStart(4, "0")}`, payee: clean(data.payee), amount: Math.max(0, number(data.amount)), details: clean(data.details), paymentDate: clean(data.paymentDate), linkedType: ["General", "Claim", "Payroll"].includes(clean(data.linkedType)) ? clean(data.linkedType) : "General", linkedId: clean(data.linkedId), status: "Draft", approvedAt: null, paidAt: null };
+          if (!record.payee || record.amount <= 0 || !record.paymentDate) throw new Error("Payee, payment date and an amount greater than zero are required.");
         }
         state[key] = [record, ...list];
         defer.audit(`hr.${resource}.created`, `hr_${resource}`, recordId, record, session.userId);
@@ -646,7 +666,9 @@ export async function POST(request: NextRequest) {
         if (resource === "attendance") requireRole(session, ["hr_admin"]);
         if (resource === "lifecycle" && !managers) throw new HRAuthError("Only HR Admin or Manager can update lifecycle records.", 403);
         if (["announcements", "events"].includes(resource) && !managers) throw new HRAuthError("Only HR Admin or Manager can update the Team Hub.", 403);
-        if (!["payroll", "documents", "attendance", "lifecycle", "announcements", "events"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
+        if (resource === "shifts" && !managers) throw new HRAuthError("Only HR Admin or Manager can update shifts.", 403);
+        if (resource === "payment_vouchers" && !payrollUsers) throw new HRAuthError("Only HR Admin or Finance can update payment vouchers.", 403);
+        if (!["payroll", "documents", "attendance", "lifecycle", "announcements", "events", "shifts", "payment_vouchers"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
         const now = new Date().toISOString();
         let updated: any;
         if (resource === "payroll") updated = { ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now };
@@ -673,6 +695,14 @@ export async function POST(request: NextRequest) {
           if (!updated.title || !updated.startDate) throw new Error("Event title and start date are required.");
           if (updated.endDate < updated.startDate) throw new Error("Event end date cannot be before its start date.");
           if (status === "Scheduled" && existing.status !== "Scheduled") defer.notify("New team calendar event", `${updated.title} · ${updated.startDate}`, "hr_event", id, "*");
+        } else if (resource === "shifts") {
+          const daysOfWeek = array(data.daysOfWeek).map(number).filter((day) => day >= 0 && day <= 6);
+          updated = { ...existing, employeeId: clean(data.employeeId) || existing.employeeId, label: clean(data.label) || "Standard shift", startDate: clean(data.startDate), endDate: clean(data.endDate) || clean(data.startDate), startTime: clean(data.startTime), endTime: clean(data.endTime), daysOfWeek: daysOfWeek.length ? daysOfWeek : [1, 2, 3, 4, 5], status: clean(data.status) === "Off" ? "Off" : "Scheduled", notes: clean(data.notes), id, updatedAt: now };
+          if (!updated.startDate || updated.endDate < updated.startDate || (updated.status === "Scheduled" && updated.endTime <= updated.startTime)) throw new Error("A valid shift date and time range are required.");
+        } else if (resource === "payment_vouchers") {
+          if (existing.status !== "Draft") throw new Error("Only draft payment vouchers can be edited.");
+          updated = { ...existing, employeeId: clean(data.employeeId), payee: clean(data.payee), amount: Math.max(0, number(data.amount)), details: clean(data.details), paymentDate: clean(data.paymentDate), linkedType: ["General", "Claim", "Payroll"].includes(clean(data.linkedType)) ? clean(data.linkedType) : "General", linkedId: clean(data.linkedId), id, updatedAt: now };
+          if (!updated.payee || updated.amount <= 0 || !updated.paymentDate) throw new Error("Payee, payment date and an amount greater than zero are required.");
         }
         else updated = { ...existing, ...data, id, employeeId: existing.employeeId, updatedAt: now };
         if (resource === "leave" && ["Annual Leave", "Medical Leave"].includes(updated.type)) {
@@ -700,8 +730,10 @@ export async function POST(request: NextRequest) {
       } else if (operation === "delete") {
         if (!existing) throw new Error("HR record was not found.");
         const ownerDraft = owns(existing, session) && ["leave", "claims", "attendance_corrections"].includes(resource) && ["Pending", "Rejected"].includes(existing.status);
-        const managerOwnedResource = session.role === "manager" && ["goals", "learning", "lifecycle", "announcements", "events"].includes(resource);
-        if (session.role !== "hr_admin" && !ownerDraft && !managerOwnedResource) throw new HRAuthError("You cannot delete this HR record.", 403);
+        const managerOwnedResource = session.role === "manager" && ["goals", "learning", "lifecycle", "announcements", "events", "shifts"].includes(resource);
+        const financeDraft = session.role === "finance" && resource === "payment_vouchers" && existing.status === "Draft";
+        if (resource === "payment_vouchers" && existing.status !== "Draft") throw new Error("Only draft payment vouchers can be deleted.");
+        if (session.role !== "hr_admin" && !ownerDraft && !managerOwnedResource && !financeDraft) throw new HRAuthError("You cannot delete this HR record.", 403);
         state[key] = list.filter((item: any) => item.id !== id);
         defer.audit(`hr.${resource}.deleted`, `hr_${resource}`, id, undefined, session.userId);
       } else if (operation === "action" && resource === "leave") {
@@ -759,6 +791,17 @@ export async function POST(request: NextRequest) {
         payrollToPost = ["close", "mark_paid"].includes(action) ? { record: updated, action } : null;
         defer.audit(`hr.payroll.${action}`, "hr_payroll", id, updated, session.userId);
         defer.notify(action === "mark_paid" ? "Payroll marked paid" : `Payroll ${updated.status.toLowerCase()}`, `Payroll for ${existing.period} is now ${updated.status.toLowerCase()}.`, "hr_payroll", id, existing.employeeId);
+      } else if (operation === "action" && resource === "payment_vouchers") {
+        requireRole(session, ["hr_admin", "finance"]);
+        if (!existing) throw new Error("Payment voucher was not found.");
+        if (!["approve", "mark_paid", "cancel"].includes(action)) throw new Error("Unsupported payment voucher action.");
+        if (action === "approve" && existing.status !== "Draft") throw new Error("Only draft vouchers can be approved.");
+        if (action === "mark_paid" && existing.status !== "Approved") throw new Error("Only approved vouchers can be marked paid.");
+        if (action === "cancel" && existing.status === "Paid") throw new Error("A paid voucher cannot be cancelled.");
+        const status = action === "approve" ? "Approved" : action === "mark_paid" ? "Paid" : "Cancelled";
+        const updated = { ...existing, status, approvedBy: action === "approve" ? session.userId : existing.approvedBy, approvedAt: action === "approve" ? new Date().toISOString() : existing.approvedAt, paidAt: action === "mark_paid" ? new Date().toISOString() : existing.paidAt, updatedAt: new Date().toISOString() };
+        state.paymentVouchers = list.map((item: any) => item.id === id ? updated : item);
+        defer.audit(`hr.payment_voucher.${action}`, "hr_payment_voucher", id, updated, session.userId);
       } else throw new Error("Unsupported HR operation.");
     });
     await defer.flush();

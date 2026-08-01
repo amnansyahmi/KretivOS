@@ -14,9 +14,11 @@ import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea, isTextField } from "@/components/ui/textarea";
 import { AIWritingButton } from "@/components/ai-writing-button";
-import { DateInput } from "@/components/date-input";
+import { DateInput, MonthInput } from "@/components/date-input";
 import { HRPhotoAttendance } from "@/components/hr-photo-attendance";
+import { HRMSAttendanceWorkbench } from "@/components/hrms-attendance-workbench";
 import { HRMSNotificationCenter } from "@/components/hrms-notification-center";
+import { HRMSPayrollWorkbench } from "@/components/hrms-payroll-workbench";
 import { HRTeamHub } from "@/components/hrms-team-hub";
 import {
   getPermittedHRMSNavigation,
@@ -30,7 +32,6 @@ import {
   HRAttendanceCorrections,
   HRClaims,
   HRLifecycle,
-  HRPayroll,
   HRSelfService,
 } from "@/components/hrms-extended-sections";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,8 @@ type Snapshot = {
   lifecycle: any[];
   announcements: any[];
   events: any[];
+  shifts: any[];
+  paymentVouchers: any[];
   settings: {
     departments: string[];
     leaveTypes: string[];
@@ -67,7 +70,7 @@ type Snapshot = {
 };
 
 const emptySnapshot: Snapshot = {
-  employees: [], directory: [], leaveRequests: [], attendance: [], attendanceCorrections: [], goals: [], learning: [], documents: [], claims: [], payroll: [], lifecycle: [], announcements: [], events: [],
+  employees: [], directory: [], leaveRequests: [], attendance: [], attendanceCorrections: [], goals: [], learning: [], documents: [], claims: [], payroll: [], lifecycle: [], announcements: [], events: [], shifts: [], paymentVouchers: [],
   settings: { departments: [], leaveTypes: [], workModes: [] }, version: 0, syncedAt: "",
 };
 
@@ -231,6 +234,20 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     finally { setSaving(false); }
   }
 
+  async function managedMutation({ operation, resource, id, action, data: payload }: { operation: "create" | "update" | "delete" | "action"; resource: "shifts" | "payment_vouchers"; id?: string; action?: string; data?: any }) {
+    setSaving(true); setError("");
+    try {
+      setData(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation, resource, id, action, data: payload || {} }) }));
+      setNotice(resource === "shifts" ? "Shift planner updated." : "Payment voucher updated.");
+    } catch (value) { const message = value instanceof Error ? value.message : "Unable to update HRMS record."; setError(message); throw value; }
+    finally { setSaving(false); }
+  }
+
+  async function deleteManaged(resource: "shifts" | "payment_vouchers", id: string) {
+    if (!window.confirm("Delete this record? This cannot be undone.")) return;
+    await managedMutation({ operation: "delete", resource, id });
+  }
+
   async function toggleOnboarding(employee: any, itemId: string) {
     const onboarding = (employee.onboarding || []).map((item: any) => item.id === itemId ? { ...item, done: !item.done } : item);
     setSaving(true); setError("");
@@ -341,8 +358,11 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
               </div>
             )}
 
-            {tab === "attendance" && <div className="space-y-4"><div className="flex justify-end">{["hr_admin", "manager"].includes(session.role) && <Button asChild variant="outline" className="bg-white"><Link href="/hr/attendance-review"><ShieldCheck className="h-4 w-4" />Review attendance evidence</Link></Button>}</div><HRPhotoAttendance employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} query={query} onRefresh={load} onNotice={setNotice} onError={setError} /><HRAttendanceCorrections records={data.attendanceCorrections.filter((item) => matches(employeeName(item.employeeId), item.date, item.status, item.reason))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} onCreate={() => openCreate("attendance_corrections")} onEdit={(item: any) => openEdit("attendance_corrections", item)} onDelete={(id: string) => deleteRecord("attendance_corrections", id)} onAction={(id: string, action: string) => recordAction("attendance_corrections", id, action)} /></div>}
-            {tab === "payslips" && <HRPayroll records={data.payroll} employeeName={employeeName} canManage={["hr_admin", "finance"].includes(session.role)} onCreate={() => openCreate("payroll")} onEdit={(item: any) => openEdit("payroll", item)} onAction={(id: string, action: string) => recordAction("payroll", id, action)} />}
+            {tab === "attendance" && <HRMSAttendanceWorkbench employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} leaveRequests={data.leaveRequests} shifts={data.shifts} settings={data.settings.attendance} role={session.role} query={query}
+              todayContent={<><div className="flex justify-end">{["hr_admin", "manager"].includes(session.role) && <Button asChild variant="outline" className="bg-white"><Link href="/hr/attendance-review"><ShieldCheck className="h-4 w-4" />Review attendance evidence</Link></Button>}</div><HRPhotoAttendance employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} query={query} onRefresh={load} onNotice={setNotice} onError={setError} /></>}
+              correctionsContent={<HRAttendanceCorrections records={data.attendanceCorrections.filter((item) => matches(employeeName(item.employeeId), item.date, item.status, item.reason))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} onCreate={() => openCreate("attendance_corrections")} onEdit={(item: any) => openEdit("attendance_corrections", item)} onDelete={(id: string) => deleteRecord("attendance_corrections", id)} onAction={(id: string, action: string) => recordAction("attendance_corrections", id, action)} />}
+              onCreateShift={(item: any) => managedMutation({ operation: "create", resource: "shifts", data: item })} onUpdateShift={(item: any) => managedMutation({ operation: "update", resource: "shifts", id: item.id, data: item })} onDeleteShift={(id: string) => deleteManaged("shifts", id)} />}
+            {tab === "payslips" && <HRMSPayrollWorkbench records={data.payroll} vouchers={data.paymentVouchers} employees={data.employees} employeeName={employeeName} canManage={["hr_admin", "finance"].includes(session.role)} onCreatePayroll={() => openCreate("payroll")} onEditPayroll={(item: any) => openEdit("payroll", item)} onPayrollAction={(id: string, action: string) => recordAction("payroll", id, action)} onCreateVoucher={(item: any) => managedMutation({ operation: "create", resource: "payment_vouchers", data: item })} onUpdateVoucher={(item: any) => managedMutation({ operation: "update", resource: "payment_vouchers", id: item.id, data: item })} onDeleteVoucher={(id: string) => deleteManaged("payment_vouchers", id)} onVoucherAction={(id: string, action: string) => managedMutation({ operation: "action", resource: "payment_vouchers", id, action })} />}
 
             {tab === "claims" && <HRClaims claims={data.claims.filter((item) => matches(employeeName(item.employeeId), item.category, item.description, item.status, item.financeStatus))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} canPay={["hr_admin", "finance"].includes(session.role)} onCreate={() => openCreate("claims")} onEdit={(item: any) => openEdit("claims", item)} onDelete={(id: string) => deleteRecord("claims", id)} onAction={(id: string, action: string) => recordAction("claims", id, action)} />}
 
@@ -467,7 +487,7 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
 
         {editor.resource === "claims" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Claim date"><DateInput value={record.claimDate || ""} onChange={(e) => update("claimDate", e.target.value)} /></Field><Field label="Category"><Select value={record.category || "General"} onChange={(e) => update("category", e.target.value)} >{["General", "Travel", "Meals", "Medical", "Software", "Equipment", "Client expense"].map((item) => <option key={item}>{item}</option>)}</Select></Field><Field label="Amount (RM)"><Input type="number" min="0" step="0.01" value={record.amount ?? 0} onChange={(e) => update("amount", Number(e.target.value))} /></Field><Field label="Description" wide><Textarea value={record.description || ""} onChange={(e) => update("description", e.target.value)} /></Field><EvidenceUpload purpose="claim_receipt" employeeId={record.employeeId} value={record.receiptAssetId} onUploaded={(id: string) => update("receiptAssetId", id)} /></div>}
 
-        {editor.resource === "payroll" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Payroll period"><Input type="month" value={record.period || ""} onChange={(e) => update("period", e.target.value)} /></Field>{[["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Overtime", "overtime"], ["Bonus", "bonus"], ["EPF employee", "epfEmployee"], ["EPF employer", "epfEmployer"], ["SOCSO employee", "socsoEmployee"], ["SOCSO employer", "socsoEmployer"], ["EIS employee", "eisEmployee"], ["EIS employer", "eisEmployer"], ["PCB", "pcb"], ["Other deductions", "otherDeductions"]].map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}<Field label="Statutory profile"><Select value={record.statutoryProfileId || "my-default"} onChange={(e) => update("statutoryProfileId", e.target.value)} >{(data.settings.statutoryProfiles || []).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field><Field label="Verification note" wide><Textarea value={record.verificationNote || ""} onChange={(e) => update("verificationNote", e.target.value)} /></Field></div>}
+        {editor.resource === "payroll" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Payroll period"><MonthInput value={record.period || ""} onChange={(e) => update("period", e.target.value)} /></Field>{[["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Overtime", "overtime"], ["Bonus", "bonus"], ["EPF employee", "epfEmployee"], ["EPF employer", "epfEmployer"], ["SOCSO employee", "socsoEmployee"], ["SOCSO employer", "socsoEmployer"], ["EIS employee", "eisEmployee"], ["EIS employer", "eisEmployer"], ["PCB", "pcb"], ["Other deductions", "otherDeductions"]].map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}<Field label="Statutory profile"><Select value={record.statutoryProfileId || "my-default"} onChange={(e) => update("statutoryProfileId", e.target.value)} >{(data.settings.statutoryProfiles || []).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field><Field label="Verification note" wide><Textarea value={record.verificationNote || ""} onChange={(e) => update("verificationNote", e.target.value)} /></Field></div>}
 
         {editor.resource === "lifecycle" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Case type"><Select value={record.type || "Probation"} onChange={(e) => update("type", e.target.value)} >{["Onboarding", "Probation", "Confirmation", "Transfer", "Promotion", "Offboarding"].map((item) => <option key={item}>{item}</option>)}</Select></Field><Field label="Status"><Select value={record.status || "Open"} onChange={(e) => update("status", e.target.value)} ><option>Open</option><option>In progress</option><option>Completed</option><option>Cancelled</option></Select></Field><Field label="Case title" wide><Input value={record.title || ""} onChange={(e) => update("title", e.target.value)} /></Field><Field label="Due date"><DateInput value={record.dueDate || ""} onChange={(e) => update("dueDate", e.target.value)} /></Field><Field label="Checklist (one task per line)" wide><Textarea value={(record.tasks || []).map((task: any) => `${task.done ? "[x]" : "[ ]"} ${task.label}`).join("\n")} onChange={(e) => update("tasks", e.target.value.split("\n").map((line: string, index: number) => ({ id: record.tasks?.[index]?.id || uid(), done: /^\s*\[x\]/i.test(line), label: line.replace(/^\s*\[[x ]\]\s*/i, "").trim() })).filter((task: any) => task.label))} /></Field><Field label="Notes" wide><Textarea value={record.notes || ""} onChange={(e) => update("notes", e.target.value)} /></Field></div>}
 

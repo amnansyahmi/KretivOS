@@ -24,3 +24,18 @@ export function DateInput({ className, ...props }: DateInputProps) {
     />
   </span>;
 }
+
+/** The same mobile-safe control for month-only payroll and report periods. */
+export function MonthInput({ className, ...props }: DateInputProps) {
+  return <span className="relative block min-w-0 w-full">
+    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-[#687169]" aria-hidden="true" />
+    <input
+      {...props}
+      type="month"
+      className={cn(
+        "kretivos-date-input h-11 min-w-0 w-full rounded-xl border bg-white py-0 pl-10 pr-3 text-left text-sm tabular-nums outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10",
+        className,
+      )}
+    />
+  </span>;
+}
