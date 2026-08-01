@@ -6,6 +6,7 @@ import {
   Loader2, Pencil, Plus, RefreshCw, Save, Search, Sparkles, Target, Trash2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/confirm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea, isTextField } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
@@ -199,6 +200,7 @@ function activityCount(funnel: Funnel) {
 }
 
 export default function FunnelLibraryPage() {
+  const confirm = useConfirm();
   const [mode, setMode] = useState<Mode>("production");
   const [funnels, setFunnels] = useState<Funnel[]>(parseLocal(CACHE_KEY, []));
   const [sandboxFunnels, setSandboxFunnels] = useState<Funnel[]>(parseLocal(SANDBOX_KEY, []));
@@ -381,7 +383,7 @@ export default function FunnelLibraryPage() {
   }
 
   async function deleteFunnel() {
-    if (!selected || !window.confirm(`Delete “${selected.name}”?`)) return;
+    if (!selected || !await confirm({ title: `Delete “${selected.name}”?`, description: "The funnel and its stages are removed for everyone.", destructive: true })) return;
     setSaving(true);
     try {
       if (selected.sandbox || mode === "sandbox") setSandboxFunnels((current) => current.filter((item) => item.id !== selected.id));
@@ -408,7 +410,7 @@ export default function FunnelLibraryPage() {
   }
 
   async function deleteActivity(stageKey: PlaybookStageKey, activityId: string) {
-    if (!selected || !window.confirm("Delete this funnel activity?")) return;
+    if (!selected || !await confirm({ title: "Delete this funnel activity?", description: "Any draft content on the activity goes with it.", destructive: true })) return;
     const next = { ...selected, stages: selected.stages.map((stage) => stage.key === stageKey ? { ...stage, items: stage.items.filter((item) => item.id !== activityId) } : stage) };
     await persistFunnel(next, "Funnel activity deleted.");
   }
@@ -578,8 +580,8 @@ export default function FunnelLibraryPage() {
 
   return (
     <WorkspacePage eyebrow="Marketing journey system" title="Funnel Builder" description="Build shared customer funnels from approved playbooks, channels and content templates. Use Sandbox to experiment without creating a live client record." actions={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={() => loadData(false)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button><Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />{mode === "sandbox" ? "New sandbox" : "Add funnel"}</Button></div>}>
-      {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
-      {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
+      {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
+      {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
       <div className="mb-5 flex rounded-xl border bg-white/80 p-1.5"><button onClick={() => setMode("production")} className={cn("flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium", mode === "production" ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}><Target className="h-4 w-4" />Client funnels</button><button onClick={() => setMode("sandbox")} className={cn("flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium", mode === "sandbox" ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}><FlaskConical className="h-4 w-4" />Funnel Sandbox</button></div>
 
@@ -588,7 +590,7 @@ export default function FunnelLibraryPage() {
 
         <div className={cn("min-w-0", !mobileDetail && "hidden xl:block")}>
           {selected ? <div className="space-y-5">
-            <Card className="bg-white/80"><CardHeader className="border-b p-4 sm:p-6"><div className="flex items-start gap-3 xl:hidden"><button onClick={() => setMobileDetail(false)} className="flex h-9 w-9 items-center justify-center rounded-xl border bg-white"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-0 flex-1"><CardTitle className="line-clamp-2">{selected.name}</CardTitle><p className="mt-1 text-xs text-muted-foreground">{selected.sandbox ? "Sandbox experiment" : selected.client}</p></div></div><div className="hidden items-start justify-between gap-4 xl:flex"><div><div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]"><span>{selected.sandbox ? "Sandbox" : selected.client}</span>{selected.brandName && <><span>•</span><span>{selected.brandName}</span></>}<span>•</span><span>{selected.playbookKey}</span></div><CardTitle className="mt-2 text-2xl">{selected.name}</CardTitle><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{selected.summary}</p></div><Status value={selected.status} /></div><div className="mt-4 flex flex-wrap gap-2"><Button size="sm" onClick={generateFunnelContent} disabled={generatingContent || saving || !activityCount(selected)}>{generatingContent ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{generatingContent ? "Generating content…" : "Generate funnel content"}</Button><Button variant="outline" size="sm" onClick={() => { setDetailDraft(JSON.parse(JSON.stringify(selected))); setEditingDetails(true); }}><Pencil className="h-3.5 w-3.5" />Edit details</Button>{selected.sandbox && <Button variant="outline" size="sm" onClick={promoteSandbox}><Target className="h-3.5 w-3.5" />Promote to client</Button>}<Button variant="outline" size="sm" className="text-red-600" onClick={deleteFunnel}><Trash2 className="h-3.5 w-3.5" />Delete</Button></div></CardHeader><CardContent className="grid gap-3 p-4 sm:grid-cols-3 sm:p-6"><Mini label="Objective" value={selected.objective} /><Mini label="Audience" value={selected.audience || "Not defined"} /><Mini label="Offer" value={selected.offer || "Not defined"} /></CardContent></Card>
+            <Card className="bg-white/80"><CardHeader className="border-b p-4 sm:p-6"><div className="flex items-start gap-3 xl:hidden"><button onClick={() => setMobileDetail(false)} className="flex h-9 w-9 items-center justify-center rounded-xl border bg-white" aria-label="Back to the list"><ChevronLeft className="h-4 w-4" /></button><div className="min-w-0 flex-1"><CardTitle className="line-clamp-2">{selected.name}</CardTitle><p className="mt-1 text-xs text-muted-foreground">{selected.sandbox ? "Sandbox experiment" : selected.client}</p></div></div><div className="hidden items-start justify-between gap-4 xl:flex"><div><div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[.15em] text-[#ba5c42]"><span>{selected.sandbox ? "Sandbox" : selected.client}</span>{selected.brandName && <><span>•</span><span>{selected.brandName}</span></>}<span>•</span><span>{selected.playbookKey}</span></div><CardTitle className="mt-2 text-2xl">{selected.name}</CardTitle><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{selected.summary}</p></div><Status value={selected.status} /></div><div className="mt-4 flex flex-wrap gap-2"><Button size="sm" onClick={generateFunnelContent} disabled={generatingContent || saving || !activityCount(selected)}>{generatingContent ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{generatingContent ? "Generating content…" : "Generate funnel content"}</Button><Button variant="outline" size="sm" onClick={() => { setDetailDraft(JSON.parse(JSON.stringify(selected))); setEditingDetails(true); }}><Pencil className="h-3.5 w-3.5" />Edit details</Button>{selected.sandbox && <Button variant="outline" size="sm" onClick={promoteSandbox}><Target className="h-3.5 w-3.5" />Promote to client</Button>}<Button variant="outline" size="sm" className="text-red-600" onClick={deleteFunnel}><Trash2 className="h-3.5 w-3.5" />Delete</Button></div></CardHeader><CardContent className="grid gap-3 p-4 sm:grid-cols-3 sm:p-6"><Mini label="Objective" value={selected.objective} /><Mini label="Audience" value={selected.audience || "Not defined"} /><Mini label="Offer" value={selected.offer || "Not defined"} /></CardContent></Card>
 
             <div className="grid gap-4 2xl:grid-cols-2">{selected.stages.map((stage) => {
               const ready = stage.items.filter((item) => item.status === "Ready" || item.status === "Live").length;
@@ -705,8 +707,7 @@ function ActivityCard({ item, index, total, stageKey, channelNames, busy, onEdit
       </div>
       <button
         onClick={onCycleStatus}
-        disabled={busy}
-        title="Tap to advance the status"
+        disabled={busy} aria-label="Advance the status"
         className={cn("shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium transition disabled:opacity-50", activityTone(item.status))}
       >
         {item.status || "Draft"}

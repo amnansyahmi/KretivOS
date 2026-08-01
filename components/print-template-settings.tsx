@@ -17,6 +17,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/toast";
 import type { PrintCompany, PrintTemplate } from "@/lib/print-templates";
 
@@ -108,15 +110,13 @@ export function PrintTemplateSettings() {
       </p>
     </CardHeader>
     <CardContent className="space-y-5">
-      <div className="flex flex-wrap gap-1 rounded-lg border bg-white p-1">
-        {TYPES.map((type) => <button
-          key={type}
-          onClick={() => setActive(type)}
-          className={`flex-1 rounded-md px-3 py-2 text-xs font-medium transition ${
-            active === type ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f4f1e8]"
-          }`}
-        >{type}</button>)}
-      </div>
+      {/* Radix gives these arrow-key navigation and a roving tabindex; as plain
+          buttons they were three separate tab stops that only looked like tabs. */}
+      <Tabs value={active} onValueChange={setActive}>
+        <TabsList>
+          {TYPES.map((type) => <TabsTrigger key={type} value={type}>{type}</TabsTrigger>)}
+        </TabsList>
+      </Tabs>
 
       {!draft && <p className="py-6 text-center text-sm text-muted-foreground">
         No template is set up for {active}.
@@ -196,14 +196,13 @@ export function PrintTemplateSettings() {
           </Label>
         </div>
 
-        <label className="flex items-center gap-3 rounded-xl border bg-[#fbfaf7] p-3 text-xs font-medium">
-          <input
-            type="checkbox"
+        <Label className="flex items-center gap-3 rounded-xl border bg-[#fbfaf7] p-3 text-xs font-medium">
+          <Checkbox
             checked={draft.showSignatures}
-            onChange={(event) => setDraft({ ...draft, showSignatures: event.target.checked })}
+            onCheckedChange={(checked) => setDraft({ ...draft, showSignatures: checked === true })}
           />
           Print the signature lines
-        </label>
+        </Label>
 
         <div className="flex justify-end">
           <Button onClick={() => void save()} disabled={saving}>

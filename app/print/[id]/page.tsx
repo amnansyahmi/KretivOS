@@ -4,7 +4,7 @@
  * The print preview.
  *
  * A page rather than a modal, so the browser's own print dialogue sees a clean
- * document: no shell, no navigation, no sidebar. Everything outside .kdoc is
+ * document: no shell, no navigation, no sidebar. Everything outside .ktpl is
  * hidden at print time, which means "Save as PDF" from the same dialogue
  * produces exactly what the client receives.
  */
@@ -44,17 +44,17 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
     return () => { cancelled = true; };
   }, [id, kind]);
 
-  return <main className="kdoc-page min-h-screen bg-[#f5f2ea] py-6">
+  return <main className="ktpl-page min-h-screen bg-[#f5f2ea] py-6">
     <style>{`${PRINT_STYLES}
       @media print {
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-        .kdoc-chrome { display: none !important; }
-        .kdoc-page { min-height: 0 !important; padding: 0 !important; background: #fff !important; }
-        .kdoc-preview-wrap { max-width: none !important; padding: 0 !important; }
+        .ktpl-chrome { display: none !important; }
+        .ktpl-page { min-height: 0 !important; padding: 0 !important; background: #fff !important; }
+        .ktpl-preview-wrap { max-width: none !important; padding: 0 !important; }
       }
     `}</style>
 
-    <div className="kdoc-chrome mx-auto mb-5 flex max-w-[210mm] items-center gap-3 px-4">
+    <div className="ktpl-chrome mx-auto mb-5 flex max-w-[210mm] items-center gap-3 px-4">
       <Button variant="outline" size="sm" asChild>
         <Link href={back}><ArrowLeft className="h-4 w-4" />Back</Link>
       </Button>
@@ -64,21 +64,21 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
       </Button>
     </div>
 
-    {error && <div className="kdoc-chrome mx-auto max-w-[210mm] px-4">
+    {error && <div className="ktpl-chrome mx-auto max-w-[210mm] px-4">
       <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
     </div>}
 
-    {warning && <div className="kdoc-chrome mx-auto mb-5 max-w-[210mm] px-4">
+    {warning && <div className="ktpl-chrome mx-auto mb-5 max-w-[210mm] px-4">
       <div className="border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
         <strong>Printing is paused.</strong> {warning}
       </div>
     </div>}
 
-    {!model && !error && <div className="kdoc-chrome flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
+    {!model && !error && <div className="ktpl-chrome flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
       <Loader2 className="h-4 w-4 animate-spin" />Preparing the document…
     </div>}
 
-    {model && <div className="kdoc-preview-wrap mx-auto max-w-[210mm] px-4 sm:px-0">
+    {model && <div className="ktpl-preview-wrap mx-auto max-w-[210mm] px-4 sm:px-0">
       <ResponsivePrintDocument model={model} />
     </div>}
   </main>;

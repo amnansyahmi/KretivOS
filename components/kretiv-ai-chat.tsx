@@ -353,7 +353,7 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
           </div>
 
           {turn.from === "ai" && !turn.streaming && turn.text && turn.key !== "opening" && <div className="mt-1.5 flex items-center gap-1">
-            <button onClick={() => copy(turn)} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-white">
+            <button onClick={() => copy(turn)} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-white" aria-label="Mark all read">
               {copied === turn.key ? <><Check className="h-3 w-3" />Copied</> : <><Copy className="h-3 w-3" />Copy</>}
             </button>
             <button onClick={regenerate} disabled={loading} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-white disabled:opacity-40">

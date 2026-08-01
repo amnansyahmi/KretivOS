@@ -199,14 +199,14 @@ export function HRMSAttendanceReview({ session }: { session: HRMSSession }) {
     navigation={getPermittedHRMSNavigation(session)}
     session={session}
     actions={<>
-      <Button asChild variant="outline" size="icon" className="bg-white sm:w-auto sm:px-4"><a href="/hr?section=attendance" aria-label="Back to attendance"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Attendance</span></a></Button>
-      <Button variant="outline" size="icon" className="bg-white sm:w-auto sm:px-4" onClick={load} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /><span className="hidden sm:inline">Refresh</span></Button>
+      <Button asChild variant="outline" size="icon" className="bg-white sm:w-auto sm:px-4" aria-label="Back"><a href="/hr?section=attendance" aria-label="Back to attendance"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Attendance</span></a></Button>
+      <Button variant="outline" size="icon" aria-label="Refresh" className="bg-white sm:w-auto sm:px-4" onClick={load} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /><span className="hidden sm:inline">Refresh</span></Button>
     </>}
   >
     <div className="space-y-5">
       <Card className="border-emerald-200 bg-emerald-50/80"><CardContent className="flex items-start gap-3 p-4 text-xs leading-5 text-emerald-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>Attendance evidence is private and available only to HR Admin or Manager. Replacing or removing a photo preserves the official attendance timestamp and writes an audit entry.</span></CardContent></Card>
 
-      {error && <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
+      {error && <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="All records" value={stats.total} note="Shared HR attendance history" icon={Clock3} />
@@ -299,7 +299,7 @@ function AttendanceDetail({ record, employee, onClose }: { record: AttendanceRec
     <div className="absolute inset-x-0 bottom-0 max-h-[94dvh] overflow-y-auto rounded-t-3xl bg-[#f5f2ea] shadow-2xl md:inset-y-0 md:left-auto md:w-[min(760px,92vw)] md:rounded-none" onClick={(event) => event.stopPropagation()}>
       <div className="sticky top-0 z-20 flex items-start justify-between border-b bg-[#f5f2ea]/95 p-4 backdrop-blur sm:p-6">
         <div className="min-w-0"><div className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#ba5c42]">Attendance details</div><h2 className="mt-1 truncate text-xl font-semibold">{employee?.name || "Unknown team member"}</h2><p className="mt-1 text-xs text-muted-foreground">{displayDate(record.date)} · {record.workMode || record.status}</p></div>
-        <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}><X className="h-4 w-4" /></Button>
       </div>
 
       <div className="space-y-5 p-4 sm:p-6">

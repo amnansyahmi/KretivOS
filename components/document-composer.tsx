@@ -338,11 +338,11 @@ export function DocumentComposer({
             <CardTitle className="text-xl sm:text-2xl">Create from {template.name}</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">Edit content, apply the approved layout, add a logo, then save or export.</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}><X className="h-4 w-4" /></Button>
         </CardHeader>
 
         <CardContent className="p-4 sm:p-6">
-          {notice && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
+          {notice && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
           <div className="mb-5 flex flex-col gap-3 rounded-xl border bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">

@@ -18,6 +18,7 @@ import {
   Printer, RefreshCw, ScrollText, Sparkles, Trash2, TrendingDown, TrendingUp, Upload, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -903,9 +904,9 @@ function Payments({ data, loading, submit, directionLock }: any) {
         <div className={cn("font-semibold", payment.direction === "out" ? "text-red-600" : "text-emerald-700")}>
           {payment.direction === "out" ? "−" : "+"}{money(payment.amount)}
         </div>
-        {payment.direction === "in" && payment.customerId && <Button variant="outline" size="icon" asChild title="Print receipt">
+        {payment.direction === "in" && payment.customerId && <Hint label="Print receipt"><Button variant="outline" size="icon" asChild aria-label="Print receipt">
           <Link href={`/print/${payment.id}?kind=receipt&back=${encodeURIComponent(directionLock ? "/purchases?tab=payments" : "/accounting?tab=payments")}`}><Printer className="h-4 w-4" /></Link>
-        </Button>}
+        </Button></Hint>}
       </CardContent></Card>)}
     </div>
   </div>;
@@ -1456,7 +1457,7 @@ function Transactions({ data, loading, submit }: any) {
             {item.reference ? ` · ${item.reference}` : ""}
           </div>
         </div>
-        {!item.onLedger && <span title="Recorded before the ledger existed, so it is not in the reports" className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[10px] text-amber-700">Not on ledger</span>}
+        {!item.onLedger && <span tabIndex={0} title="Recorded before the ledger existed, so it is not in the reports" className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[10px] text-amber-700">Not on ledger</span>}
         <div className={cn("shrink-0 font-semibold", item.type === "Expense" ? "text-red-600" : "text-emerald-700")}>
           {item.type === "Expense" ? "−" : "+"}{money(item.amount)}
         </div>
