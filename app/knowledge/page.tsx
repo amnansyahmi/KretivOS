@@ -297,7 +297,7 @@ export default function KnowledgeLibraryPage() {
               <div className="sticky top-16 z-20 border-b bg-white/95 p-3 backdrop-blur md:top-24 md:p-4 lg:static">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input value={query} onChange={(event) => setQuery(event.target.value)} className="h-11 w-full rounded-xl border bg-[#fbfaf7] pl-10 pr-12 text-sm outline-none transition focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10" placeholder="Search knowledge..." />
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} className="kretivos-search-control h-11 w-full rounded-xl border bg-[#fbfaf7] pl-11 pr-12 text-sm outline-none transition focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10" placeholder="Search knowledge..." />
                   <button onClick={() => setFiltersOpen((value) => !value)} className={cn("absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg", filtersOpen || client !== "All clients" || freshnessFilter !== "All freshness" ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-black/5")} aria-label="Show filters"><SlidersHorizontal className="h-4 w-4" /></button>
                 </div>
                 <div className="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-none">{categories.map((item) => <button key={item} onClick={() => setCategory(item)} className={cn("shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition", category === item ? "border-[#202c25] bg-[#202c25] text-white" : "border-black/8 bg-white text-[#667067] hover:bg-[#f3efe7]")}>{item}</button>)}</div>
@@ -365,4 +365,3 @@ export default function KnowledgeLibraryPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <Label className="block text-[#4e5a52]">{label}<div className="mt-2">{children}</div></Label>;
 }
-
