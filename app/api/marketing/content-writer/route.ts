@@ -71,7 +71,6 @@ async function contentContext(customerId: string, brandId: string) {
     from knowledge_entries
     where organization_id = ${ORGANIZATION_ID}
       and customer_id = ${customerId}
-      and status = 'Active'
     order by updated_at desc
     limit 6
   `;
