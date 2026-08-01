@@ -14,7 +14,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PrintDocument, PRINT_STYLES } from "@/components/print-document";
+import { ResponsivePrintDocument, PRINT_STYLES } from "@/components/print-document";
 import type { PrintModel } from "@/lib/print-templates";
 
 export default function PrintPage({ params }: { params: Promise<{ id: string }> }) {
@@ -50,7 +50,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
         .kdoc-chrome { display: none !important; }
         .kdoc-page { min-height: 0 !important; padding: 0 !important; background: #fff !important; }
-        .kdoc-sheet { box-shadow: none !important; border: 0 !important; margin: 0 !important; padding: 0 !important; }
+        .kdoc-preview-wrap { max-width: none !important; padding: 0 !important; }
       }
     `}</style>
 
@@ -78,8 +78,8 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
       <Loader2 className="h-4 w-4 animate-spin" />Preparing the document…
     </div>}
 
-    {model && <div className="kdoc-sheet mx-auto max-w-[210mm] bg-white px-[20mm] py-[18mm] shadow-soft">
-      <PrintDocument model={model} />
+    {model && <div className="kdoc-preview-wrap mx-auto max-w-[210mm] px-4 sm:px-0">
+      <ResponsivePrintDocument model={model} />
     </div>}
   </main>;
 }
