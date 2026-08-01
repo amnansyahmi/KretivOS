@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { isValidElement, useEffect, useMemo, useState } from "react";
 import {
   Download, FileText, List, Loader2, Pencil, Plus, RefreshCw, Save, Search,
@@ -366,7 +367,7 @@ export default function DocumentsPage() {
   }
 
   return (
-    <WorkspacePage eyebrow="AI-assisted document workspace" title="Documents" description="Draft reusable templates with AI, fill document fields from a brief, compose branded files and keep every final record in Neon." actions={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={() => loadData(false)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>{tab === "templates" && <Button onClick={() => { setTemplateBrief(""); setDraft(emptyDraft()); }}><Plus className="h-4 w-4" />New template</Button>}</div>}>
+    <WorkspacePage eyebrow="AI-assisted document workspace" title="Documents" description="Draft reusable templates with AI, fill document fields from a brief, compose branded files and keep every final record in Neon." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" className="bg-white" onClick={() => loadData(false)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button><Button asChild variant="outline" className="bg-white"><Link href="/document-ai"><Sparkles className="h-4 w-4" />AI proposal package</Link></Button>{tab === "templates" && <Button onClick={() => { setTemplateBrief(""); setDraft(emptyDraft()); }}><Plus className="h-4 w-4" />New template</Button>}</div>}>
       {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}
 

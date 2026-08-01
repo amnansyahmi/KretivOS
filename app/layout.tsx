@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { KretivOSToolsNav } from "@/components/kretivos-tools-nav";
 import { AttendanceTestSession } from "@/components/attendance-test-session";
 import { GlobalCommandPalette } from "@/components/command-palette";
 import { ToastProvider } from "@/components/toast";
@@ -26,9 +25,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <ToastProvider>
           {children}
-          <KretivOSToolsNav />
           <AttendanceTestSession />
-          {/* Mounted at the root so ⌘K reaches every workspace, not just the dashboard. */}
+          {/* Mounted at the root so ⌘K reaches every workspace. */}
           <GlobalCommandPalette />
         </ToastProvider>
       </body>

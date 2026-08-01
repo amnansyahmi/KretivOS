@@ -12,9 +12,8 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight, Bot, Building2, CircleDollarSign, ClipboardCheck, Contact, FileText,
-  FolderKanban, HandCoins, Library, Loader2, Palette, Rocket, Search, Sparkles,
-  Target, UsersRound, Workflow,
+  ArrowRight, Bot, Building2, CircleDollarSign, ClipboardCheck, Code2, FileText,
+  Library, Loader2, Palette, Search, Settings2, Sparkles, UsersRound, WandSparkles, Workflow,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogTitle, VisuallyHidden,
@@ -27,24 +26,20 @@ type Hit = { id: string; type: string; title: string; subtitle: string; href: st
 
 const DESTINATIONS: Destination[] = [
   { label: "Command Centre", href: "/", group: "Company", icon: Sparkles, keywords: "home dashboard overview" },
-  { label: "Client Workspaces", href: "/business?tab=customers", group: "Company", icon: Building2, keywords: "customers clients" },
-  { label: "Customer Onboarding", href: "/business?tab=onboarding", group: "Company", icon: Rocket },
-  { label: "HRMS", href: "/hr", group: "Company", icon: UsersRound, keywords: "hr people leave payroll attendance" },
+  { label: "Business", href: "/business?tab=customers", group: "Company", icon: Building2, keywords: "customers clients crm sales projects onboarding" },
+  { label: "HR & Team", href: "/hr", group: "Company", icon: UsersRound, keywords: "hr people leave payroll attendance" },
   { label: "Approval Inbox", href: "/approvals", group: "Company", icon: ClipboardCheck, keywords: "approve pending" },
-  { label: "CRM & Pipeline", href: "/business?tab=crm", group: "Business", icon: Contact, keywords: "opportunities deals" },
-  { label: "AI Proposal Package", href: "/document-ai", group: "Business", icon: Sparkles, keywords: "proposal quotation generate" },
-  { label: "Sales & Documents", href: "/business?tab=sales", group: "Business", icon: FileText, keywords: "quotation invoice" },
-  { label: "Accounting", href: "/accounting", group: "Business", icon: CircleDollarSign, keywords: "finance cash ledger money in out bills vendors reports" },
-  { label: "Weekly Settlement", href: "/accounting?tab=settlements", group: "Business", icon: HandCoins, keywords: "tuesday settlement units fee" },
-  { label: "Money in / out", href: "/accounting?tab=transactions", group: "Business", icon: CircleDollarSign, keywords: "cash expenses receipts" },
-  { label: "Budget & forecast", href: "/accounting?tab=forecast", group: "Business", icon: CircleDollarSign, keywords: "projection scenario plan variance" },
-  { label: "Projects & Delivery", href: "/business?tab=projects", group: "Business", icon: FolderKanban },
-  { label: "Kretiv AI Studio", href: "/ai-studio", group: "Creative", icon: Bot, keywords: "chat ai prompts" },
-  { label: "Funnel Builder", href: "/funnels", group: "Creative", icon: Target, keywords: "tofu mofu bofu" },
-  { label: "Brand & Assets", href: "/brands", group: "Creative", icon: Palette, keywords: "brand dna" },
-  { label: "Knowledge Library", href: "/knowledge", group: "Operations", icon: Library, keywords: "documents sources search" },
+  { label: "Accounting", href: "/accounting", group: "Finance", icon: CircleDollarSign, keywords: "finance cash ledger money in out bills vendors reports settlements budget" },
+  { label: "AI Studio", href: "/ai-studio", group: "Creative", icon: Bot, keywords: "chat ai prompts image generation" },
+  { label: "Marketing Studio", href: "/?view=Marketing%20Studio", group: "Creative", icon: Sparkles, keywords: "marketing strategy content planner storyboard funnel campaigns" },
+  { label: "Brand DNA", href: "/brands", group: "Creative", icon: Palette, keywords: "brand assets colours tone claims" },
+  { label: "AI Proposal Package", href: "/document-ai", group: "Actions", icon: Sparkles, keywords: "proposal quotation generate document" },
+  { label: "Prompt Lab", href: "/?view=Prompt%20Lab", group: "Actions", icon: WandSparkles, keywords: "image prompt production prompt realism" },
+  { label: "Knowledge", href: "/knowledge", group: "Operations", icon: Library, keywords: "library sources search" },
   { label: "Automations", href: "/automations", group: "Operations", icon: Workflow, keywords: "recipes triggers" },
   { label: "Documents", href: "/documents", group: "Operations", icon: FileText, keywords: "templates" },
+  { label: "Technology", href: "/?view=Technology", group: "Settings", icon: Code2, keywords: "systems deployments infrastructure health" },
+  { label: "Settings", href: "/?view=Settings", group: "Settings", icon: Settings2, keywords: "configuration company profile" },
 ];
 
 const DEBOUNCE_MS = 180;

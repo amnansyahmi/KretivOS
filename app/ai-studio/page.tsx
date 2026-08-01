@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive, Bot, Check, ChevronLeft, Circle, Copy, Database, Download, Globe2,
@@ -229,7 +230,7 @@ export default function AiStudioPage() {
     eyebrow="AI operating layer"
     title="Kretiv AI Studio"
     description="One workspace for ai-nonymauz-cloud: live KretivOS context, cloud RAG, web tools, model routing, reusable prompts, image generation and shared history."
-    actions={<div className="flex flex-wrap items-center gap-2"><ServiceBadge status={status} /><Button variant="outline" className="bg-white" onClick={() => load(activeId)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Refresh</Button><Button onClick={newConversation}><Plus className="h-4 w-4" />New</Button></div>}
+    actions={<div className="flex flex-wrap items-center gap-2"><ServiceBadge status={status} /><Button asChild variant="outline" className="bg-white"><Link href="/?view=Prompt%20Lab"><WandSparkles className="h-4 w-4" />Prompt Lab</Link></Button><Button variant="outline" className="bg-white" onClick={() => load(activeId)} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Refresh</Button><Button onClick={newConversation}><Plus className="h-4 w-4" />New</Button></div>}
   >
     {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
     {error && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError("")}><X className="h-4 w-4" /></button></div>}

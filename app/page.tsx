@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, ArrowRight, BarChart3, Bot, Building2, CalendarDays, Check,
+  Activity, ArrowRight, BarChart3, Bot, Building2, Check,
   ChevronRight, CircleDollarSign, Clapperboard, ClipboardCheck, Cloud, Code2,
-  Calculator, Contact, Database, FileCheck2, FileText, Film, FolderKanban, GitBranch,
+  Calculator, Database, FileText, Film, GitBranch,
   HandCoins, LayoutDashboard, Library, Megaphone, Menu, MessageSquareText,
   MonitorSmartphone, MoreHorizontal, Palette, PanelLeftClose, PanelLeftOpen,
-  Plus, Presentation, Receipt, RefreshCw, Rocket, Search, Send, Settings2,
+  Plus, Presentation, Receipt, RefreshCw, Search, Send, Settings2,
   Sparkles, Target, TrendingUp, UsersRound, WandSparkles, Workflow, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,8 +26,8 @@ import { cn } from "@/lib/utils";
  * records lives on its own route instead, and is reached through `href` below.
  */
 type View =
-  | "Command Centre" | "Approvals" | "Marketing Plans"
-  | "Content Planner" | "Storyboard Studio" | "Prompt Lab" | "Technology" | "Settings";
+  | "Command Centre" | "Approvals" | "Marketing Studio"
+  | "Prompt Lab" | "Technology" | "Settings";
 
 type NavItem = { name: string; icon: any; view?: View; href?: string };
 type NavGroup = { label: string; items: NavItem[] };
@@ -35,29 +35,19 @@ type NavGroup = { label: string; items: NavItem[] };
 const navGroups: NavGroup[] = [
   { label: "Company", items: [
     { name: "Command Centre", icon: LayoutDashboard, view: "Command Centre" },
-    { name: "Client Workspaces", icon: Building2, href: "/business?tab=customers" },
-    { name: "Customer Onboarding", icon: Rocket, href: "/business?tab=onboarding" },
-    { name: "HRMS", icon: UsersRound, href: "/hr" },
+    { name: "Business", icon: Building2, href: "/business?tab=customers" },
+    { name: "HR & Team", icon: UsersRound, href: "/hr" },
     { name: "Approval Inbox", icon: ClipboardCheck, href: "/approvals" },
   ]},
-  { label: "Business", items: [
-    { name: "CRM & Pipeline", icon: Contact, href: "/business?tab=crm" },
-    { name: "AI Proposal Package", icon: Sparkles, href: "/document-ai" },
-    { name: "Sales & Documents", icon: FileCheck2, href: "/business?tab=sales" },
+  { label: "Finance", items: [
     { name: "Accounting", icon: Calculator, href: "/accounting" },
-    { name: "Projects & Delivery", icon: FolderKanban, href: "/business?tab=projects" },
   ]},
   { label: "Creative Studio", items: [
-    { name: "Kretiv AI Studio", icon: Bot, href: "/ai-studio" },
-    { name: "Marketing Plans", icon: Megaphone, view: "Marketing Plans" },
-    { name: "Funnel Builder", icon: Target, href: "/funnels" },
-    { name: "Content Planner", icon: CalendarDays, view: "Content Planner" },
-    { name: "Storyboard Studio", icon: Clapperboard, view: "Storyboard Studio" },
-    { name: "Prompt Lab", icon: WandSparkles, view: "Prompt Lab" },
-    { name: "Brand & Assets", icon: Palette, href: "/brands" },
+    { name: "AI Studio", icon: Bot, href: "/ai-studio" },
+    { name: "Marketing Studio", icon: Megaphone, view: "Marketing Studio" },
+    { name: "Brand DNA", icon: Palette, href: "/brands" },
   ]},
   { label: "Operations", items: [
-    { name: "Technology", icon: Code2, view: "Technology" },
     { name: "Knowledge", icon: Library, href: "/knowledge" },
     { name: "Automations", icon: Workflow, href: "/automations" },
     { name: "Documents", icon: FileText, href: "/documents" },
@@ -65,7 +55,9 @@ const navGroups: NavGroup[] = [
   ]},
 ];
 
-const views = navGroups.flatMap(group => group.items.map(item => item.view).filter(Boolean)) as View[];
+// Prompt Lab and Technology remain available as secondary workspaces from AI
+// Studio and Settings, but do not compete with the primary navigation.
+const views = [...navGroups.flatMap(group => group.items.map(item => item.view).filter(Boolean)), "Prompt Lab", "Technology"] as View[];
 
 const money = (n: number) => `RM${Number(n || 0).toLocaleString("en-MY", { maximumFractionDigits: 0 })}`;
 const team = ["Amirul Hafiz", "Nurfadilah (Ila)", "Muhammad Afiq", "Amnan", "Ajam (Multazam)"];
@@ -136,8 +128,22 @@ export default function Home() {
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
-  // Views that moved onto their own routes may still be stored from an earlier visit.
-  useEffect(() => { if (view && !views.includes(view)) setView("Command Centre"); }, [view, setView]);
+  // Migrate old home views into their consolidated workspace and honour deep
+  // links from the command palette and secondary Settings/AI Studio actions.
+  useEffect(() => {
+    const legacy = String(view);
+    if (["Marketing Plans", "Content Planner", "Storyboard Studio"].includes(legacy)) {
+      setView("Marketing Studio");
+      return;
+    }
+    const requested = new URLSearchParams(window.location.search).get("view");
+    if (requested && views.includes(requested as View)) {
+      setView(requested as View);
+      window.history.replaceState({}, "", "/");
+      return;
+    }
+    if (view && !views.includes(view)) setView("Command Centre");
+  }, [view, setView]);
 
   const install = async () => {
     if (!installPrompt) return;
@@ -219,9 +225,7 @@ function ViewRouter({ view }: { view: View }) {
   switch (view) {
     case "Command Centre": return <CommandCentre />;
     case "Approvals": return <Approvals />;
-    case "Marketing Plans": return <MarketingPlans />;
-    case "Content Planner": return <ContentPlanner />;
-    case "Storyboard Studio": return <StoryboardStudio />;
+    case "Marketing Studio": return <MarketingStudio />;
     case "Prompt Lab": return <PromptLab />;
     case "Technology": return <Technology />;
     case "Settings": return <Settings />;
@@ -611,6 +615,29 @@ function MarketingPlans() {
   </div>;
 }
 
+type MarketingStudioTab = "strategy" | "content" | "storyboard" | "funnels";
+
+function MarketingStudio() {
+  const [tab, setTab] = useState<MarketingStudioTab>("strategy");
+  const tabs: { id: MarketingStudioTab; label: string }[] = [
+    { id: "strategy", label: "Strategy" },
+    { id: "content", label: "Content" },
+    { id: "storyboard", label: "Storyboard" },
+    { id: "funnels", label: "Funnel builder" },
+  ];
+
+  return <div>
+    <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between"><div><div className="text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42]">Creative operations</div><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Marketing Studio keeps strategy, content, storyboards and funnel handoff together without duplicating the underlying workspaces.</p></div></div>
+    <div className="mb-6 flex flex-wrap gap-2 rounded-xl border bg-white/75 p-1.5">
+      {tabs.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={cn("min-h-10 rounded-lg px-4 text-sm font-medium transition", tab === item.id ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}>{item.label}</button>)}
+    </div>
+    {tab === "strategy" && <MarketingPlans />}
+    {tab === "content" && <ContentPlanner />}
+    {tab === "storyboard" && <StoryboardStudio />}
+    {tab === "funnels" && <><PageHead eyebrow="Funnel handoff" title="Funnel Builder" description="Build and track TOFU, MOFU and BOFU stages in the shared campaign funnel workspace." /><Card className="bg-white/80"><CardContent className="flex flex-col items-start gap-4 p-8"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#eee9df]"><Target className="h-5 w-5 text-[#ba5c42]" /></div><p className="max-w-xl text-sm leading-relaxed text-muted-foreground">The funnel stays a dedicated record view so Marketing Studio remains focused on planning and production.</p><Button asChild><Link href="/funnels"><Target className="h-4 w-4" />Open Funnel Builder</Link></Button></CardContent></Card></>}
+  </div>;
+}
+
 type PlannerSlot = { title: string; status: string };
 
 function ContentPlanner() {
@@ -994,6 +1021,7 @@ function Settings() {
     [Palette, "Brand DNA", "Colours, typography, tone and approved claims per brand", "/brands"],
     [Workflow, "Automations", "Triggers, actions and approval thresholds", "/automations"],
     [Library, "Knowledge library", "Agreements, SOPs, campaign learnings and technical decisions", "/knowledge"],
+    [Code2, "Technology", "Systems, deployments, infrastructure and shared service health", "/?view=Technology"],
   ];
   return <div>
     <PageHead eyebrow="Configuration" title="Settings" description="KretivOS keeps configuration inside the workspace that owns it, so each area below opens the record it configures." />
