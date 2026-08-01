@@ -61,6 +61,50 @@ const navGroups: NavGroup[] = [
 // Studio and Settings, but do not compete with the primary navigation.
 const views = [...navGroups.flatMap(group => group.items.map(item => item.view).filter(Boolean)), "Prompt Lab", "Technology"] as View[];
 
+/** Folded into Marketing Studio, but still live in old bookmarks and links. */
+const LEGACY_VIEWS = ["Marketing Plans", "Content Planner", "Storyboard Studio"];
+
+/**
+ * The dashboard's view lives in the URL.
+ *
+ * It used to live in localStorage, which quietly redefined "/" as "wherever you
+ * left off". Every "Back to KretivOS" link in the app — there are eight, across
+ * HR, Knowledge, Business, Accounting, Documents and Purchases — points at "/",
+ * so all of them dropped you on your last view instead of the Command Centre.
+ * From AI Studio that was reliably Prompt Lab, because its Prompt Lab button
+ * deep-links through "/?view=Prompt Lab" and the old code wrote that straight
+ * into storage and then stripped the query string.
+ *
+ * With the view in the URL: "/" unambiguously means the Command Centre, a view
+ * still survives a refresh, links are shareable, and the browser Back button
+ * steps between views rather than leaving the app.
+ */
+function useViewRouting() {
+  const [view, setViewState] = useState<View>("Command Centre");
+
+  const fromUrl = useCallback((): View => {
+    const requested = new URLSearchParams(window.location.search).get("view");
+    if (!requested) return "Command Centre";
+    if (LEGACY_VIEWS.includes(requested)) return "Marketing Studio";
+    return views.includes(requested as View) ? (requested as View) : "Command Centre";
+  }, []);
+
+  useEffect(() => {
+    setViewState(fromUrl());
+    const onPop = () => setViewState(fromUrl());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [fromUrl]);
+
+  const setView = useCallback((next: View) => {
+    setViewState(next);
+    // The Command Centre is the bare path, so "/" keeps one obvious meaning.
+    window.history.pushState({}, "", next === "Command Centre" ? "/" : `/?view=${encodeURIComponent(next)}`);
+  }, []);
+
+  return [view, setView] as const;
+}
+
 const money = (n: number) => `RM${Number(n || 0).toLocaleString("en-MY", { maximumFractionDigits: 0 })}`;
 const team = ["Amirul Hafiz", "Nurfadilah (Ila)", "Muhammad Afiq", "Amnan", "Ajam (Multazam)"];
 
@@ -117,7 +161,7 @@ function useBusinessSnapshot() {
 }
 
 export default function Home() {
-  const [view, setView] = usePersisted<View>("kretivos-view", "Command Centre");
+  const [view, setView] = useViewRouting();
   const [mobile, setMobile] = useState(false);
   const [collapsed, setCollapsed] = usePersisted("kretivos-sidebar", false);
   const [chat, setChat] = useState(false);
@@ -129,23 +173,6 @@ export default function Home() {
     window.addEventListener("beforeinstallprompt", handler);
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
-
-  // Migrate old home views into their consolidated workspace and honour deep
-  // links from the command palette and secondary Settings/AI Studio actions.
-  useEffect(() => {
-    const legacy = String(view);
-    if (["Marketing Plans", "Content Planner", "Storyboard Studio"].includes(legacy)) {
-      setView("Marketing Studio");
-      return;
-    }
-    const requested = new URLSearchParams(window.location.search).get("view");
-    if (requested && views.includes(requested as View)) {
-      setView(requested as View);
-      window.history.replaceState({}, "", "/");
-      return;
-    }
-    if (view && !views.includes(view)) setView("Command Centre");
-  }, [view, setView]);
 
   const install = async () => {
     if (!installPrompt) return;
