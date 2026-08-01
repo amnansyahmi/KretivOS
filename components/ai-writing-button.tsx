@@ -53,7 +53,7 @@ export function AIWritingButton({
         type="button"
         variant="outline"
         size="sm"
-        className="h-8 bg-white px-2.5 text-[11px]"
+        className="h-8 bg-card px-2.5 text-[11px]"
         onClick={improve}
         disabled={!eligible || state === "loading"}
         title={message || (value.trim().length < 3 ? "Write a short draft first." : value.length > 3000 ? "Select or shorten this draft to 3,000 characters first." : label)}

@@ -13,9 +13,33 @@ const config: Config = {
         primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
         secondary: { DEFAULT: "hsl(var(--secondary))", foreground: "hsl(var(--secondary-foreground))" },
         muted: { DEFAULT: "hsl(var(--muted))", foreground: "hsl(var(--muted-foreground))" },
-        accent: { DEFAULT: "hsl(var(--accent))", foreground: "hsl(var(--accent-foreground))" },
+        well: "hsl(var(--well))",
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          soft: "hsl(var(--accent-soft))",
+          muted: "hsl(var(--accent-muted))",
+          faint: "hsl(var(--accent-faint))",
+          foreground: "hsl(var(--accent-foreground))",
+          tint: "hsl(var(--accent-tint))",
+          "tint-foreground": "hsl(var(--accent-tint-foreground))",
+        },
         card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },
-        destructive: { DEFAULT: "hsl(var(--destructive))", foreground: "hsl(var(--destructive-foreground))" }
+        destructive: { DEFAULT: "hsl(var(--destructive))", foreground: "hsl(var(--destructive-foreground))" },
+        // The secondary ink weight. Named apart from muted-foreground because
+        // they are different roles: this is body copy, that is metadata.
+        "foreground-soft": "hsl(var(--foreground-soft))",
+        // Calendar categories. The hue carries the label, so these never merge
+        // into the neutrals however close they sit.
+        cat: {
+          event: "hsl(var(--cat-event))",
+          "event-foreground": "hsl(var(--cat-event-foreground))",
+          holiday: "hsl(var(--cat-holiday))",
+          "holiday-foreground": "hsl(var(--cat-holiday-foreground))",
+          leave: "hsl(var(--cat-leave))",
+          "leave-foreground": "hsl(var(--cat-leave-foreground))",
+          lifecycle: "hsl(var(--cat-lifecycle))",
+          "lifecycle-foreground": "hsl(var(--cat-lifecycle-foreground))",
+        }
       },
       borderRadius: { lg: "var(--radius)", md: "calc(var(--radius) - 2px)", sm: "calc(var(--radius) - 4px)" },
       boxShadow: { soft: "0 16px 48px rgba(31, 36, 32, .08)" },

@@ -45,7 +45,7 @@ export function MarkdownPreview({ content }: { content: string }) {
 
   const flushList = () => {
     if (!list.length) return;
-    nodes.push(<ul key={`list-${nodes.length}`} className="my-4 list-disc space-y-1.5 pl-6 text-sm leading-7 text-[#4d574f]">{list.map((item, index) => <li key={index}>{inline(item)}</li>)}</ul>);
+    nodes.push(<ul key={`list-${nodes.length}`} className="my-4 list-disc space-y-1.5 pl-6 text-sm leading-7 text-foreground-soft">{list.map((item, index) => <li key={index}>{inline(item)}</li>)}</ul>);
     list = [];
   };
 
@@ -56,7 +56,7 @@ export function MarkdownPreview({ content }: { content: string }) {
 
     // A table needs a header and an alignment divider; otherwise emit the raw lines.
     if (rows.length < 2 || !isTableDivider(rows[1])) {
-      rows.forEach((line, index) => nodes.push(<p key={`row-${nodes.length}-${index}`} className="text-sm leading-7 text-[#4d574f]">{inline(line)}</p>));
+      rows.forEach((line, index) => nodes.push(<p key={`row-${nodes.length}-${index}`} className="text-sm leading-7 text-foreground-soft">{inline(line)}</p>));
       return;
     }
 
@@ -74,10 +74,10 @@ export function MarkdownPreview({ content }: { content: string }) {
       <div key={`table-${nodes.length}`} className="my-4 -mx-1 overflow-x-auto">
         <table className="w-full min-w-[420px] border-collapse text-sm">
           <thead>
-            <tr>{header.map((heading, index) => <th key={index} className={`border-b-2 border-[#26342b] bg-[#f2efe8] px-3 py-2 text-xs font-semibold ${cellAlign(index)}`}>{inline(heading)}</th>)}</tr>
+            <tr>{header.map((heading, index) => <th key={index} className={`border-b-2 border-foreground bg-background px-3 py-2 text-xs font-semibold ${cellAlign(index)}`}>{inline(heading)}</th>)}</tr>
           </thead>
           <tbody>
-            {body.map((row, rowIndex) => <tr key={rowIndex}>{row.map((value, index) => <td key={index} className={`border-b border-[#e3ded4] px-3 py-2 leading-6 text-[#4d574f] ${cellAlign(index)}`}>{inline(value)}</td>)}</tr>)}
+            {body.map((row, rowIndex) => <tr key={rowIndex}>{row.map((value, index) => <td key={index} className={`border-b border-border px-3 py-2 leading-6 text-foreground-soft ${cellAlign(index)}`}>{inline(value)}</td>)}</tr>)}
           </tbody>
         </table>
       </div>
@@ -86,7 +86,7 @@ export function MarkdownPreview({ content }: { content: string }) {
 
   const flushCode = () => {
     if (!code.length) return;
-    nodes.push(<pre key={`code-${nodes.length}`} className="my-4 overflow-x-auto rounded-xl bg-[#202c25] p-4 text-xs leading-6 text-white/80"><code>{code.join("\n")}</code></pre>);
+    nodes.push(<pre key={`code-${nodes.length}`} className="my-4 overflow-x-auto rounded-xl bg-foreground p-4 text-xs leading-6 text-white/80"><code>{code.join("\n")}</code></pre>);
     code = [];
   };
 
@@ -118,8 +118,8 @@ export function MarkdownPreview({ content }: { content: string }) {
     if (line.startsWith("### ")) nodes.push(<h3 key={index} className="mb-2 mt-6 text-lg font-semibold">{inline(line.slice(4))}</h3>);
     else if (line.startsWith("## ")) nodes.push(<h2 key={index} className="mb-3 mt-7 text-xl font-semibold">{inline(line.slice(3))}</h2>);
     else if (line.startsWith("# ")) nodes.push(<h1 key={index} className="mb-4 mt-2 text-2xl font-semibold tracking-tight">{inline(line.slice(2))}</h1>);
-    else if (line.startsWith("> ")) nodes.push(<blockquote key={index} className="my-4 border-l-4 border-[#ba5c42] bg-[#fff8f4] px-4 py-3 text-sm italic leading-7 text-[#596159]">{inline(line.slice(2))}</blockquote>);
-    else nodes.push(<p key={index} className="text-sm leading-7 text-[#4d574f]">{inline(line)}</p>);
+    else if (line.startsWith("> ")) nodes.push(<blockquote key={index} className="my-4 border-l-4 border-accent bg-card px-4 py-3 text-sm italic leading-7 text-foreground-soft">{inline(line.slice(2))}</blockquote>);
+    else nodes.push(<p key={index} className="text-sm leading-7 text-foreground-soft">{inline(line)}</p>);
   });
 
   flushTable();

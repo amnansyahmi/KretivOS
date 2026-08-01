@@ -311,11 +311,11 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
       overlayClassName="z-[70] bg-black/25"
       // A right-hand sheet rather than a centred box: full height, flush to the
       // edge, so the conversation keeps the same shape it had before Radix.
-      className="left-auto right-0 top-0 z-[80] flex h-full max-h-full w-full max-w-[460px] translate-x-0 translate-y-0 flex-col rounded-none border-y-0 border-r-0 bg-[#f7f4ed] p-0"
+      className="left-auto right-0 top-0 z-[80] flex h-full max-h-full w-full max-w-[460px] translate-x-0 translate-y-0 flex-col rounded-none border-y-0 border-r-0 bg-background p-0"
       onOpenAutoFocus={(event) => { event.preventDefault(); composerRef.current?.focus(); }}
     >
       <div className="flex h-[76px] shrink-0 items-center gap-3 border-b px-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#202c25] text-white"><Bot className="h-5 w-5" /></div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-foreground text-white"><Bot className="h-5 w-5" /></div>
         <div className="min-w-0">
           <DialogTitle className="font-semibold">Kretiv AI</DialogTitle>
           <DialogDescription className="truncate text-[10px]">{module} · reads live company records</DialogDescription>
@@ -332,7 +332,7 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
         {threads.map((thread) => <button
           key={thread.id}
           onClick={async () => { if (await loadThread(thread.id)) { localStorage.setItem(THREAD_KEY, thread.id); setHistoryOpen(false); } }}
-          className={cn("mb-1 block w-full truncate rounded-lg px-2.5 py-2 text-left text-xs hover:bg-[#f4f1e8]", thread.id === threadId && "bg-[#f4f1e8] font-medium")}
+          className={cn("mb-1 block w-full truncate rounded-lg px-2.5 py-2 text-left text-xs hover:bg-background", thread.id === threadId && "bg-background font-medium")}
         >
           {thread.title}
         </button>)}
@@ -342,21 +342,21 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
         {messages.map((turn) => <div key={turn.key} className={cn("max-w-[87%]", turn.from === "user" && "ml-auto")}>
           <div className={cn(
             "rounded-xl px-4 py-3 text-sm leading-relaxed",
-            turn.from === "user" ? "whitespace-pre-wrap bg-[#202c25] text-white" : "border bg-white",
+            turn.from === "user" ? "whitespace-pre-wrap bg-foreground text-white" : "border bg-card",
             turn.failed && "border-red-200 bg-red-50 text-red-700",
           )}>
             {turn.from === "user" || turn.failed
               ? turn.text
               : <div className="[&>div>*:first-child]:mt-0 [&>div>*:last-child]:mb-0"><MarkdownPreview content={turn.text} /></div>}
             {turn.streaming && !turn.text && <span className="inline-flex items-center gap-2 text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Reading company records…</span>}
-            {turn.streaming && turn.text && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-[#ba5c42] align-text-bottom" />}
+            {turn.streaming && turn.text && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-accent align-text-bottom" />}
           </div>
 
           {turn.from === "ai" && !turn.streaming && turn.text && turn.key !== "opening" && <div className="mt-1.5 flex items-center gap-1">
-            <button onClick={() => copy(turn)} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-white" aria-label="Mark all read">
+            <button onClick={() => copy(turn)} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-card" aria-label="Mark all read">
               {copied === turn.key ? <><Check className="h-3 w-3" />Copied</> : <><Copy className="h-3 w-3" />Copy</>}
             </button>
-            <button onClick={regenerate} disabled={loading} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-white disabled:opacity-40">
+            <button onClick={regenerate} disabled={loading} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-card disabled:opacity-40">
               <RefreshCw className="h-3 w-3" />Retry
             </button>
             {turn.model && <span className="ml-auto text-[9px] text-muted-foreground">{turn.model}</span>}
@@ -364,8 +364,8 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
 
           {turn.from === "ai" && turn.sources && turn.sources.length > 0 && <div className="mt-2 space-y-1">
             <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Sources</div>
-            {turn.sources.map((source) => <Link key={source.index} href="/knowledge" className="flex items-start gap-2 rounded-lg border bg-white/70 px-2.5 py-1.5 text-[10px] hover:bg-white">
-              <span className="font-semibold text-[#ba5c42]">[{source.index}]</span>
+            {turn.sources.map((source) => <Link key={source.index} href="/knowledge" className="flex items-start gap-2 rounded-lg border bg-white/70 px-2.5 py-1.5 text-[10px] hover:bg-card">
+              <span className="font-semibold text-accent">[{source.index}]</span>
               <span className="min-w-0">
                 <span className="block truncate font-medium">{source.title}</span>
                 <span className="text-muted-foreground">{[source.customerName, source.category].filter(Boolean).join(" · ")}</span>
@@ -378,14 +378,14 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
       </div>
 
       <div className="shrink-0 border-t bg-white/60 p-4">
-        <div className="mb-3 flex items-center gap-1 rounded-lg border bg-white p-1">
+        <div className="mb-3 flex items-center gap-1 rounded-lg border bg-card p-1">
           {MODES.map((item) => <button
             key={item.value}
             onClick={() => setMode(item.value)}
             title={item.hint}
             className={cn(
               "flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition",
-              mode === item.value ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f4f1e8]",
+              mode === item.value ? "bg-foreground text-white" : "text-muted-foreground hover:bg-background",
             )}
           >{item.label}</button>)}
         </div>
@@ -394,11 +394,11 @@ export function KretivAIChat({ onClose, module }: { onClose: () => void; module:
           {["What needs attention today?", "Which invoices are overdue?", "What does the Chef Ammar MoU say about payment?"].map((suggestion) => <button
             key={suggestion}
             onClick={() => setMessage(suggestion)}
-            className="whitespace-nowrap rounded-full border bg-white px-3 py-1.5 text-[10px]"
+            className="whitespace-nowrap rounded-full border bg-card px-3 py-1.5 text-[10px]"
           >{suggestion}</button>)}
         </div>
 
-        <div className="flex items-end gap-2 rounded-xl border bg-white p-2 focus-within:border-[#ba5c42]">
+        <div className="flex items-end gap-2 rounded-xl border bg-card p-2 focus-within:border-accent">
           <Textarea
             ref={composerRef}
             value={message}

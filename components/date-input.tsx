@@ -13,12 +13,12 @@ type DateInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type">;
  */
 export function DateInput({ className, ...props }: DateInputProps) {
   return <span className="relative block min-w-0 w-full">
-    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#687169]" aria-hidden="true" />
+    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
     <input
       {...props}
       type="date"
       className={cn(
-        "kretivos-date-input h-11 min-w-0 w-full rounded-xl border bg-white py-0 pl-10 pr-3 text-left text-sm tabular-nums outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10",
+        "kretivos-date-input h-11 min-w-0 w-full rounded-xl border bg-card py-0 pl-10 pr-3 text-left text-sm tabular-nums outline-none focus:border-accent focus:ring-4 focus:ring-accent/10",
         className,
       )}
     />
@@ -28,12 +28,12 @@ export function DateInput({ className, ...props }: DateInputProps) {
 /** The same mobile-safe control for month-only payroll and report periods. */
 export function MonthInput({ className, ...props }: DateInputProps) {
   return <span className="relative block min-w-0 w-full">
-    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#687169]" aria-hidden="true" />
+    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
     <input
       {...props}
       type="month"
       className={cn(
-        "kretivos-date-input h-11 min-w-0 w-full rounded-xl border bg-white py-0 pl-10 pr-3 text-left text-sm tabular-nums outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10",
+        "kretivos-date-input h-11 min-w-0 w-full rounded-xl border bg-card py-0 pl-10 pr-3 text-left text-sm tabular-nums outline-none focus:border-accent focus:ring-4 focus:ring-accent/10",
         className,
       )}
     />

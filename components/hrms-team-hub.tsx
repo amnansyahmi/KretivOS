@@ -65,12 +65,17 @@ function monthTitle(value: string) {
   return new Date(`${value}-01T00:00:00+08:00`).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", month: "long", year: "numeric" });
 }
 
+/**
+ * Calendar categories are the one place in the app where hue is the label
+ * rather than decoration, so these four stay distinct from the neutral scale
+ * even though each sits within merge distance of the page cream.
+ */
 function eventTone(type: CalendarEntry["type"]) {
   return ({
-    Event: "bg-[#e9f1ec] text-[#33533e]",
-    Holiday: "bg-[#fff0e9] text-[#9b4a36]",
-    Leave: "bg-[#eef1fa] text-[#3f4f80]",
-    Lifecycle: "bg-[#f4edfa] text-[#694582]",
+    Event: "bg-cat-event text-cat-event-foreground",
+    Holiday: "bg-cat-holiday text-cat-holiday-foreground",
+    Leave: "bg-cat-leave text-cat-leave-foreground",
+    Lifecycle: "bg-cat-lifecycle text-cat-lifecycle-foreground",
   } as const)[type];
 }
 
@@ -162,11 +167,11 @@ export function HRTeamHub({
         <CardContent className="p-5">
           <SectionHeader icon={Megaphone} title="Announcements" note="A single source for company and people updates." action={canManage ? <Button size="sm" onClick={onCreateAnnouncement}><Plus className="h-3.5 w-3.5" />New</Button> : null} />
           <div className="mt-5 space-y-3">
-            {visibleAnnouncements.map((item: any) => <article key={item.id} className={cn("rounded-2xl border p-4", item.pinned ? "border-[#ba5c42]/30 bg-[#fff8f4]" : "bg-[#fbfaf7]") }>
+            {visibleAnnouncements.map((item: any) => <article key={item.id} className={cn("rounded-2xl border p-4", item.pinned ? "border-accent/30 bg-card" : "bg-card") }>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    {item.pinned && <span className="inline-flex items-center gap-1 rounded-full bg-[#ba5c42] px-2 py-1 text-[9px] font-semibold text-white"><Pin className="h-2.5 w-2.5" />Pinned</span>}
+                    {item.pinned && <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-1 text-[9px] font-semibold text-white"><Pin className="h-2.5 w-2.5" />Pinned</span>}
                     <span className="rounded-full bg-black/5 px-2 py-1 text-[9px] font-medium text-muted-foreground">{item.category || "General"}</span>
                     {canManage && <AnnouncementStatus value={item.status} />}
                   </div>
@@ -174,7 +179,7 @@ export function HRTeamHub({
                 </div>
                 {canManage && <div className="flex shrink-0 gap-1"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEditAnnouncement(item)} aria-label={`Edit ${item.title}`}><Pencil className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => onDeleteAnnouncement(item.id)} aria-label={`Delete ${item.title}`}><Trash2 className="h-3.5 w-3.5" /></Button></div>}
               </div>
-              <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-[#667067]">{item.body}</p>
+              <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{item.body}</p>
               <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-muted-foreground"><span>{item.publishAt ? `Published ${dateLabel(item.publishAt)}` : "Publish date not set"}</span>{item.expiresAt && <span>Until {dateLabel(item.expiresAt)}</span>}</div>
             </article>)}
             {!visibleAnnouncements.length && <EmptyState icon={Megaphone} title="No announcements yet" note={term ? "No announcement matches your search." : "Publish a team update, policy notice or important reminder."} action={canManage ? onCreateAnnouncement : undefined} />}
@@ -185,7 +190,7 @@ export function HRTeamHub({
       <Card className="border-black/8 bg-white/90">
         <CardContent className="p-5">
           <SectionHeader icon={CalendarDays} title="Team calendar" note="Approved leave, events, holidays and lifecycle deadlines." action={canManage ? <Button size="sm" onClick={onCreateEvent}><Plus className="h-3.5 w-3.5" />Event</Button> : null} />
-          <div className="mt-5 flex items-center justify-between rounded-xl bg-[#f7f4ed] p-2">
+          <div className="mt-5 flex items-center justify-between rounded-xl bg-background p-2">
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setMonth((value) => shiftMonth(value, -1))} aria-label="Previous month"><ChevronLeft className="h-4 w-4" /></Button>
             <button className="text-sm font-semibold" onClick={() => setMonth(monthValue())}>{monthTitle(month)}</button>
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setMonth((value) => shiftMonth(value, 1))} aria-label="Next month"><ChevronRight className="h-4 w-4" /></Button>
@@ -197,7 +202,7 @@ export function HRTeamHub({
           </div>
           {canManage && (events || []).length > 0 && <div className="mt-5 border-t pt-4">
             <div className="mb-3 text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Manage team events</div>
-            <div className="space-y-2">{(events || []).filter((item: any) => item.startDate?.slice(0, 7) === month).map((item: any) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-[#f7f4ed] p-3"><div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{item.title}</div><div className="mt-1 truncate text-[9px] text-muted-foreground">{dateLabel(item.startDate)}{item.location ? ` · ${item.location}` : ""} · {item.status}</div></div><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEditEvent(item)} aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => onDeleteEvent(item.id)} aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></Button></div>)}</div>
+            <div className="space-y-2">{(events || []).filter((item: any) => item.startDate?.slice(0, 7) === month).map((item: any) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-background p-3"><div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{item.title}</div><div className="mt-1 truncate text-[9px] text-muted-foreground">{dateLabel(item.startDate)}{item.location ? ` · ${item.location}` : ""} · {item.status}</div></div><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEditEvent(item)} aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => onDeleteEvent(item.id)} aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></Button></div>)}</div>
           </div>}
         </CardContent>
       </Card>
@@ -226,8 +231,8 @@ function CalendarGrid({ month, entries }: { month: string; entries: CalendarEntr
       if (!day) return <div key={`empty-${index}`} className="min-h-24 rounded-lg bg-black/[.015]" />;
       const date = `${month}-${String(day).padStart(2, "0")}`;
       const dayEntries = entries.filter((entry) => entry.startDate <= date && entry.endDate >= date);
-      return <div key={date} className={cn("min-h-24 rounded-lg border bg-[#fbfaf7] p-1.5", date === today && "border-[#ba5c42]") }>
-        <div className={cn("mb-1 text-[10px] font-medium", date === today && "text-[#ba5c42]")}>{day}</div>
+      return <div key={date} className={cn("min-h-24 rounded-lg border bg-card p-1.5", date === today && "border-accent") }>
+        <div className={cn("mb-1 text-[10px] font-medium", date === today && "text-accent")}>{day}</div>
         <div className="space-y-1">{dayEntries.slice(0, 3).map((entry) => <div key={entry.id} title={entry.title} className={cn("truncate rounded px-1.5 py-1 text-[8px] font-medium", eventTone(entry.type))}>{entry.title}</div>)}{dayEntries.length > 3 && <div className="px-1 text-[8px] text-muted-foreground">+{dayEntries.length - 3} more</div>}</div>
       </div>;
     })}</div>
@@ -235,7 +240,7 @@ function CalendarGrid({ month, entries }: { month: string; entries: CalendarEntr
 }
 
 function CalendarRow({ entry }: { entry: CalendarEntry }) {
-  return <div className="flex items-start gap-3 rounded-xl border bg-[#fbfaf7] p-3">
+  return <div className="flex items-start gap-3 rounded-xl border bg-card p-3">
     <div className={cn("rounded-lg px-2 py-1 text-[9px] font-semibold", eventTone(entry.type))}>{entry.type}</div>
     <div className="min-w-0 flex-1"><div className="text-xs font-semibold">{entry.title}</div><div className="mt-1 text-[9px] text-muted-foreground">{dateLabel(entry.startDate)}{entry.endDate !== entry.startDate ? ` – ${dateLabel(entry.endDate)}` : ""}{entry.meta ? ` · ${entry.meta}` : ""}</div>{entry.location && <div className="mt-1 flex items-center gap-1 text-[9px] text-muted-foreground"><MapPin className="h-3 w-3" />{entry.location}</div>}</div>
   </div>;
@@ -265,18 +270,18 @@ function OrganisationChart({ directory }: { directory: TeamMember[] }) {
 
   return <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
     <div className="space-y-2">{rows.map(({ person, depth }) => <div key={person.id} style={{ paddingLeft: `${depth * 18}px` }}>
-      <div className="relative flex items-center gap-3 rounded-xl border bg-[#fbfaf7] p-3">{depth > 0 && <div className="absolute -left-3 top-1/2 h-px w-3 bg-black/15" />}<div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-semibold", depth === 0 ? "bg-[#202c25] text-white" : "bg-[#eee9df] text-[#4e5a52]")}>{initials(person.name)}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{person.name}</div><div className="mt-1 truncate text-[10px] text-muted-foreground">{person.title || "Role not set"} · {person.department || "Unassigned"}</div></div>{(reports.get(person.id) || []).length > 0 && <span className="rounded-full bg-black/5 px-2 py-1 text-[9px] text-muted-foreground">{reports.get(person.id)?.length} direct</span>}</div>
+      <div className="relative flex items-center gap-3 rounded-xl border bg-card p-3">{depth > 0 && <div className="absolute -left-3 top-1/2 h-px w-3 bg-black/15" />}<div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-semibold", depth === 0 ? "bg-foreground text-white" : "bg-muted text-foreground-soft")}>{initials(person.name)}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{person.name}</div><div className="mt-1 truncate text-[10px] text-muted-foreground">{person.title || "Role not set"} · {person.department || "Unassigned"}</div></div>{(reports.get(person.id) || []).length > 0 && <span className="rounded-full bg-black/5 px-2 py-1 text-[9px] text-muted-foreground">{reports.get(person.id)?.length} direct</span>}</div>
     </div>)}</div>
-    <div className="grid content-start gap-2 sm:grid-cols-2 xl:grid-cols-1">{Array.from(new Set(people.map((person) => person.department || "Unassigned"))).sort().map((department) => <div key={department} className="flex items-center justify-between rounded-xl bg-[#f7f4ed] p-3"><div><div className="text-xs font-semibold">{department}</div><div className="mt-1 text-[9px] text-muted-foreground">Department</div></div><div className="text-lg font-semibold">{people.filter((person) => (person.department || "Unassigned") === department).length}</div></div>)}</div>
+    <div className="grid content-start gap-2 sm:grid-cols-2 xl:grid-cols-1">{Array.from(new Set(people.map((person) => person.department || "Unassigned"))).sort().map((department) => <div key={department} className="flex items-center justify-between rounded-xl bg-background p-3"><div><div className="text-xs font-semibold">{department}</div><div className="mt-1 text-[9px] text-muted-foreground">Department</div></div><div className="text-lg font-semibold">{people.filter((person) => (person.department || "Unassigned") === department).length}</div></div>)}</div>
   </div>;
 }
 
 function SectionHeader({ icon: Icon, title, note, action }: any) {
-  return <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f1ece2] text-[#ba5c42]"><Icon className="h-4 w-4" /></div><div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">{note}</p></div></div>{action}</div>;
+  return <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-accent"><Icon className="h-4 w-4" /></div><div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">{note}</p></div></div>{action}</div>;
 }
 
 function HubStat({ icon: Icon, label, value, note }: any) {
-  return <Card className="border-black/8 bg-white/90"><CardContent className="flex items-center justify-between gap-3 p-4"><div><div className="text-xs text-muted-foreground">{label}</div><div className="mt-2 text-2xl font-semibold">{value}</div><div className="mt-1 text-[10px] text-muted-foreground">{note}</div></div><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f1ece2] text-[#ba5c42]"><Icon className="h-4 w-4" /></div></CardContent></Card>;
+  return <Card className="border-black/8 bg-white/90"><CardContent className="flex items-center justify-between gap-3 p-4"><div><div className="text-xs text-muted-foreground">{label}</div><div className="mt-2 text-2xl font-semibold">{value}</div><div className="mt-1 text-[10px] text-muted-foreground">{note}</div></div><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-accent"><Icon className="h-4 w-4" /></div></CardContent></Card>;
 }
 
 function AnnouncementStatus({ value }: { value: string }) {

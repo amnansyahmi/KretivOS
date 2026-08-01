@@ -155,18 +155,18 @@ export default function Home() {
 
   const active = views.includes(view) ? view : "Command Centre";
 
-  return <div className="min-h-screen bg-[#f4f1e8] text-[#202820]">
+  return <div className="min-h-screen bg-background text-foreground">
     <aside className={cn(
-      "fixed inset-y-0 left-0 z-50 flex h-[100dvh] flex-col border-r border-white/10 bg-[#202c25] text-white transition-all duration-300",
+      "fixed inset-y-0 left-0 z-50 flex h-[100dvh] flex-col border-r border-white/10 bg-foreground text-white transition-all duration-300",
       collapsed ? "w-[76px]" : "w-[264px]",
       mobile ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
     )}>
       <div className={cn("flex h-[76px] shrink-0 items-center border-b border-white/10", collapsed ? "justify-center px-2" : "justify-between px-5")}>
         <div className={cn(collapsed && "hidden")}>
-          <div className="text-xl font-semibold tracking-tight">Kretiv<span className="text-[#ef7f5f]">OS</span></div>
+          <div className="text-xl font-semibold tracking-tight">Kretiv<span className="text-accent-soft">OS</span></div>
           <div className="text-[9px] uppercase tracking-[.25em] text-white/40">Kretivco operating system</div>
         </div>
-        {collapsed && <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ef7f5f] font-bold">K</div>}
+        {collapsed && <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft font-bold">K</div>}
         <button onClick={() => setMobile(false)} className="lg:hidden" aria-label="Close navigation"><X className="h-5 w-5" /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 scrollbar-thin">
@@ -178,7 +178,7 @@ export default function Home() {
             const className = cn(
               "flex w-full items-center rounded-lg text-sm transition",
               collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
-              isActive ? "bg-white text-[#202c25] shadow" : "text-white/62 hover:bg-white/8 hover:text-white"
+              isActive ? "bg-card text-foreground shadow" : "text-white/62 hover:bg-white/8 hover:text-white"
             );
             const body = <>
               <Icon className="h-4 w-4 shrink-0" />
@@ -192,26 +192,26 @@ export default function Home() {
           })}</div>
         </div>)}
       </div>
-      <div className="z-10 flex h-20 w-full shrink-0 items-center border-t border-white/10 bg-[#202c25] px-3">
+      <div className="z-10 flex h-20 w-full shrink-0 items-center border-t border-white/10 bg-foreground px-3">
         <div className={cn("flex w-full items-center rounded-lg p-2", collapsed ? "justify-center" : "gap-3")}>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ef7f5f] text-xs font-semibold">KT</div>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold">KT</div>
           {!collapsed && <div className="min-w-0 text-left"><div className="truncate text-xs font-medium">Kretivco Team</div><div className="text-[10px] text-white/40">Shared internal workspace</div></div>}
         </div>
       </div>
     </aside>
 
     <main className={cn("min-h-screen transition-all duration-300", collapsed ? "lg:pl-[76px]" : "lg:pl-[264px]")}>
-      <header className="sticky top-0 z-40 flex h-[76px] items-center gap-3 border-b border-black/5 bg-[#f4f1e8]/92 px-4 backdrop-blur-xl md:px-7">
+      <header className="sticky top-0 z-40 flex h-[76px] items-center gap-3 border-b border-black/5 bg-background/92 px-4 backdrop-blur-xl md:px-7">
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobile(true)} aria-label="Open navigation"><Menu className="h-5 w-5" /></Button>
         <Button variant="ghost" size="icon" className="hidden lg:inline-flex" onClick={() => setCollapsed(!collapsed)} aria-label="Toggle sidebar">{collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}</Button>
-        <button onClick={openCommandPalette} className="hidden h-10 max-w-lg flex-1 items-center gap-2 rounded-lg border bg-white/70 px-3 text-left text-sm text-muted-foreground shadow-sm transition hover:bg-white md:flex">
+        <button onClick={openCommandPalette} className="hidden h-10 max-w-lg flex-1 items-center gap-2 rounded-lg border bg-white/70 px-3 text-left text-sm text-muted-foreground shadow-sm transition hover:bg-card md:flex">
           <Search className="h-4 w-4" />
           <span className="flex-1 truncate">Search workspaces, customers, documents…</span>
-          <kbd className="rounded border bg-white px-1.5 py-0.5 text-[10px] font-medium">⌘K</kbd>
+          <kbd className="rounded border bg-card px-1.5 py-0.5 text-[10px] font-medium">⌘K</kbd>
         </button>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="icon" className="bg-white md:hidden" onClick={openCommandPalette} aria-label="Search"><Search className="h-4 w-4" /></Button>
-          {installPrompt && <Button variant="outline" className="hidden bg-white sm:inline-flex" onClick={install}><MonitorSmartphone className="h-4 w-4" />Install app</Button>}
+          <Button variant="outline" size="icon" className="bg-card md:hidden" onClick={openCommandPalette} aria-label="Search"><Search className="h-4 w-4" /></Button>
+          {installPrompt && <Button variant="outline" className="hidden bg-card sm:inline-flex" onClick={install}><MonitorSmartphone className="h-4 w-4" />Install app</Button>}
           <NotificationBell />
           <Button onClick={() => setChat(true)}><Bot className="h-4 w-4" /><span className="hidden sm:inline">Ask Kretiv AI</span></Button>
         </div>
@@ -236,16 +236,16 @@ function ViewRouter({ view }: { view: View }) {
 
 function PageHead({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description: string; action?: React.ReactNode }) {
   return <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-    <div>{eyebrow && <div className="mb-2 text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42]">{eyebrow}</div>}<h1 className="text-3xl font-semibold tracking-tight md:text-[38px]">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p></div>{action}
+    <div>{eyebrow && <div className="mb-2 text-[10px] font-semibold uppercase tracking-[.2em] text-accent">{eyebrow}</div>}<h1 className="text-3xl font-semibold tracking-tight md:text-[38px]">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p></div>{action}
   </div>;
 }
 
-function Stat({ label, value, note, icon: Icon }: any) { return <Card className="bg-white/75"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="text-xs text-muted-foreground">{label}</div>{Icon && <Icon className="h-4 w-4 text-[#ba5c42]" />}</div><div className="mt-3 text-2xl font-semibold tracking-tight">{value}</div><div className="mt-2 text-xs text-muted-foreground">{note}</div></CardContent></Card>; }
-function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "green" | "amber" | "red" | "blue" }) { const tones = { neutral: "bg-[#eeeae0] text-[#5a605a]", green: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", red: "bg-red-50 text-red-700", blue: "bg-blue-50 text-blue-700" }; return <span className={cn("inline-flex rounded-full px-2.5 py-1 text-[10px] font-medium", tones[tone])}>{children}</span>; }
+function Stat({ label, value, note, icon: Icon }: any) { return <Card className="bg-white/75"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="text-xs text-muted-foreground">{label}</div>{Icon && <Icon className="h-4 w-4 text-accent" />}</div><div className="mt-3 text-2xl font-semibold tracking-tight">{value}</div><div className="mt-2 text-xs text-muted-foreground">{note}</div></CardContent></Card>; }
+function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "green" | "amber" | "red" | "blue" }) { const tones = { neutral: "bg-muted text-foreground-soft", green: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", red: "bg-red-50 text-red-700", blue: "bg-blue-50 text-blue-700" }; return <span className={cn("inline-flex rounded-full px-2.5 py-1 text-[10px] font-medium", tones[tone])}>{children}</span>; }
 function Empty({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) { return <Card className="bg-white/75"><CardContent className="p-12 text-center"><div className="font-semibold">{title}</div><p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{description}</p>{action && <div className="mt-4 flex justify-center">{action}</div>}</CardContent></Card>; }
 function DataNotice({ loading, error, onRetry }: { loading: boolean; error: string; onRetry: () => void }) {
   if (loading) return <div className="mb-4 inline-flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Loading shared records from Neon…</div>;
-  if (error) return <div className="mb-4 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"><span>{error}</span><Button variant="outline" size="sm" className="bg-white" onClick={onRetry}><RefreshCw className="h-3.5 w-3.5" />Retry</Button></div>;
+  if (error) return <div className="mb-4 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"><span>{error}</span><Button variant="outline" size="sm" className="bg-card" onClick={onRetry}><RefreshCw className="h-3.5 w-3.5" />Retry</Button></div>;
   return null;
 }
 
@@ -325,7 +325,7 @@ function CommandCentre() {
   const today = new Date().toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   return <div>
-    <PageHead eyebrow={today} title={`${greeting}, Kretivco`} description="Everything requiring attention across clients, revenue, delivery, marketing and technology—drawn live from the shared Neon workspace." action={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={reload} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Sync</Button><Button asChild><Link href="/sales?tab=quotation"><Plus className="h-4 w-4" />New quotation</Link></Button></div>} />
+    <PageHead eyebrow={today} title={`${greeting}, Kretivco`} description="Everything requiring attention across clients, revenue, delivery, marketing and technology—drawn live from the shared Neon workspace." action={<div className="flex gap-2"><Button variant="outline" className="bg-card" onClick={reload} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Sync</Button><Button asChild><Link href="/sales?tab=quotation"><Plus className="h-4 w-4" />New quotation</Link></Button></div>} />
     <DataNotice loading={loading} error={error} onRetry={reload} />
 
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -340,9 +340,9 @@ function CommandCentre() {
     </div>
 
     <div className="mt-5 grid gap-5 xl:grid-cols-[1.42fr_.8fr]">
-      <Card className="overflow-hidden bg-[#26342b] text-white"><CardContent className="p-0"><div className="grid md:grid-cols-[1fr_240px]">
+      <Card className="overflow-hidden bg-foreground text-white"><CardContent className="p-0"><div className="grid md:grid-cols-[1fr_240px]">
         <div className="p-6 md:p-7">
-          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[.2em] text-white/45"><Sparkles className="h-3.5 w-3.5 text-[#ef9a75]" />Company intelligence{briefing.loading && <RefreshCw className="h-3 w-3 animate-spin" />}</div>
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[.2em] text-white/45"><Sparkles className="h-3.5 w-3.5 text-accent-muted" />Company intelligence{briefing.loading && <RefreshCw className="h-3 w-3 animate-spin" />}</div>
           <h2 className="mt-5 max-w-xl text-2xl font-medium leading-snug">{briefing.headline}</h2>
           <div className="mt-6 grid gap-3 text-sm text-white/70">
             {briefing.insights.map((insight, index) => <Insight key={insight.label} n={String(index + 1).padStart(2, "0")} label={insight.label} text={insight.detail} severity={insight.severity} />)}
@@ -360,7 +360,7 @@ function CommandCentre() {
       <Card className="bg-white/75"><CardHeader className="flex-row items-center justify-between"><div><CardTitle>Today’s queue</CardTitle><p className="mt-1 text-xs text-muted-foreground">Soonest deadlines across KretivOS</p></div><Link href="/sales?tab=crm" className="text-xs font-medium">View all</Link></CardHeader><CardContent className="space-y-3">
         {loading && <RowSkeleton rows={3} />}
         {queue.length === 0 && !loading && <p className="py-6 text-center text-sm text-muted-foreground">Nothing is waiting. Add an opportunity or document to populate this queue.</p>}
-        {queue.map(item => { const due = dueLabel(item.date); return <div key={item.id} className="rounded-lg border bg-white p-3">
+        {queue.map(item => { const due = dueLabel(item.date); return <div key={item.id} className="rounded-lg border bg-card p-3">
           <div className="flex items-center justify-between gap-2"><div className="truncate text-xs text-muted-foreground">{item.context}</div><Badge tone={due.tone}>{due.text}</Badge></div>
           <div className="mt-2 text-sm font-medium">{item.title}</div>
         </div>; })}
@@ -370,11 +370,11 @@ function CommandCentre() {
     <div className="mt-5 grid gap-5 lg:grid-cols-3">
       <Card className="bg-white/75 lg:col-span-2"><CardHeader className="flex-row items-center justify-between"><CardTitle>Client pulse</CardTitle><Link href="/sales?tab=customers" className="text-xs font-medium">All customers</Link></CardHeader><CardContent className="grid gap-4 md:grid-cols-3">
         {clients.length === 0 && !loading && <p className="py-6 text-center text-sm text-muted-foreground md:col-span-3">No active customers yet. Create one in Sales.</p>}
-        {clients.map(c => <Link key={c.id} href="/sales?tab=customers" className="rounded-xl border bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md">
+        {clients.map(c => <Link key={c.id} href="/sales?tab=customers" className="rounded-xl border bg-card p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md">
           <div className="flex items-center justify-between"><div className="truncate font-semibold">{c.name}</div><ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" /></div>
           <div className="mt-1 truncate text-xs text-muted-foreground">{c.industry || "Industry not set"}</div>
           <div className="mt-5 text-lg font-semibold">{money(c.value)}</div>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#ece8de]"><div className="h-full rounded-full bg-[#ba5c42]" style={{ width: `${Math.max(0, Math.min(100, c.progress))}%` }} /></div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(0, Math.min(100, c.progress))}%` }} /></div>
           <div className="mt-3 truncate text-[11px] text-muted-foreground">Next: {c.next}</div>
         </Link>)}
       </CardContent></Card>
@@ -383,14 +383,14 @@ function CommandCentre() {
         [FileText, "Quotation", "/sales?tab=quotation"], [MessageSquareText, "Opportunity", "/sales?tab=crm"],
         [Clapperboard, "Funnel", "/funnels"], [Megaphone, "Brand DNA", "/brands"],
         [Building2, "Customer", "/sales?tab=customers"], [Workflow, "Automation", "/automations"]
-      ].map(([Icon, label, href]: any) => <Link key={label} href={href} className="rounded-lg border bg-white p-3 text-left text-xs font-medium hover:bg-[#f7f4ed]"><Icon className="mb-3 h-4 w-4" />{label}</Link>)}</CardContent></Card>
+      ].map(([Icon, label, href]: any) => <Link key={label} href={href} className="rounded-lg border bg-card p-3 text-left text-xs font-medium hover:bg-background"><Icon className="mb-3 h-4 w-4" />{label}</Link>)}</CardContent></Card>
     </div>
   </div>;
 }
 function Insight({ n, label, text, severity = "info" }: { n: string; label?: string; text: string; severity?: "info" | "watch" | "urgent" }) {
   const dot = severity === "urgent" ? "bg-red-400" : severity === "watch" ? "bg-amber-300" : "bg-white/25";
   return <div className="flex gap-3">
-    <span className="text-[#ef9a75]">{n}</span>
+    <span className="text-accent-muted">{n}</span>
     <span className="min-w-0">
       {label && <span className="mr-2 inline-flex items-center gap-1.5 font-medium text-white"><span className={cn("h-1.5 w-1.5 rounded-full", dot)} />{label}</span>}
       {text}
@@ -526,15 +526,15 @@ function Approvals() {
   }
 
   return <div>
-    <PageHead eyebrow="Shared decision queue" title="Approvals" description="Every open decision across sales documents, weekly settlements and HR leave, in one queue. Approving here writes straight back to the shared record." action={<Button variant="outline" className="bg-white" onClick={() => { void reload(); void loadHr(); }} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Refresh</Button>} />
+    <PageHead eyebrow="Shared decision queue" title="Approvals" description="Every open decision across sales documents, weekly settlements and HR leave, in one queue. Approving here writes straight back to the shared record." action={<Button variant="outline" className="bg-card" onClick={() => { void reload(); void loadHr(); }} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Refresh</Button>} />
     <DataNotice loading={loading} error={error} onRetry={reload} />
     {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
     {failure && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{failure}</span><button onClick={() => setFailure("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
-    {!loading && items.length === 0 && <Empty title="Nothing is waiting for a decision" description="Draft or sent sales documents, unverified settlements and pending leave requests all appear here automatically." action={<Button asChild variant="outline" className="bg-white"><Link href="/sales?tab=sales">Open Sales</Link></Button>} />}
+    {!loading && items.length === 0 && <Empty title="Nothing is waiting for a decision" description="Draft or sent sales documents, unverified settlements and pending leave requests all appear here automatically." action={<Button asChild variant="outline" className="bg-card"><Link href="/sales?tab=sales">Open Sales</Link></Button>} />}
 
     <div className="space-y-3">{items.map(item => <Card key={item.id} className="bg-white/80"><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#eee9df]"><ClipboardCheck className="h-5 w-5" /></div>
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted"><ClipboardCheck className="h-5 w-5" /></div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><Badge tone={item.tone}>{item.source}</Badge><span className="truncate">{item.reference}</span></div>
         <div className="mt-1.5 font-medium">{item.title}</div>
@@ -580,7 +580,7 @@ function SourceNote({ source }: { source: string }) {
   return <div className="mt-3 text-[10px] text-muted-foreground">{source === "ai-nonymauz-cloud" ? "Generated by ai-nonymauz-cloud." : "AI is not configured, so KretivOS produced an editable starter you can refine."}</div>;
 }
 
-const inputClass = "h-11 w-full rounded-lg border bg-white px-3 text-sm outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10";
+const inputClass = "h-11 w-full rounded-lg border bg-card px-3 text-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/10";
 
 type MarketingPlan = { summary: string; sections: { title: string; body: string }[] };
 
@@ -606,9 +606,9 @@ function MarketingPlans() {
       <Card className="bg-white/80"><CardHeader><CardTitle>{result ? form.campaign || "Generated marketing plan" : "Plan output"}</CardTitle></CardHeader><CardContent>
         {!result && <p className="py-10 text-center text-sm text-muted-foreground">Fill in the campaign inputs and generate a plan. Every section is written for the supplied client, audience and budget.</p>}
         {result && <div className="space-y-3">
-          <div className="rounded-xl border bg-[#f7f4ed] p-4 text-sm leading-relaxed">{result.summary}</div>
-          {result.sections?.map((section, index) => <div key={section.title} className="rounded-lg border bg-white p-4">
-            <div className="flex items-center gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#f0ebe1] text-[10px]">{index + 1}</span><div className="text-sm font-semibold">{section.title}</div></div>
+          <div className="rounded-xl border bg-background p-4 text-sm leading-relaxed">{result.summary}</div>
+          {result.sections?.map((section, index) => <div key={section.title} className="rounded-lg border bg-card p-4">
+            <div className="flex items-center gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px]">{index + 1}</span><div className="text-sm font-semibold">{section.title}</div></div>
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{section.body}</p>
           </div>)}
         </div>}
@@ -629,9 +629,9 @@ function MarketingStudio() {
   ];
 
   return <div>
-    <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between"><div><div className="text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42]">Creative operations</div><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Marketing Studio keeps strategy, content, storyboards and funnel handoff together without duplicating the underlying workspaces.</p></div><Button asChild variant="outline" className="w-fit bg-white"><Link href="/funnels"><Clapperboard className="h-4 w-4" />Open Funnel Builder</Link></Button></div>
+    <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between"><div><div className="text-[10px] font-semibold uppercase tracking-[.2em] text-accent">Creative operations</div><p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Marketing Studio keeps strategy, content, storyboards and funnel handoff together without duplicating the underlying workspaces.</p></div><Button asChild variant="outline" className="w-fit bg-card"><Link href="/funnels"><Clapperboard className="h-4 w-4" />Open Funnel Builder</Link></Button></div>
     <div className="mb-6 flex flex-wrap gap-2 rounded-xl border bg-white/75 p-1.5">
-      {tabs.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={cn("min-h-10 rounded-lg px-4 text-sm font-medium transition", tab === item.id ? "bg-[#202c25] text-white" : "text-muted-foreground hover:bg-[#f3efe6]")}>{item.label}</button>)}
+      {tabs.map((item) => <button key={item.id} onClick={() => setTab(item.id)} className={cn("min-h-10 rounded-lg px-4 text-sm font-medium transition", tab === item.id ? "bg-foreground text-white" : "text-muted-foreground hover:bg-background")}>{item.label}</button>)}
     </div>
     {tab === "writer" && <ContentWriter onOpenPlanner={() => setTab("content")} />}
     {tab === "strategy" && <MarketingPlans />}
@@ -754,11 +754,11 @@ function ContentPlanner() {
       const isToday = key === localDate(new Date());
       const customerName = slot?.customerId ? business.customers.find((item) => item.id === slot.customerId)?.name : "";
       return <div key={key} className="min-h-[170px] md:min-h-[460px]">
-        <div className={cn("border-b p-3 text-xs font-semibold", isToday ? "bg-[#26342b] text-white" : "bg-[#f7f4ed]")}>{day} {date.getDate()}</div>
+        <div className={cn("border-b p-3 text-xs font-semibold", isToday ? "bg-foreground text-white" : "bg-background")}>{day} {date.getDate()}</div>
         <div className="space-y-2 p-3">
-          <textarea value={slot?.title || ""} onChange={e => update(key, e.target.value)} placeholder="Add content…" className="min-h-24 w-full resize-none rounded-lg border bg-white p-3 text-sm outline-none focus:border-[#ba5c42]" />
-          {slot && (slot.channel || customerName) && <div className="flex flex-wrap gap-1.5">{slot.channel && <span className="rounded-full bg-[#eee9df] px-2 py-1 text-[9px] font-medium">{slot.channel}</span>}{customerName && <span className="rounded-full border bg-white px-2 py-1 text-[9px] text-muted-foreground">{customerName}</span>}</div>}
-          {slot?.notes && <div className="max-h-32 overflow-hidden whitespace-pre-wrap rounded-lg border bg-[#faf8f3] p-2.5 text-[10px] leading-5 text-muted-foreground" title={slot.notes}>{slot.notes}</div>}
+          <textarea value={slot?.title || ""} onChange={e => update(key, e.target.value)} placeholder="Add content…" className="min-h-24 w-full resize-none rounded-lg border bg-card p-3 text-sm outline-none focus:border-accent" />
+          {slot && (slot.channel || customerName) && <div className="flex flex-wrap gap-1.5">{slot.channel && <span className="rounded-full bg-muted px-2 py-1 text-[9px] font-medium">{slot.channel}</span>}{customerName && <span className="rounded-full border bg-card px-2 py-1 text-[9px] text-muted-foreground">{customerName}</span>}</div>}
+          {slot?.notes && <div className="max-h-32 overflow-hidden whitespace-pre-wrap rounded-lg border bg-card p-2.5 text-[10px] leading-5 text-muted-foreground" title={slot.notes}>{slot.notes}</div>}
           {slot && <button onClick={() => cycle(key)} className="w-full"><Badge tone={slot.status === "Approved" ? "green" : slot.status === "Review" ? "amber" : "neutral"}>{slot.status}</Badge></button>}
         </div>
       </div>;
@@ -774,7 +774,7 @@ function StoryboardStudio() {
   const set = (key: string, value: string) => setForm({ ...form, [key]: value });
 
   return <div>
-    <PageHead eyebrow="Video production" title="Storyboard Studio" description="Turn a campaign idea into scenes, shot list, timing, audio direction and camera notes." action={<div className="flex gap-2"><Button variant="outline" className="bg-white" onClick={() => window.print()}><Presentation className="h-4 w-4" />Present</Button><Button onClick={() => generate(form)} disabled={loading}>{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{loading ? "Generating…" : "Generate scenes"}</Button></div>} />
+    <PageHead eyebrow="Video production" title="Storyboard Studio" description="Turn a campaign idea into scenes, shot list, timing, audio direction and camera notes." action={<div className="flex gap-2"><Button variant="outline" className="bg-card" onClick={() => window.print()}><Presentation className="h-4 w-4" />Present</Button><Button onClick={() => generate(form)} disabled={loading}>{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{loading ? "Generating…" : "Generate scenes"}</Button></div>} />
     <Card className="mb-5 bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-3 xl:grid-cols-5">
       <label className="block text-xs font-medium">Client<input value={form.client} onChange={e => set("client", e.target.value)} className={cn(inputClass, "mt-2")} placeholder="Chef Ammar" /></label>
       <label className="block text-xs font-medium">Concept<input value={form.concept} onChange={e => set("concept", e.target.value)} className={cn(inputClass, "mt-2")} placeholder="Wagyu pizza launch trailer" /></label>
@@ -787,8 +787,8 @@ function StoryboardStudio() {
     {result && <div className="space-y-3">
       <div className="rounded-xl border bg-white/80 p-4 text-sm leading-relaxed">{result.summary}<SourceNote source={source} /></div>
       {result.scenes?.map((scene, index) => <Card key={index} className="bg-white/80"><CardContent className="grid gap-4 p-4 md:grid-cols-[60px_160px_1fr_100px_160px] md:items-center">
-        <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#202c25] text-sm font-semibold text-white">{String(index + 1).padStart(2, "0")}</div>
-        <div className="flex h-24 items-center justify-center rounded-lg bg-[#eee9df]"><Film className="h-6 w-6 text-[#ba5c42]" /></div>
+        <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-foreground text-sm font-semibold text-white">{String(index + 1).padStart(2, "0")}</div>
+        <div className="flex h-24 items-center justify-center rounded-lg bg-muted"><Film className="h-6 w-6 text-accent" /></div>
         <div><div className="text-[10px] uppercase tracking-wider text-muted-foreground">{scene.shot}</div><div className="mt-2 text-sm font-medium">{scene.visual}</div><div className="mt-2 text-xs text-muted-foreground">Audio: {scene.audio}</div></div>
         <div><div className="text-[10px] text-muted-foreground">Duration</div><div className="mt-1 text-sm font-semibold">{scene.duration}</div></div>
         <div><div className="text-[10px] text-muted-foreground">Camera</div><div className="mt-1 text-sm font-medium">{scene.camera}</div></div>
@@ -840,7 +840,7 @@ function PromptWritingControl({ label, value, onChange, context, placeholder = "
   return <div>
     <div className="flex items-center justify-between gap-2"><span className="text-xs font-medium">{label}</span><AIWritingButton value={value} field={label} context={context} onApply={onChange} /></div>
     {multiline
-      ? <textarea value={value} onChange={event => onChange(event.target.value)} className={cn("mt-2 min-h-20 w-full resize-y rounded-lg border bg-white p-3 text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10", className)} placeholder={placeholder} />
+      ? <textarea value={value} onChange={event => onChange(event.target.value)} className={cn("mt-2 min-h-20 w-full resize-y rounded-lg border bg-card p-3 text-sm leading-6 outline-none focus:border-accent focus:ring-4 focus:ring-accent/10", className)} placeholder={placeholder} />
       : <input value={value} onChange={event => onChange(event.target.value)} className={cn(inputClass, "mt-2", className)} placeholder={placeholder} />}
   </div>;
 }
@@ -944,9 +944,9 @@ function PromptLab() {
     <PageHead eyebrow="Production-ready visual prompts" title="Prompt Lab" description="Build model-specific prompts with correct output settings and an enforced anti-slop realism layer for believable food, products and campaign visuals." action={<Button className="hidden sm:inline-flex" onClick={runGenerate} disabled={loading || (!form.brief.trim() && !form.product.trim())}>{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}{loading ? "Generating…" : "Generate prompt"}</Button>} />
     <div className="grid gap-5 xl:grid-cols-[minmax(340px,.72fr)_minmax(0,1.28fr)]">
       <Card className="overflow-hidden bg-white/85">
-        <CardHeader className="flex-row items-center justify-between space-y-0 border-b p-4 sm:p-5"><div><div className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#ba5c42]">01 · Production brief</div><CardTitle className="mt-1">Image direction</CardTitle></div><div className="text-right"><div className="text-lg font-semibold">{completeness}%</div><div className="text-[9px] text-muted-foreground">brief ready</div></div></CardHeader>
+        <CardHeader className="flex-row items-center justify-between space-y-0 border-b p-4 sm:p-5"><div><div className="text-[10px] font-semibold uppercase tracking-[.16em] text-accent">01 · Production brief</div><CardTitle className="mt-1">Image direction</CardTitle></div><div className="text-right"><div className="text-lg font-semibold">{completeness}%</div><div className="text-[9px] text-muted-foreground">brief ready</div></div></CardHeader>
         <CardContent className="space-y-4 p-4 sm:p-5">
-          <div><div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quick setup</div><div className="flex flex-wrap gap-2"><button onClick={() => applyPreset("food")} className="rounded-lg border bg-[#faf8f3] px-3 py-2 text-xs hover:border-[#ba5c42]">Real food photo</button><button onClick={() => applyPreset("product")} className="rounded-lg border bg-[#faf8f3] px-3 py-2 text-xs hover:border-[#ba5c42]">Product hero</button><button onClick={() => applyPreset("poster")} className="rounded-lg border bg-[#faf8f3] px-3 py-2 text-xs hover:border-[#ba5c42]">Campaign poster</button></div></div>
+          <div><div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Quick setup</div><div className="flex flex-wrap gap-2"><button onClick={() => applyPreset("food")} className="rounded-lg border bg-card px-3 py-2 text-xs hover:border-accent">Real food photo</button><button onClick={() => applyPreset("product")} className="rounded-lg border bg-card px-3 py-2 text-xs hover:border-accent">Product hero</button><button onClick={() => applyPreset("poster")} className="rounded-lg border bg-card px-3 py-2 text-xs hover:border-accent">Campaign poster</button></div></div>
 
           <label className="block text-xs font-medium">Target model<select value={form.model} onChange={e => chooseModel(e.target.value)} className={cn(inputClass, "mt-2")}><optgroup label="Image">{["GPT Image 2", "Midjourney V8.2", "FLUX.2"].map(x => <option key={x}>{x}</option>)}</optgroup><optgroup label="Video">{["Kling", "Veo", "Runway"].map(x => <option key={x}>{x}</option>)}</optgroup></select><span className="mt-1.5 block text-[10px] font-normal text-muted-foreground">{isImage ? "Image prompt · ratio and output settings included" : "Video prompt · motion and duration included"}</span></label>
 
@@ -969,10 +969,10 @@ function PromptLab() {
             <label className="block text-xs font-medium">Resolution<select value={form.resolution} onChange={e => set("resolution", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["Auto", "HD", "2K", "4K delivery"].map(x => <option key={x}>{x}</option>)}</select></label>
             <label className="block text-xs font-medium">Quality<select value={form.quality} onChange={e => set("quality", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["Draft", "Standard", "High"].map(x => <option key={x}>{x}</option>)}</select></label>
           </div>
-          <div className="rounded-lg bg-[#f4f1e8] px-3 py-2 text-[10px] leading-5 text-muted-foreground"><span className="font-semibold text-[#202c25]">Output target:</span> {outputTarget}. Aspect ratio controls shape; resolution controls pixel delivery.</div>
-          {isImage && <label className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-medium text-emerald-900"><span><span className="block">Anti-slop realism</span><span className="mt-1 block text-[9px] font-normal text-emerald-700">Always enforced · no hype-token prompting</span></span><select value={form.realismProfile} onChange={e => set("realismProfile", e.target.value)} className="h-9 max-w-[150px] rounded-lg border border-emerald-200 bg-white px-2 text-xs outline-none"><option>Strict natural</option><option>Balanced commercial</option></select></label>}
+          <div className="rounded-lg bg-background px-3 py-2 text-[10px] leading-5 text-muted-foreground"><span className="font-semibold text-foreground">Output target:</span> {outputTarget}. Aspect ratio controls shape; resolution controls pixel delivery.</div>
+          {isImage && <label className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-medium text-emerald-900"><span><span className="block">Anti-slop realism</span><span className="mt-1 block text-[9px] font-normal text-emerald-700">Always enforced · no hype-token prompting</span></span><select value={form.realismProfile} onChange={e => set("realismProfile", e.target.value)} className="h-9 max-w-[150px] rounded-lg border border-emerald-200 bg-card px-2 text-xs outline-none"><option>Strict natural</option><option>Balanced commercial</option></select></label>}
 
-          <details className="group rounded-xl border bg-[#faf8f3]">
+          <details className="group rounded-xl border bg-card">
             <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-xs font-semibold">Advanced image direction<span className="text-base font-normal text-muted-foreground group-open:rotate-45">+</span></summary>
             <div className="space-y-4 border-t p-4">
               <PromptWritingControl label="Objective" value={form.objective} onChange={value => set("objective", value)} context={writingContext} multiline={false} />
@@ -985,7 +985,7 @@ function PromptLab() {
               <PromptWritingControl label="Must include" value={form.mustInclude} onChange={value => set("mustInclude", value)} context={writingContext} multiline={false} placeholder="Exact product details, props, colours or logo treatment" />
               <PromptWritingControl label="Avoid" value={form.avoid} onChange={value => set("avoid", value)} context={writingContext} multiline={false} placeholder="Plastic texture, fake rice, warped label…" />
               {form.model.startsWith("Midjourney") && <div className="grid grid-cols-3 gap-2"><label className="block text-xs font-medium">Raw<select value={form.mjRaw} onChange={e => set("mjRaw", e.target.value)} className={cn(inputClass, "mt-2 px-2")}><option>Yes</option><option>No</option></select></label><label className="block text-xs font-medium">Quality<select value={form.mjQuality} onChange={e => set("mjQuality", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["1", "2", "4"].map(x => <option key={x}>{x}</option>)}</select></label><label className="block text-xs font-medium">Stylize<select value={form.mjStylize} onChange={e => set("mjStylize", e.target.value)} className={cn(inputClass, "mt-2 px-2")}>{["0", "50", "100", "250", "500"].map(x => <option key={x}>{x}</option>)}</select></label><p className="col-span-3 text-[10px] leading-5 text-muted-foreground">Midjourney <code>--q</code> controls GPU effort, not pixel resolution.</p></div>}
-              {!isImage && <><label className="block text-xs font-medium">Duration<input value={form.duration} onChange={e => set("duration", e.target.value)} className={cn(inputClass, "mt-2")} /></label><label className="block text-xs font-medium">Motion and camera movement<textarea value={form.motion} onChange={e => set("motion", e.target.value)} className="mt-2 min-h-20 w-full rounded-lg border bg-white p-3 text-sm" /></label></>}
+              {!isImage && <><label className="block text-xs font-medium">Duration<input value={form.duration} onChange={e => set("duration", e.target.value)} className={cn(inputClass, "mt-2")} /></label><label className="block text-xs font-medium">Motion and camera movement<textarea value={form.motion} onChange={e => set("motion", e.target.value)} className="mt-2 min-h-20 w-full rounded-lg border bg-card p-3 text-sm" /></label></>}
             </div>
           </details>
 
@@ -995,17 +995,17 @@ function PromptLab() {
         </CardContent>
       </Card>
 
-      <Card id="prompt-output" className="scroll-mt-24 overflow-hidden bg-[#26342b] text-white">
-        <CardHeader className="flex-row items-start justify-between space-y-0 border-b border-white/10 p-4 sm:p-5"><div><div className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#ef9a75]">02 · Generated output</div><CardTitle className="mt-1">{form.model} prompt</CardTitle></div>{result && <Badge tone="green">Ready</Badge>}</CardHeader>
+      <Card id="prompt-output" className="scroll-mt-24 overflow-hidden bg-foreground text-white">
+        <CardHeader className="flex-row items-start justify-between space-y-0 border-b border-white/10 p-4 sm:p-5"><div><div className="text-[10px] font-semibold uppercase tracking-[.16em] text-accent-muted">02 · Generated output</div><CardTitle className="mt-1">{form.model} prompt</CardTitle></div>{result && <Badge tone="green">Ready</Badge>}</CardHeader>
         <CardContent className="p-4 sm:p-5">
           {result ? <>
             <textarea value={draftPrompt} onChange={e => setDraftPrompt(e.target.value)} className="min-h-[280px] w-full resize-y rounded-xl border border-white/10 bg-black/10 p-4 font-mono text-xs leading-7 text-white/80 outline-none focus:border-white/25 sm:min-h-[360px]" />
             <div className="mt-2 text-right text-[9px] text-white/35">{draftPrompt.length.toLocaleString()} characters · editable</div>
-            {result.generationSettings && <div className="mt-3 rounded-xl border border-[#ef9a75]/25 bg-[#ef9a75]/10 p-4 text-xs leading-6 text-[#ffd3c4]"><div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-[#ef9a75]">Generation settings</div>{result.generationSettings}</div>}
+            {result.generationSettings && <div className="mt-3 rounded-xl border border-accent-muted/25 bg-accent-muted/10 p-4 text-xs leading-6 text-accent-faint"><div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-accent-muted">Generation settings</div>{result.generationSettings}</div>}
             {draftNegative && <div className="mt-3"><div className="mb-2 text-[10px] uppercase tracking-wider text-white/40">Negative prompt</div><textarea value={draftNegative} onChange={e => setDraftNegative(e.target.value)} className="min-h-24 w-full resize-y rounded-xl border border-white/10 bg-black/10 p-4 font-mono text-xs leading-6 text-white/55 outline-none" /></div>}
             {result.notes && <div className="mt-3 text-xs leading-relaxed text-white/55">{result.notes}</div>}
-            <div className="mt-4 flex flex-wrap gap-2"><Button variant="secondary" onClick={() => copyText("prompt")}>{copied === "prompt" && <Check className="h-4 w-4" />}{copied === "prompt" ? "Copied" : "Copy prompt"}</Button><Button variant="outline" className="border-white/15 text-white hover:bg-white/10" onClick={() => copyText("full")}>{copied === "full" && <Check className="h-4 w-4" />}{copied === "full" ? "Copied all" : "Copy with settings"}</Button>{isImage && <Button className="bg-[#ef9a75] text-[#202c25] hover:bg-[#f3a486]" onClick={openImageStudio}>Open in Image Studio<ArrowRight className="h-4 w-4" /></Button>}</div>
-          </> : <div className="flex min-h-[420px] flex-col items-center justify-center rounded-xl border border-dashed border-white/15 p-8 text-center"><WandSparkles className="h-7 w-7 text-[#ef9a75]" /><div className="mt-4 font-semibold">No production prompt yet</div><p className="mt-2 max-w-sm text-xs leading-6 text-white/45">Start with a preset, add the product or idea, then generate. KretivOS will structure subject, composition, lighting, realism, exclusions and the correct model syntax.</p></div>}
+            <div className="mt-4 flex flex-wrap gap-2"><Button variant="secondary" onClick={() => copyText("prompt")}>{copied === "prompt" && <Check className="h-4 w-4" />}{copied === "prompt" ? "Copied" : "Copy prompt"}</Button><Button variant="outline" className="border-white/15 text-white hover:bg-white/10" onClick={() => copyText("full")}>{copied === "full" && <Check className="h-4 w-4" />}{copied === "full" ? "Copied all" : "Copy with settings"}</Button>{isImage && <Button className="bg-accent-muted text-foreground hover:bg-accent-muted" onClick={openImageStudio}>Open in Image Studio<ArrowRight className="h-4 w-4" /></Button>}</div>
+          </> : <div className="flex min-h-[420px] flex-col items-center justify-center rounded-xl border border-dashed border-white/15 p-8 text-center"><WandSparkles className="h-7 w-7 text-accent-muted" /><div className="mt-4 font-semibold">No production prompt yet</div><p className="mt-2 max-w-sm text-xs leading-6 text-white/45">Start with a preset, add the product or idea, then generate. KretivOS will structure subject, composition, lighting, realism, exclusions and the correct model syntax.</p></div>}
         </CardContent>
       </Card>
     </div>
@@ -1029,14 +1029,14 @@ function Technology() {
   }, []);
 
   return <div>
-    <PageHead eyebrow="CTO workspace" title="Technology" description="Repositories, environments, deployments, infrastructure and AI services across every product. The registry below is a static inventory pending a systems table." action={<Button asChild variant="outline" className="bg-white"><Link href="/automations"><Workflow className="h-4 w-4" />Automations</Link></Button>} />
+    <PageHead eyebrow="CTO workspace" title="Technology" description="Repositories, environments, deployments, infrastructure and AI services across every product. The registry below is a static inventory pending a systems table." action={<Button asChild variant="outline" className="bg-card"><Link href="/automations"><Workflow className="h-4 w-4" />Automations</Link></Button>} />
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Stat label="Registered systems" value={String(systems.length)} note="Static inventory" icon={Cloud} />
       <Stat label="Shared database" value={health.ok ? "Online" : "Attention"} note={health.label} icon={Database} />
       <Stat label="Repositories" value="14" note="3 active releases" icon={GitBranch} />
       <Stat label="Open incidents" value="2" note="1 high priority" icon={Activity} />
     </div>
-    <div className="mt-5 grid gap-4 md:grid-cols-2">{systems.map(x => <Card key={x.n} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#eee9df]"><Code2 className="h-5 w-5" /></div><Badge tone={x.status === "Healthy" ? "green" : "amber"}>{x.status}</Badge></div><div className="mt-4 font-semibold">{x.n}</div><div className="mt-1 text-xs text-muted-foreground">{x.stack}</div><div className="mt-5 border-t pt-4 text-xs">{x.env}</div></CardContent></Card>)}</div>
+    <div className="mt-5 grid gap-4 md:grid-cols-2">{systems.map(x => <Card key={x.n} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Code2 className="h-5 w-5" /></div><Badge tone={x.status === "Healthy" ? "green" : "amber"}>{x.status}</Badge></div><div className="mt-4 font-semibold">{x.n}</div><div className="mt-1 text-xs text-muted-foreground">{x.stack}</div><div className="mt-5 border-t pt-4 text-xs">{x.env}</div></CardContent></Card>)}</div>
   </div>;
 }
 
@@ -1052,10 +1052,10 @@ function Settings() {
   ];
   return <div>
     <PageHead eyebrow="Configuration" title="Settings" description="KretivOS keeps configuration inside the workspace that owns it, so each area below opens the record it configures." />
-    <div className="grid gap-5 lg:grid-cols-2">{cards.map(([Icon, title, description, href]) => <Link key={title} href={href}><Card className="h-full bg-white/80 transition hover:-translate-y-0.5 hover:shadow-md"><CardContent className="flex items-center gap-4 p-5"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#eee9df]"><Icon className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-semibold">{title}</div><div className="mt-1 text-xs text-muted-foreground">{description}</div></div><ChevronRight className="h-4 w-4 shrink-0" /></CardContent></Card></Link>)}</div>
+    <div className="grid gap-5 lg:grid-cols-2">{cards.map(([Icon, title, description, href]) => <Link key={title} href={href}><Card className="h-full bg-white/80 transition hover:-translate-y-0.5 hover:shadow-md"><CardContent className="flex items-center gap-4 p-5"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted"><Icon className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-semibold">{title}</div><div className="mt-1 text-xs text-muted-foreground">{description}</div></div><ChevronRight className="h-4 w-4 shrink-0" /></CardContent></Card></Link>)}</div>
     <Card className="mt-5 bg-white/80"><CardHeader><CardTitle>AI and offline</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">
-      <div className="rounded-lg border bg-white p-4"><div className="flex items-center gap-2 text-sm font-semibold"><Bot className="h-4 w-4" />ai-nonymauz-cloud</div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">Connected server-side to the deployed Render service. <code className="rounded bg-[#f0ebe1] px-1">AI_NONYMAUZ_BASE_URL</code>, <code className="rounded bg-[#f0ebe1] px-1">AI_NONYMAUZ_API_KEY</code> and <code className="rounded bg-[#f0ebe1] px-1">AI_NONYMAUZ_MODEL</code> remain optional deployment overrides; the browser never receives them.</p></div>
-      <div className="rounded-lg border bg-white p-4"><div className="flex items-center gap-2 text-sm font-semibold"><MonitorSmartphone className="h-4 w-4" />PWA and offline</div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">The app shell is cached for offline launch. Business records are always fetched live so shared data is never served stale.</p></div>
+      <div className="rounded-lg border bg-card p-4"><div className="flex items-center gap-2 text-sm font-semibold"><Bot className="h-4 w-4" />ai-nonymauz-cloud</div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">Connected server-side to the deployed Render service. <code className="rounded bg-muted px-1">AI_NONYMAUZ_BASE_URL</code>, <code className="rounded bg-muted px-1">AI_NONYMAUZ_API_KEY</code> and <code className="rounded bg-muted px-1">AI_NONYMAUZ_MODEL</code> remain optional deployment overrides; the browser never receives them.</p></div>
+      <div className="rounded-lg border bg-card p-4"><div className="flex items-center gap-2 text-sm font-semibold"><MonitorSmartphone className="h-4 w-4" />PWA and offline</div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">The app shell is cached for offline launch. Business records are always fetched live so shared data is never served stale.</p></div>
     </CardContent></Card>
   </div>;
 }

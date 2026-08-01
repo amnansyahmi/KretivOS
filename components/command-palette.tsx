@@ -157,7 +157,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           className="h-14 flex-1 rounded-none border-0 bg-transparent px-0 focus-visible:ring-0 focus-visible:ring-offset-0"
         />
         {searching && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
-        <button type="button" onClick={() => onOpenChange(false)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-[#f4f1e8] hover:text-foreground" aria-label="Close search">
+        <button type="button" onClick={() => onOpenChange(false)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-background hover:text-foreground" aria-label="Close search">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -186,7 +186,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               onClick={() => go(result.item.href)}
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left",
-                current === active ? "bg-[#f4f1e8]" : "hover:bg-[#faf8f3]",
+                current === active ? "bg-background" : "hover:bg-card",
               )}
             >
               <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -200,10 +200,10 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         })}
       </div>
 
-      <div className="flex items-center gap-4 border-t bg-[#faf8f3] px-4 py-2 text-[10px] text-muted-foreground">
-        <span><kbd className="rounded border bg-white px-1">↑</kbd> <kbd className="rounded border bg-white px-1">↓</kbd> navigate</span>
-        <span><kbd className="rounded border bg-white px-1">↵</kbd> open</span>
-        <span><kbd className="rounded border bg-white px-1">esc</kbd> close</span>
+      <div className="flex items-center gap-4 border-t bg-card px-4 py-2 text-[10px] text-muted-foreground">
+        <span><kbd className="rounded border bg-card px-1">↑</kbd> <kbd className="rounded border bg-card px-1">↓</kbd> navigate</span>
+        <span><kbd className="rounded border bg-card px-1">↵</kbd> open</span>
+        <span><kbd className="rounded border bg-card px-1">esc</kbd> close</span>
       </div>
     </DialogContent>
   </Dialog>;

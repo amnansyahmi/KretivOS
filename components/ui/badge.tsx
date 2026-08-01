@@ -14,12 +14,12 @@ export const badgeVariants = cva(
   {
     variants: {
       tone: {
-        neutral: "bg-[#eeeae0] text-[#5a605a]",
+        neutral: "bg-muted text-foreground-soft",
         good: "bg-emerald-50 text-emerald-700",
         bad: "bg-red-50 text-red-700",
         warn: "bg-amber-50 text-amber-700",
         info: "bg-sky-50 text-sky-700",
-        accent: "bg-[#f6e6df] text-[#8c4530]",
+        accent: "bg-accent-tint text-accent-tint-foreground",
       },
     },
     defaultVariants: { tone: "neutral" },

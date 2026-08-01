@@ -93,7 +93,7 @@ export function AttendanceTestSession() {
     </button>
 
     {open && <div className="fixed inset-0 z-[195] flex items-end justify-center bg-black/60 sm:items-center sm:p-4" onClick={() => setOpen(false)}>
-      <div className="w-full max-w-lg rounded-t-3xl bg-[#f7f4ed] p-5 shadow-2xl sm:rounded-3xl" onClick={(event) => event.stopPropagation()}>
+      <div className="w-full max-w-lg rounded-t-3xl bg-background p-5 shadow-2xl sm:rounded-3xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div><div className="text-[10px] font-semibold uppercase tracking-[.18em] text-amber-700">Temporary testing</div><h2 className="mt-1 text-xl font-semibold">Start New Attendance Session</h2></div>
           <button onClick={() => setOpen(false)} className="rounded-xl p-2 hover:bg-black/5"><X className="h-4 w-4" /></button>
@@ -105,11 +105,11 @@ export function AttendanceTestSession() {
         {error && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <label className="text-xs font-medium text-muted-foreground">Staff<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border bg-white px-3 text-sm text-foreground">{employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="text-xs font-medium text-muted-foreground">Staff<select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border bg-card px-3 text-sm text-foreground">{employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label className="text-xs font-medium text-muted-foreground">Date<span className="mt-2 block"><DateInput value={date} onChange={(event) => setDate(event.target.value)} /></span></label>
         </div>
 
-        <div className="mt-4 rounded-xl bg-white p-4"><div className="text-[10px] uppercase tracking-[.14em] text-muted-foreground">Current session</div><div className="mt-2 text-sm font-semibold">{record ? `${record.checkIn || "—"} – ${record.checkOut || "—"}` : "No attendance record found"}</div></div>
+        <div className="mt-4 rounded-xl bg-card p-4"><div className="text-[10px] uppercase tracking-[.14em] text-muted-foreground">Current session</div><div className="mt-2 text-sm font-semibold">{record ? `${record.checkIn || "—"} – ${record.checkOut || "—"}` : "No attendance record found"}</div></div>
 
         <Button className="mt-5 h-12 w-full bg-amber-600 text-white hover:bg-amber-700" disabled={!record || busy} onClick={startNewSession}>
           {busy ? <><RefreshCw className="h-4 w-4 animate-spin" />Preparing…</> : <><FlaskConical className="h-4 w-4" />Start fresh testing session</>}

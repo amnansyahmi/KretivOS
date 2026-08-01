@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
  * jump when data arrives.
  */
 export function Skeleton({ className }: { className?: string }) {
-  return <div aria-hidden className={cn("animate-pulse rounded-md bg-[#e7e2d8]", className)} />;
+  return <div aria-hidden className={cn("animate-pulse rounded-md bg-well", className)} />;
 }
 
 /** Matches the dashboard's Stat card so the metric row reserves its height. */
@@ -21,7 +21,7 @@ export function StatSkeleton() {
 /** Generic stack of lines for list and queue panels. */
 export function RowSkeleton({ rows = 3 }: { rows?: number }) {
   return <div className="space-y-3">
-    {Array.from({ length: rows }, (_, index) => <div key={index} className="rounded-lg border bg-white p-3">
+    {Array.from({ length: rows }, (_, index) => <div key={index} className="rounded-lg border bg-card p-3">
       <div className="flex items-center justify-between gap-2">
         <Skeleton className="h-3 w-28" />
         <Skeleton className="h-4 w-16 rounded-full" />

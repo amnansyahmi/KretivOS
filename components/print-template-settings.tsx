@@ -172,11 +172,11 @@ export function PrintTemplateSettings() {
           />
         </div>
 
-        <div className="rounded-lg border bg-[#faf8f3] p-3">
+        <div className="rounded-lg border bg-card p-3">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Available in notes</div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
             {TOKENS.map(([token, meaning]) => <span key={token}>
-              <code className="rounded bg-white px-1 py-0.5">{token}</code>
+              <code className="rounded bg-card px-1 py-0.5">{token}</code>
               <span className="ml-1 text-muted-foreground">{meaning}</span>
             </span>)}
           </div>
@@ -196,7 +196,7 @@ export function PrintTemplateSettings() {
           </Label>
         </div>
 
-        <Label className="flex items-center gap-3 rounded-xl border bg-[#fbfaf7] p-3 text-xs font-medium">
+        <Label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium">
           <Checkbox
             checked={draft.showSignatures}
             onCheckedChange={(checked) => setDraft({ ...draft, showSignatures: checked === true })}
