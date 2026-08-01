@@ -107,3 +107,24 @@ set name = case when name is null or name = '' or name = 'Kretivco' then 'Kretiv
     contact_email = case when contact_email is null or contact_email = '' then 'kretivco@gmail.com' else contact_email end,
     contact_phone = case when contact_phone is null or contact_phone = '' then '+6011-21149204 / +6019-3663805' else contact_phone end
 where id = 'org-kretivco';
+
+-- ---------------------------------------------------------------------------
+-- Retire the duplicate quotation, invoice and receipt
+-- ---------------------------------------------------------------------------
+--
+-- The Documents composer shipped markdown versions of the same three documents,
+-- built from {{variables}} and rendered in a different house style. They have
+-- since been dropped from the starter set, but the seeder inserts with
+-- `on conflict do nothing`, so removing them from the code does not clear them
+-- from a database that already ran it — every existing deployment still offers
+-- a second Quotation that produces no line items, no customer link and nothing
+-- reaching the ledger.
+--
+-- Archived rather than deleted: a document already generated from one still
+-- resolves its template and keeps rendering.
+
+update document_templates
+set status = 'Archived'
+where organization_id = 'org-kretivco'
+  and id in ('tpl-quotation', 'tpl-invoice', 'tpl-receipt')
+  and status <> 'Archived';

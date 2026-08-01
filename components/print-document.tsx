@@ -23,7 +23,7 @@ const A4_MIN_HEIGHT_PX = 1123;
 export const PRINT_STYLES = `
   @page { size: A4; margin: 18mm 20mm; }
 
-  .kdoc {
+  .ktpl {
     font-family: Helvetica, Arial, "Nimbus Sans", sans-serif;
     font-size: 10pt;
     line-height: 1.45;
@@ -33,63 +33,63 @@ export const PRINT_STYLES = `
     margin: 0 auto;
   }
 
-  .kdoc-header { display: flex; align-items: flex-start; gap: 14mm; }
-  .kdoc-logo { width: 26mm; height: auto; flex-shrink: 0; }
-  .kdoc-company { flex: 1; min-width: 0; padding-top: 2mm; }
-  .kdoc-company-name { font-size: 13pt; font-weight: bold; margin: 0 0 1mm; }
-  .kdoc-company-line { margin: 0; }
+  .ktpl-header { display: flex; align-items: flex-start; gap: 14mm; }
+  .ktpl-logo { width: 26mm; height: auto; flex-shrink: 0; }
+  .ktpl-company { flex: 1; min-width: 0; padding-top: 2mm; }
+  .ktpl-company-name { font-size: 13pt; font-weight: bold; margin: 0 0 1mm; }
+  .ktpl-company-line { margin: 0; }
 
-  .kdoc-title-block { text-align: right; flex-shrink: 0; padding-top: 1mm; }
-  .kdoc-heading { font-size: 20pt; font-weight: bold; margin: 0 0 3mm; letter-spacing: .01em; }
-  .kdoc-meta { margin: 0; white-space: nowrap; }
-  .kdoc-meta strong { font-weight: bold; }
+  .ktpl-title-block { text-align: right; flex-shrink: 0; padding-top: 1mm; }
+  .ktpl-heading { font-size: 20pt; font-weight: bold; margin: 0 0 3mm; letter-spacing: .01em; }
+  .ktpl-meta { margin: 0; white-space: nowrap; }
+  .ktpl-meta strong { font-weight: bold; }
 
-  .kdoc-rule { border: 0; border-top: 1px solid #999; margin: 6mm 0 7mm; }
+  .ktpl-rule { border: 0; border-top: 1px solid #999; margin: 6mm 0 7mm; }
 
-  .kdoc-party-label { font-weight: bold; margin: 0 0 1mm; }
-  .kdoc-party-line { margin: 0; }
-  .kdoc-job { margin: 5mm 0 5mm; }
-  .kdoc-job strong { font-weight: bold; }
+  .ktpl-party-label { font-weight: bold; margin: 0 0 1mm; }
+  .ktpl-party-line { margin: 0; }
+  .ktpl-job { margin: 5mm 0 5mm; }
+  .ktpl-job strong { font-weight: bold; }
 
-  .kdoc-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  .kdoc-table th, .kdoc-table td {
+  .ktpl-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .ktpl-table th, .ktpl-table td {
     border: 1px solid #000;
     padding: 2mm 2.5mm;
     vertical-align: top;
     word-wrap: break-word;
   }
-  .kdoc-table th { font-weight: bold; text-align: left; }
-  .kdoc-table .k-center { text-align: center; }
-  .kdoc-table .k-right { text-align: right; }
+  .ktpl-table th { font-weight: bold; text-align: left; }
+  .ktpl-table .k-center { text-align: center; }
+  .ktpl-table .k-right { text-align: right; }
 
-  .kdoc-totals { width: 100%; margin-top: 6mm; }
-  .kdoc-totals table { margin-left: auto; border-collapse: collapse; }
-  .kdoc-totals td { padding: 1mm 0; }
-  .kdoc-totals .k-label { font-weight: bold; text-align: right; padding-right: 8mm; white-space: nowrap; }
-  .kdoc-totals .k-value { text-align: right; min-width: 28mm; white-space: nowrap; }
-  .kdoc-totals .k-strong { font-weight: bold; }
+  .ktpl-totals { width: 100%; margin-top: 6mm; }
+  .ktpl-totals table { margin-left: auto; border-collapse: collapse; }
+  .ktpl-totals td { padding: 1mm 0; }
+  .ktpl-totals .k-label { font-weight: bold; text-align: right; padding-right: 8mm; white-space: nowrap; }
+  .ktpl-totals .k-value { text-align: right; min-width: 28mm; white-space: nowrap; }
+  .ktpl-totals .k-strong { font-weight: bold; }
 
-  .kdoc-notes { margin-top: 9mm; }
-  .kdoc-notes-label { font-weight: bold; margin: 0 0 1mm; }
-  .kdoc-note { margin: 0 0 1mm; }
-  .kdoc-closing { margin: 1mm 0 0; }
+  .ktpl-notes { margin-top: 9mm; }
+  .ktpl-notes-label { font-weight: bold; margin: 0 0 1mm; }
+  .ktpl-note { margin: 0 0 1mm; }
+  .ktpl-closing { margin: 1mm 0 0; }
 
-  .kdoc-signatures { display: flex; gap: 18mm; margin-top: 11mm; }
-  .kdoc-signature { flex: 1; }
-  .kdoc-signature-label { font-weight: bold; margin: 0 0 14mm; }
-  .kdoc-signature-line { border-top: 1px solid #000; width: 62mm; }
+  .ktpl-signatures { display: flex; gap: 18mm; margin-top: 11mm; }
+  .ktpl-signature { flex: 1; }
+  .ktpl-signature-label { font-weight: bold; margin: 0 0 14mm; }
+  .ktpl-signature-line { border-top: 1px solid #000; width: 62mm; }
 
   @media print {
-    .kdoc { max-width: none; }
-    .kdoc-responsive-host,
-    .kdoc-responsive-frame {
+    .ktpl { max-width: none; }
+    .ktpl-responsive-host,
+    .ktpl-responsive-frame {
       width: auto !important;
       height: auto !important;
       max-width: none !important;
       overflow: visible !important;
       margin: 0 !important;
     }
-    .kdoc-responsive-sheet {
+    .ktpl-responsive-sheet {
       width: auto !important;
       min-height: 0 !important;
       padding: 0 !important;
@@ -97,9 +97,9 @@ export const PRINT_STYLES = `
       box-shadow: none !important;
     }
     /* A long item list must not orphan the totals from the table above it. */
-    .kdoc-table { page-break-inside: auto; }
-    .kdoc-table tr { page-break-inside: avoid; }
-    .kdoc-totals, .kdoc-signatures { page-break-inside: avoid; }
+    .ktpl-table { page-break-inside: auto; }
+    .ktpl-table tr { page-break-inside: avoid; }
+    .ktpl-totals, .ktpl-signatures { page-break-inside: avoid; }
   }
 `;
 
@@ -147,9 +147,9 @@ export function ResponsivePrintDocument({
   }, [model]);
 
   return (
-    <div ref={hostRef} className={cn("kdoc-responsive-host w-full", className)}>
+    <div ref={hostRef} className={cn("ktpl-responsive-host w-full", className)}>
       <div
-        className="kdoc-responsive-frame mx-auto"
+        className="ktpl-responsive-frame mx-auto"
         style={{
           width: A4_WIDTH_PX * viewport.scale,
           height: viewport.height * viewport.scale,
@@ -157,7 +157,7 @@ export function ResponsivePrintDocument({
       >
         <div
           ref={sheetRef}
-          className="kdoc-responsive-sheet box-border bg-white px-[20mm] py-[18mm] shadow-soft"
+          className="ktpl-responsive-sheet box-border bg-white px-[20mm] py-[18mm] shadow-soft"
           style={{
             width: A4_WIDTH_PX,
             minHeight: A4_MIN_HEIGHT_PX,
@@ -176,44 +176,44 @@ export function PrintDocument({ model }: { model: PrintModel }) {
   const { company } = model;
 
   return (
-    <div className="kdoc">
-      <div className="kdoc-header">
+    <div className="ktpl">
+      <div className="ktpl-header">
         {company.logoUrl && (
           // eslint-disable-next-line @next/next/no-img-element -- must survive
           // serialisation into the standalone print document, where next/image
           // has no runtime.
-          <img className="kdoc-logo" src={company.logoUrl} alt="" />
+          <img className="ktpl-logo" src={company.logoUrl} alt="" />
         )}
 
-        <div className="kdoc-company">
-          <p className="kdoc-company-name">{company.name}</p>
-          {company.registrationNumber && <p className="kdoc-company-line">({company.registrationNumber})</p>}
+        <div className="ktpl-company">
+          <p className="ktpl-company-name">{company.name}</p>
+          {company.registrationNumber && <p className="ktpl-company-line">({company.registrationNumber})</p>}
           {company.addressLines.map((line, index) => (
-            <p className="kdoc-company-line" key={index}>{line}</p>
+            <p className="ktpl-company-line" key={index}>{line}</p>
           ))}
         </div>
 
-        <div className="kdoc-title-block">
-          <p className="kdoc-heading">{model.heading}</p>
+        <div className="ktpl-title-block">
+          <p className="ktpl-heading">{model.heading}</p>
           {model.meta.map((row) => (
-            <p className="kdoc-meta" key={row.label}>
+            <p className="ktpl-meta" key={row.label}>
               <strong>{row.label}:</strong> {row.value}
             </p>
           ))}
         </div>
       </div>
 
-      <hr className="kdoc-rule" />
+      <hr className="ktpl-rule" />
 
-      <p className="kdoc-party-label">Customer:</p>
-      <p className="kdoc-party-line">{model.customerName}</p>
+      <p className="ktpl-party-label">Customer:</p>
+      <p className="ktpl-party-line">{model.customerName}</p>
       {model.customerAddressLines.map((line, index) => (
-        <p className="kdoc-party-line" key={index}>{line}</p>
+        <p className="ktpl-party-line" key={index}>{line}</p>
       ))}
 
-      {model.title && <p className="kdoc-job"><strong>Title:</strong> {model.title}</p>}
+      {model.title && <p className="ktpl-job"><strong>Title:</strong> {model.title}</p>}
 
-      <table className="kdoc-table">
+      <table className="ktpl-table">
         <colgroup>
           {model.columns.map((column) => (
             <col
@@ -242,7 +242,7 @@ export function PrintDocument({ model }: { model: PrintModel }) {
         </tbody>
       </table>
 
-      <div className="kdoc-totals">
+      <div className="ktpl-totals">
         <table>
           <tbody>
             {model.totals.map((row) => (
@@ -258,24 +258,24 @@ export function PrintDocument({ model }: { model: PrintModel }) {
       </div>
 
       {(model.notes.length > 0 || model.closingLine) && (
-        <div className="kdoc-notes">
-          {model.notes.length > 0 && <p className="kdoc-notes-label">Note:</p>}
+        <div className="ktpl-notes">
+          {model.notes.length > 0 && <p className="ktpl-notes-label">Note:</p>}
           {model.notes.map((note, index) => (
-            <p className="kdoc-note" key={index}>{index + 1}. {note}</p>
+            <p className="ktpl-note" key={index}>{index + 1}. {note}</p>
           ))}
-          {model.closingLine && <p className="kdoc-closing">{model.closingLine}</p>}
+          {model.closingLine && <p className="ktpl-closing">{model.closingLine}</p>}
         </div>
       )}
 
       {model.signatures && (
-        <div className="kdoc-signatures">
-          <div className="kdoc-signature">
-            <p className="kdoc-signature-label">{model.signatures.issuedBy}</p>
-            <div className="kdoc-signature-line" />
+        <div className="ktpl-signatures">
+          <div className="ktpl-signature">
+            <p className="ktpl-signature-label">{model.signatures.issuedBy}</p>
+            <div className="ktpl-signature-line" />
           </div>
-          <div className="kdoc-signature">
-            <p className="kdoc-signature-label">{model.signatures.acceptedBy}</p>
-            <div className="kdoc-signature-line" />
+          <div className="ktpl-signature">
+            <p className="ktpl-signature-label">{model.signatures.acceptedBy}</p>
+            <div className="ktpl-signature-line" />
           </div>
         </div>
       )}

@@ -222,7 +222,10 @@ export default function DocumentsPage() {
 
   const filteredTemplates = useMemo(() => {
     const term = query.trim().toLowerCase();
-    return templates.filter((item) => !term || [item.name, item.category, item.description, item.content].join(" ").toLowerCase().includes(term));
+    // Archived templates stay in the database so documents already generated
+    // from them keep resolving, but they are not offered for new work.
+    const active = templates.filter((item) => item.status !== "Archived");
+    return active.filter((item) => !term || [item.name, item.category, item.description, item.content].join(" ").toLowerCase().includes(term));
   }, [templates, query]);
   const filteredDocuments = useMemo(() => {
     const term = query.trim().toLowerCase();
