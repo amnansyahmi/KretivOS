@@ -8,6 +8,10 @@ import {
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/confirm";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  inputsForCustomer, onboardingCompletion, onboardingProgress, onboardingStatus,
+} from "@/lib/onboarding-progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isTextField } from "@/components/ui/textarea";
 import { DateInput } from "@/components/date-input";
@@ -23,7 +27,7 @@ import {
 } from "@/components/business-shell";
 import { BUSINESS_STORAGE_KEY, CUSTOMER_STORAGE_KEY, businessId } from "@/lib/business-data";
 import { INDUSTRY_GROUPS } from "@/lib/industries";
-import { StatusBadge } from "@/components/ui/badge";
+import { Badge as ToneBadge, StatusBadge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 type ResourceTab = "customers" | "contacts" | "brands" | "channels" | "crm" | "sales" | "projects" | "onboarding";
@@ -321,7 +325,49 @@ export default function BusinessOperationsPage() {
 
       {!loading && tab === "projects" && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.projects.filter((item) => matches(item.name, item.status, item.owner, customerName(item.customerId))).map((item) => <Card key={item.id} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between"><div><div className="text-[10px] uppercase tracking-wider text-[#ba5c42]">{item.customerId ? customerName(item.customerId) : "Internal"}</div><h3 className="mt-1 font-semibold">{item.name}</h3></div><Badge value={item.status} /></div><div className="mt-5 h-2 overflow-hidden rounded-full bg-[#ece8de]"><div className="h-full rounded-full bg-[#ba5c42]" style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }} /></div><div className="mt-2 text-xs text-muted-foreground">{item.progress}% · Due {item.dueDate || "—"}</div><div className="mt-4 grid grid-cols-2 gap-2"><Mini label="Owner" value={item.owner || "—"} /><Mini label="Budget" value={money(item.budget)} /></div><RecordActions onEdit={() => openEdit("projects", item)} onDelete={() => deleteRecord("projects", item.id)} /></CardContent></Card>)}</div>}
 
-      {!loading && tab === "onboarding" && <div className="grid gap-4 lg:grid-cols-2">{data.onboardings.filter((item) => matches(customerName(item.customerId), item.blueprint, item.status)).map((item) => { const done = item.steps.filter((step: any) => step.done).length; const progress = item.steps.length ? Math.round(done / item.steps.length * 100) : 0; return <Card key={item.id} className="bg-white/80"><CardContent className="p-5"><div className="flex items-start justify-between"><div><div className="text-[10px] uppercase tracking-wider text-[#ba5c42]">{customerName(item.customerId)}</div><h3 className="mt-1 font-semibold">{item.blueprint}</h3></div><Badge value={item.status} /></div><div className="mt-4 text-xs text-muted-foreground">{done}/{item.steps.length} steps · Target {item.targetLaunch || "—"}</div><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#ece8de]"><div className="h-full rounded-full bg-[#ba5c42]" style={{ width: `${progress}%` }} /></div><div className="mt-5 space-y-2">{item.steps.map((step: any) => <label key={step.id} className="flex cursor-pointer items-center gap-3 rounded-lg border bg-white p-3 text-sm"><input type="checkbox" checked={step.done} onChange={() => toggleOnboardingStep(item, step.id)} className="h-4 w-4 accent-[#ba5c42]" /><span className={cn(step.done && "text-muted-foreground line-through")}>{step.label}</span></label>)}</div><RecordActions onEdit={() => openEdit("onboarding", item)} onDelete={() => deleteRecord("onboarding", item.id)} /></CardContent></Card>; })}</div>}
+      {!loading && tab === "onboarding" && <div className="grid gap-4 lg:grid-cols-2">{data.onboardings.filter((item) => matches(customerName(item.customerId), item.blueprint, item.status)).map((item) => {
+        // Derived from the records rather than from ticks, so a client cannot
+        // read as fully onboarded with no brand, no agreement and no project.
+        const states = onboardingProgress(item.steps, inputsForCustomer(item.customerId, data));
+        const { done, total, percent } = onboardingCompletion(states);
+        const status = onboardingStatus(states);
+        return <Card key={item.id} className="bg-white/80"><CardContent className="p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-[#ba5c42]">{customerName(item.customerId)}</div>
+              <h3 className="mt-1 font-semibold">{item.blueprint}</h3>
+            </div>
+            <Badge value={status} />
+          </div>
+          <div className="mt-4 text-xs text-muted-foreground">{done}/{total} steps · Target {item.targetLaunch || "—"}</div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#ece8de]"><div className="h-full rounded-full bg-[#ba5c42] transition-all" style={{ width: `${percent}%` }} /></div>
+          <div className="mt-5 space-y-2">{states.map((step) => <div key={step.id} className="rounded-lg border bg-white p-3">
+            <div className="flex items-start gap-3">
+              <Checkbox
+                checked={step.done}
+                // A satisfied step cannot be unticked by hand: the records say
+                // it is done, and a checkbox that fights the data is a lie.
+                disabled={step.satisfied}
+                onCheckedChange={() => toggleOnboardingStep(item, step.id)}
+                aria-label={step.label}
+                className="mt-0.5"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={cn("text-sm", step.done && "text-muted-foreground line-through")}>{step.label}</span>
+                  {step.satisfied && <ToneBadge tone="good">Done automatically</ToneBadge>}
+                  {step.overridden && <ToneBadge tone="warn">Ticked by hand</ToneBadge>}
+                </div>
+                <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{step.hint}</div>
+                {!step.satisfied && step.action && <Button variant="outline" size="sm" className="mt-2" onClick={() => changeTab(step.action!.tab as BusinessTab)}>
+                  {step.action.label}
+                </Button>}
+              </div>
+            </div>
+          </div>)}</div>
+          <RecordActions onEdit={() => openEdit("onboarding", item)} onDelete={() => deleteRecord("onboarding", item.id)} />
+        </CardContent></Card>;
+      })}</div>}
 
       {!loading && tab !== "overview" && recordCount(data, tab) === 0 && <Card className="bg-white/75"><CardContent className="p-12 text-center"><div className="font-semibold">No {currentLabel.toLowerCase()} yet</div><p className="mt-2 text-sm text-muted-foreground">Create the first shared record in Neon PostgreSQL.</p><Button className="mt-4" onClick={() => openCreate()}><Plus className="h-4 w-4" />Create record</Button></CardContent></Card>}
 

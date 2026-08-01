@@ -13,7 +13,7 @@ type DateInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type">;
  */
 export function DateInput({ className, ...props }: DateInputProps) {
   return <span className="relative block min-w-0 w-full">
-    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-[#687169]" aria-hidden="true" />
+    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#687169]" aria-hidden="true" />
     <input
       {...props}
       type="date"
@@ -28,7 +28,7 @@ export function DateInput({ className, ...props }: DateInputProps) {
 /** The same mobile-safe control for month-only payroll and report periods. */
 export function MonthInput({ className, ...props }: DateInputProps) {
   return <span className="relative block min-w-0 w-full">
-    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-[#687169]" aria-hidden="true" />
+    <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#687169]" aria-hidden="true" />
     <input
       {...props}
       type="month"

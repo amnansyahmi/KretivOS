@@ -157,6 +157,10 @@ function validateGenerated(
       }).filter((version): version is ChannelVersion => Boolean(version?.copy));
       return {
         ...base,
+        // Titles were never taken from the model, so an activity kept whatever
+        // it was called when it was created. Rename a funnel and every activity
+        // still advertised the previous campaign.
+        title: field(item.title, base.title, 240),
         hook: field(item.hook, base.hook, 1200),
         primaryCopy: field(item.primaryCopy, base.primaryCopy, 7000),
         cta: field(item.cta, base.cta, 500),
@@ -220,7 +224,8 @@ export async function POST(request: NextRequest) {
         "Never invent prices, promotions, dates, links, testimonials, results, certifications, product claims or client decisions.",
         "Use only approved claims. If a required fact is missing, write a clearly bracketed review placeholder such as [confirm offer deadline].",
         "Do not change channelId values or create channels that were not supplied for that activity.",
-        "Schema: {summary:string,contents:[{activityId:string,hook:string,primaryCopy:string,cta:string,visualDirection:string,productionNotes:string,channelVersions:[{channelId:string,channelName:string,copy:string}]}]}",
+        "Rewrite each activity title so it names this funnel's own offer and audience. A stored title carried over from an unrelated campaign must not survive.",
+        "Schema: {summary:string,contents:[{activityId:string,title:string,hook:string,primaryCopy:string,cta:string,visualDirection:string,productionNotes:string,channelVersions:[{channelId:string,channelName:string,copy:string}]}]}",
       ],
     });
 

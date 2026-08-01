@@ -296,7 +296,7 @@ export default function KnowledgeLibraryPage() {
         <div className="grid min-w-0 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
           <section className={cn("min-w-0", screen === "document" && "hidden lg:block")}>
             <Card className="overflow-hidden border-black/8 bg-white/85 shadow-sm lg:sticky lg:top-[116px]"><CardContent className="p-0">
-              <div className="sticky top-16 z-20 border-b bg-white/95 p-3 backdrop-blur md:top-24 md:p-4 lg:static">
+              <div className="z-20 border-b bg-white/95 p-3 backdrop-blur md:p-4">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <input value={query} onChange={(event) => setQuery(event.target.value)} className="kretivos-search-control h-11 w-full rounded-xl border bg-[#fbfaf7] pl-11 pr-12 text-sm outline-none transition focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10" placeholder="Search knowledge..." />
