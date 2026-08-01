@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AIWritingButton } from "@/components/ai-writing-button";
 import { ContentWriter } from "@/components/content-writer";
 import { KretivAIChat } from "@/components/kretiv-ai-chat";
+import { PrintTemplateSettings } from "@/components/print-template-settings";
 import { openCommandPalette } from "@/components/command-palette";
 import { NotificationBell } from "@/components/notification-bell";
 import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
@@ -1054,6 +1055,7 @@ function Settings() {
   return <div>
     <PageHead eyebrow="Configuration" title="Settings" description="KretivOS keeps configuration inside the workspace that owns it, so each area below opens the record it configures." />
     <div className="grid gap-5 lg:grid-cols-2">{cards.map(([Icon, title, description, href]) => <Link key={title} href={href}><Card className="h-full bg-white/80 transition hover:-translate-y-0.5 hover:shadow-md"><CardContent className="flex items-center gap-4 p-5"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#eee9df]"><Icon className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-semibold">{title}</div><div className="mt-1 text-xs text-muted-foreground">{description}</div></div><ChevronRight className="h-4 w-4 shrink-0" /></CardContent></Card></Link>)}</div>
+    <div className="mt-5"><PrintTemplateSettings /></div>
     <Card className="mt-5 bg-white/80"><CardHeader><CardTitle>AI and offline</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2">
       <div className="rounded-lg border bg-white p-4"><div className="flex items-center gap-2 text-sm font-semibold"><Bot className="h-4 w-4" />ai-nonymauz-cloud</div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">Connected server-side to the deployed Render service. <code className="rounded bg-[#f0ebe1] px-1">AI_NONYMAUZ_BASE_URL</code>, <code className="rounded bg-[#f0ebe1] px-1">AI_NONYMAUZ_API_KEY</code> and <code className="rounded bg-[#f0ebe1] px-1">AI_NONYMAUZ_MODEL</code> remain optional deployment overrides; the browser never receives them.</p></div>
       <div className="rounded-lg border bg-white p-4"><div className="flex items-center gap-2 text-sm font-semibold"><MonitorSmartphone className="h-4 w-4" />PWA and offline</div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">The app shell is cached for offline launch. Business records are always fetched live so shared data is never served stale.</p></div>
