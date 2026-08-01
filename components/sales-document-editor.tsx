@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Copy, Eye, FilePenLine, Plus, Trash2 } from "lucide-react";
 import { AIWritingButton } from "@/components/ai-writing-button";
 import { DateInput } from "@/components/date-input";
-import { PrintDocument, PRINT_STYLES } from "@/components/print-document";
+import { ResponsivePrintDocument, PRINT_STYLES } from "@/components/print-document";
 import { Button } from "@/components/ui/button";
 import {
   computeTotals, defaultSettings, emptyLineItem, lineAmount, parseLineItems,
@@ -163,12 +163,7 @@ export function SalesDocumentEditor({
   }, [customer, grandTotal, printSetup, record, state, template, totals]);
 
   return <>
-    <style>{`${PRINT_STYLES}
-      .sales-preview-paper { width: 210mm; min-height: 297mm; padding: 18mm 20mm; zoom: .40; }
-      @media (min-width: 640px) { .sales-preview-paper { zoom: .58; } }
-      @media (min-width: 1024px) { .sales-preview-paper { zoom: .44; } }
-      @media (min-width: 1440px) { .sales-preview-paper { zoom: .52; } }
-    `}</style>
+    <style>{PRINT_STYLES}</style>
 
     <div className="mb-4 grid grid-cols-2 gap-2 lg:hidden">
       <Button type="button" variant={mobilePane === "edit" ? "default" : "outline"} onClick={() => setMobilePane("edit")}>
@@ -212,18 +207,18 @@ export function SalesDocumentEditor({
 
         <section className="rounded-2xl border bg-white/70 p-4 sm:p-5">
           <div className="flex items-start justify-between gap-4">
-            <div><h3 className="font-semibold">Items</h3><p className="mt-1 text-xs text-muted-foreground">Add the actual products, services, quantity and price shown to the customer.</p></div>
+            <div><h3 className="font-semibold">Items</h3><p className="mt-1 text-xs text-muted-foreground">Add the products or services, how many, what is being counted and the price.</p></div>
             <Button type="button" variant="outline" size="sm" onClick={() => setState({ ...state, items: [...state.items, emptyLineItem()] })}><Plus className="h-4 w-4" />Add item</Button>
           </div>
 
           <div className="mt-4 hidden grid-cols-[minmax(180px,1fr)_75px_95px_120px_110px_76px] gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground md:grid">
-            <span>Description</span><span>Qty</span><span>Unit</span><span>Unit price</span><span className="text-right">Amount</span><span />
+            <span>Description</span><span>Qty</span><span>Unit type</span><span>Unit price</span><span className="text-right">Amount</span><span />
           </div>
           <div className="mt-2 space-y-3">
             {state.items.map((item, index) => <div key={item.id} className="grid gap-3 rounded-xl border bg-white p-3 md:grid-cols-[minmax(180px,1fr)_75px_95px_120px_110px_76px] md:items-start md:gap-2">
               <label className="text-xs font-medium md:text-[0px]"><span className="mb-1 block md:hidden">Description</span><textarea aria-label={`Item ${index + 1} description`} value={item.description} onChange={(event) => updateItem(item.id, { description: event.target.value })} className="min-h-20 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[#ba5c42] md:min-h-12" placeholder="Product or service description" /></label>
               <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Quantity</span><input aria-label={`Item ${index + 1} quantity`} type="number" min="0" step="0.01" value={item.quantity || ""} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-[#ba5c42]" /></label>
-              <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Unit</span><input aria-label={`Item ${index + 1} unit`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-[#ba5c42]" placeholder="unit" /></label>
+              <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Unit type</span><input aria-label={`Item ${index + 1} unit type`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-[#ba5c42]" placeholder="item, day, project" /></label>
               <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Unit price (RM)</span><input aria-label={`Item ${index + 1} unit price`} type="number" min="0" step="0.01" value={item.unitPrice || ""} onChange={(event) => updateItem(item.id, { unitPrice: Number(event.target.value) })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-[#ba5c42]" placeholder="0.00" /></label>
               <div className="flex h-12 items-center justify-between rounded-lg bg-[#f7f4ed] px-3 text-sm font-semibold md:justify-end"><span className="text-xs font-medium text-muted-foreground md:hidden">Amount</span>{money(lineAmount(item))}</div>
               <div className="flex gap-1 md:justify-end"><Button type="button" variant="ghost" size="icon" title="Duplicate item" onClick={() => duplicateItem(item)}><Copy className="h-4 w-4" /></Button><Button type="button" variant="ghost" size="icon" title="Remove item" disabled={state.items.length === 1} onClick={() => removeItem(item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>
@@ -251,8 +246,8 @@ export function SalesDocumentEditor({
       <aside className={cn("min-w-0", mobilePane === "edit" && "hidden lg:block")}>
         <div className="sticky top-24 rounded-2xl border bg-[#e8e4da] p-3">
           <div className="mb-3 flex items-center justify-between px-1"><div><div className="text-sm font-semibold">Live preview</div><div className="text-[10px] text-muted-foreground">Updates before you save</div></div><Eye className="h-4 w-4 text-muted-foreground" /></div>
-          <div className="max-h-[70vh] overflow-auto rounded-lg bg-[#d8d4ca] p-3">
-            <div className="sales-preview-paper mx-auto bg-white shadow-xl"><PrintDocument model={model} /></div>
+          <div className="max-h-[72vh] overflow-auto rounded-xl bg-[#d8d4ca] p-2 sm:p-4">
+            <ResponsivePrintDocument model={model} />
           </div>
         </div>
       </aside>
