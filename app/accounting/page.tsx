@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/toast";
 import { RowSkeleton, StatSkeleton } from "@/components/ui/skeleton";
+import { DateInput } from "@/components/date-input";
 import {
   AccountingShell, ACCOUNTING_NAV_ITEMS, type AccountingTab,
 } from "@/components/accounting-shell";
@@ -88,7 +89,8 @@ export default function AccountingPage() {
       if (!response.ok) throw new Error(payload.error || "That did not save.");
       if (payload.accounts) setData(payload);
       else await load();
-      success(successMessage);
+      if (payload.ledgerError) toastError(`Saved, but the ledger still needs attention: ${payload.ledgerError}`);
+      else success(successMessage);
       return payload;
     } catch (cause) {
       toastError(cause instanceof Error ? cause.message : "That did not save.");
@@ -327,17 +329,16 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
             ref={fileRef}
             type="file"
             accept="image/jpeg,image/png,image/webp,application/pdf"
-            capture="environment"
             className="hidden"
             onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }}
           />
           <Button onClick={() => fileRef.current?.click()} disabled={busy} className="sm:ml-auto">
-            {busy ? <><Loader2 className="h-4 w-4 animate-spin" />Reading…</> : <><Upload className="h-4 w-4" />Upload or photograph</>}
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" />Reading…</> : <><Upload className="h-4 w-4" />Upload receipt</>}
           </Button>
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
           The image is stored first and read second, so a document is never lost if the reader fails —
-          you can always key the fields yourself. Nothing reaches the ledger until you confirm it.
+          you can always key the fields yourself. Choose an image or PDF; on mobile, your device picker can also offer the camera. Nothing reaches the ledger until you confirm it.
         </p>
       </CardContent>
     </Card>
@@ -515,7 +516,7 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
               <input value={form.documentNumber} onChange={(event) => set({ documentNumber: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm" />
             </Field>
             <Field label="Date" flagged={lowConfidence.includes("documentDate")}>
-              <input type="date" value={form.documentDate} onChange={(event) => set({ documentDate: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+              <DateInput value={form.documentDate} onChange={(event) => set({ documentDate: event.target.value })} className="h-10 rounded-lg" />
             </Field>
           </div>
 
@@ -614,10 +615,10 @@ function Bills({ data, loading, submit }: any) {
         <input value={form.billNumber} onChange={(event) => set({ billNumber: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Bill date
-        <input type="date" value={form.billDate} onChange={(event) => set({ billDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.billDate} onChange={(event) => set({ billDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Due date <span className="text-muted-foreground">(defaults to the vendor's terms)</span>
-        <input type="date" value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Expense account
         <select value={form.accountId} onChange={(event) => set({ accountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
@@ -740,7 +741,7 @@ function Payments({ data, loading, submit }: any) {
         </select>
       </label>
       <label className="text-xs font-medium">Date
-        <input type="date" value={form.paymentDate} onChange={(event) => set({ paymentDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.paymentDate} onChange={(event) => set({ paymentDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">From / to account
         <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
@@ -1052,7 +1053,7 @@ function Transactions({ data, loading, submit }: any) {
         </select>
       </label>
       <label className="text-xs font-medium">Date
-        <input type="date" value={form.date} onChange={(event) => set({ date: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.date} onChange={(event) => set({ date: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Bank or cash account
         <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
@@ -1133,7 +1134,7 @@ function Settlements({ data, loading, submit }: any) {
       customerId: item.customerId, periodStart: item.periodStart, periodEnd: item.periodEnd,
       units: String(item.units), feePerUnit: String(item.feePerUnit),
       adReimbursement: String(item.adReimbursement), incentive: String(item.incentive),
-      dueDate: item.dueDate || "", notes: "",
+      dueDate: item.dueDate || "", notes: item.notes || "",
     });
     setOpen(true);
   }
@@ -1170,13 +1171,13 @@ function Settlements({ data, loading, submit }: any) {
         </select>
       </label>
       <label className="text-xs font-medium">Due date
-        <input type="date" value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Period start
-        <input type="date" value={form.periodStart} onChange={(event) => set({ periodStart: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.periodStart} onChange={(event) => set({ periodStart: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Period end
-        <input type="date" value={form.periodEnd} onChange={(event) => set({ periodEnd: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <DateInput value={form.periodEnd} onChange={(event) => set({ periodEnd: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Units sold
         <input type="number" value={form.units} onChange={(event) => set({ units: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
@@ -1189,6 +1190,9 @@ function Settlements({ data, loading, submit }: any) {
       </label>
       <label className="text-xs font-medium">Incentive
         <input type="number" step="0.01" value={form.incentive} onChange={(event) => set({ incentive: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+      </label>
+      <label className="text-xs font-medium md:col-span-2">Notes
+        <textarea value={form.notes} onChange={(event) => set({ notes: event.target.value })} className="mt-2 min-h-20 w-full rounded-lg border bg-white px-3 py-2 text-sm" />
       </label>
       <div className="md:col-span-2 flex flex-wrap items-center gap-3">
         <Button onClick={save}>{editing ? "Save changes" : "Create settlement"}</Button>
@@ -1311,3 +1315,4 @@ function Accounts({ data, submit }: any) {
     </Card>)}
   </div>;
 }
+

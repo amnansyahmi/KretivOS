@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { MarkdownPreview } from "@/components/markdown-preview";
+import { DateInput } from "@/components/date-input";
 import { builtInKnowledge, KNOWLEDGE_STORAGE_KEY, KnowledgeEntry, slugifyFilename } from "@/lib/knowledge";
 import { cn } from "@/lib/utils";
 
@@ -334,7 +335,7 @@ export default function KnowledgeLibraryPage() {
                       <Field label="Knowledge owner"><Input value={editDraft.owner || ""} onChange={(event) => setEditDraft({ ...editDraft, owner: event.target.value })} placeholder="Person or team responsible" /></Field>
                       <Field label="Source URL"><Input type="url" value={editDraft.sourceUrl || ""} onChange={(event) => setEditDraft({ ...editDraft, sourceUrl: event.target.value })} placeholder="https://…" /></Field>
                       <Field label="Review interval"><Select value={String(editDraft.reviewIntervalDays || 90)} onChange={(event) => setEditDraft({ ...editDraft, reviewIntervalDays: Number(event.target.value) })} ><option value="30">Every 30 days</option><option value="60">Every 60 days</option><option value="90">Every 90 days</option><option value="180">Every 180 days</option><option value="365">Every year</option></Select></Field>
-                      <Field label="Next review"><Input type="date" value={editDraft.nextReviewAt?.slice(0, 10) || ""} onChange={(event) => setEditDraft({ ...editDraft, nextReviewAt: event.target.value })} /></Field>
+                      <Field label="Next review"><DateInput value={editDraft.nextReviewAt?.slice(0, 10) || ""} onChange={(event) => setEditDraft({ ...editDraft, nextReviewAt: event.target.value })} /></Field>
                     </div>
                     <Field label="Markdown content"><textarea value={editDraft.content} onChange={(event) => setEditDraft({ ...editDraft, content: event.target.value })} className="min-h-[52vh] w-full resize-y rounded-xl border bg-white p-4 font-mono text-sm leading-6 outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10 md:min-h-[520px]" /></Field>
                     <div className="sticky bottom-3 flex justify-end gap-2 rounded-2xl border bg-white/95 p-3 shadow-lg backdrop-blur"><Button variant="outline" onClick={() => { setEditing(false); setEditDraft(null); }}>Cancel</Button><Button onClick={saveEdit} disabled={syncing}><Save className="h-4 w-4" />Save changes</Button></div>
@@ -364,3 +365,4 @@ export default function KnowledgeLibraryPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <Label className="block text-[#4e5a52]">{label}<div className="mt-2">{children}</div></Label>;
 }
+

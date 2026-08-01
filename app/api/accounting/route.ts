@@ -198,6 +198,7 @@ async function snapshot() {
       adReimbursement: Number(row.ad_reimbursement), incentive: Number(row.incentive),
       total: Number(row.units) * Number(row.fee_per_unit) + Number(row.ad_reimbursement) + Number(row.incentive),
       status: row.status, dueDate: row.due_date ? String(row.due_date).slice(0, 10) : "",
+      notes: row.notes || "",
       onLedger: Boolean(row.journal_entry_id),
     })),
     customers: customerRows.map((row: any) => ({ id: row.id, name: row.name })),
@@ -785,7 +786,7 @@ export async function POST(request: NextRequest) {
         });
         return NextResponse.json({
           ...(await snapshot()),
-          ...(outcome.status === "failed" ? { ledgerError: outcome.reason } : {}),
+          ...(outcome.status !== "posted" ? { ledgerError: outcome.reason } : {}),
         });
       }
 
