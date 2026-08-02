@@ -18,7 +18,7 @@ import { Fragment, type ReactNode, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft, ArrowLeftRight, BookOpen, CircleDollarSign, HandCoins,
-  LineChart, ListTree, Menu, TrendingUp, X,
+  Landmark, LineChart, ListTree, Menu, TrendingUp, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,6 +43,10 @@ export type AccountingNavItem = {
 export const ACCOUNTING_NAV_ITEMS: AccountingNavItem[] = [
   { id: "overview", label: "Accounting overview", description: "Ledger health and financial position", group: "Workspace", icon: CircleDollarSign },
   { id: "transactions", label: "Cash & bank", description: "Money movements without an invoice", group: "Cash & bank", icon: ArrowLeftRight },
+  // Purchases carries the same screen locked to money out. Accounting is the
+  // only place a customer receipt can be recorded, so without this entry the
+  // money-in half of payments had no route into the workspace at all.
+  { id: "payments", label: "Receipts & payments", description: "Money against an invoice, or held on account", group: "Cash & bank", icon: Landmark },
   { id: "settlements", label: "Settlements", description: "Weekly per-unit client fees", group: "Receivables", icon: HandCoins },
   { id: "reports", label: "Reports", description: "Profit, balance sheet and review", group: "Reports", icon: TrendingUp },
   { id: "journal", label: "Journal", description: "Every posting, for the accountant", group: "Reports", icon: BookOpen },

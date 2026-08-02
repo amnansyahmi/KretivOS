@@ -45,14 +45,14 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 type Snapshot = {
   accounts: any[]; vendors: any[]; bills: any[]; payments: any[]; periods: any[]; entries: any[];
-  transactions?: any[]; settlements?: any[]; customers?: any[];
+  transactions?: any[]; settlements?: any[]; customers?: any[]; customerInvoices?: any[];
   unpostedInvoices?: { count: number; value: number };
   unreconciledCash?: { count: number; net: number };
 };
 
 const EMPTY: Snapshot = {
   accounts: [], vendors: [], bills: [], payments: [], periods: [], entries: [],
-  transactions: [], settlements: [], customers: [],
+  transactions: [], settlements: [], customers: [], customerInvoices: [],
 };
 
 export default function AccountingPage() {
@@ -827,21 +827,43 @@ function Vendors({ data, loading, submit }: any) {
   </div>;
 }
 
+const PAYMENT_METHODS = ["Bank transfer", "Cheque", "Cash", "Card", "e-Wallet", "Online banking"];
+
+const emptyPaymentForm = (directionLock?: string) => ({
+  direction: directionLock || "out", paymentDate: today(), bankAccountId: "",
+  vendorId: "", customerId: "", amount: "", method: "Bank transfer",
+  reference: "", billId: "", salesDocumentId: "",
+});
+
 function Payments({ data, loading, submit, directionLock }: any) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ direction: directionLock || "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" });
+  const [form, setForm] = useState(emptyPaymentForm(directionLock));
   const set = (patch: any) => setForm((current) => ({ ...current, ...patch }));
 
   const openBills = data.bills.filter((bill: any) => bill.vendorId === form.vendorId && Number(bill.balance) > 0);
+  const openInvoices = (data.customerInvoices || []).filter((invoice: any) => invoice.customerId === form.customerId && Number(invoice.balance) > 0);
   const visiblePayments = directionLock ? data.payments.filter((payment: any) => payment.direction === directionLock) : data.payments;
 
   async function create() {
-    const allocations = form.billId ? [{ billId: form.billId, amount: Number(form.amount) }] : [];
+    // Allocating less than the full amount is legitimate — a part payment, or a
+    // receipt that clears one invoice and leaves the rest on account — so the
+    // allocation is capped at the outstanding balance rather than the amount
+    // entered, which is what the server enforces too.
+    const amount = Number(form.amount);
+    const allocations = [];
+    if (form.direction === "out" && form.billId) {
+      const bill = openBills.find((item: any) => item.id === form.billId);
+      allocations.push({ billId: form.billId, amount: Math.min(amount, Number(bill?.balance ?? amount)) });
+    }
+    if (form.direction === "in" && form.salesDocumentId) {
+      const invoice = openInvoices.find((item: any) => item.id === form.salesDocumentId);
+      allocations.push({ salesDocumentId: form.salesDocumentId, amount: Math.min(amount, Number(invoice?.balance ?? amount)) });
+    }
     const result = await submit({
       resource: "payment", operation: "create",
-      data: { ...form, amount: Number(form.amount), allocations },
+      data: { ...form, amount, allocations },
     }, "Payment recorded and posted.");
-    if (result) { setOpen(false); setForm({ direction: directionLock || "out", paymentDate: today(), bankAccountId: "", vendorId: "", customerId: "", amount: "", method: "Bank transfer", reference: "", billId: "" }); }
+    if (result) { setOpen(false); setForm(emptyPaymentForm(directionLock)); }
   }
 
   return <div className="space-y-5">
@@ -849,7 +871,7 @@ function Payments({ data, loading, submit, directionLock }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       {!directionLock && <label className="text-xs font-medium">Direction
-        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, vendorId: "", customerId: "", billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
+        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, vendorId: "", customerId: "", billId: "", salesDocumentId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="out">Money out — paying a supplier</option>
           <option value="in">Money in — receiving from a client</option>
         </select>
@@ -870,7 +892,7 @@ function Payments({ data, loading, submit, directionLock }: any) {
         </select>
       </label>}
       {form.direction === "in" && <label className="text-xs font-medium">Customer
-        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
+        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value, salesDocumentId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {(data.customers || []).map((customer: any) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
@@ -881,13 +903,30 @@ function Payments({ data, loading, submit, directionLock }: any) {
           {openBills.map((bill: any) => <option key={bill.id} value={bill.id}>{bill.billNumber || bill.billDate} — {money(bill.balance)} outstanding</option>)}
         </select>
       </label>}
+      {form.direction === "in" && form.customerId && <label className="text-xs font-medium">Settle which invoice
+        <select value={form.salesDocumentId} onChange={(event) => { const invoice = openInvoices.find((item: any) => item.id === event.target.value); set({ salesDocumentId: event.target.value, amount: invoice ? String(invoice.balance) : form.amount }); }} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
+          <option value="">Hold on account — not against an invoice</option>
+          {openInvoices.map((invoice: any) => <option key={invoice.id} value={invoice.id}>{invoice.reference || invoice.title || invoice.id.slice(0, 8)} — {money(invoice.balance)} outstanding</option>)}
+        </select>
+      </label>}
       <label className="text-xs font-medium">Amount
         <input type="number" step="0.01" value={form.amount} onChange={(event) => set({ amount: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
-      <label className="text-xs font-medium">Reference
+      <label className="text-xs font-medium">Method
+        <select value={form.method} onChange={(event) => set({ method: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
+          {PAYMENT_METHODS.map((method) => <option key={method}>{method}</option>)}
+        </select>
+      </label>
+      <label className="text-xs font-medium">Reference {form.method === "Cheque" && <span className="text-muted-foreground">(cheque number)</span>}
         <input value={form.reference} onChange={(event) => set({ reference: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
-      <div className="md:col-span-2"><Button onClick={create}>Post the payment</Button></div>
+      <div className="md:col-span-2">
+        <Button onClick={create}>Post the payment</Button>
+        {form.direction === "in" && !form.salesDocumentId && <p className="mt-2 text-[11px] text-muted-foreground">
+          Nothing allocated, so this is held as a customer advance — a liability, not revenue —
+          until you apply it to an invoice. That is the right home for a deposit taken before the work is done.
+        </p>}
+      </div>
     </CardContent></Card>}
 
     <div className="space-y-3">
@@ -898,7 +937,14 @@ function Payments({ data, loading, submit, directionLock }: any) {
           {payment.direction === "out" ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{payment.vendorName || payment.customerName || "Unallocated"}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate text-sm font-medium">{payment.vendorName || payment.customerName || "Unallocated"}</span>
+            {/* Money still sitting on account is a balance somebody has to clear,
+                so it is named on the row rather than left to the ledger to reveal. */}
+            {Number(payment.unallocated) > 0 && <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+              {money(payment.unallocated)} {payment.direction === "in" ? "on account" : "unapplied"}
+            </span>}
+          </div>
           <div className="truncate text-[11px] text-muted-foreground">{payment.paymentDate} · {payment.method} · {payment.bankAccountName}</div>
         </div>
         <div className={cn("font-semibold", payment.direction === "out" ? "text-red-600" : "text-emerald-700")}>

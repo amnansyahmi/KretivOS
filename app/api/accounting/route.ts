@@ -68,6 +68,7 @@ async function snapshot() {
   const [
     accounts, vendors, bills, payments, periods, entries,
     unpostedInvoices, unreconciledCash, cashRows, settlementRows, customerRows,
+    customerInvoiceRows,
   ] = await Promise.all([
     listAccounts(),
     sql`
@@ -137,6 +138,27 @@ async function snapshot() {
       where organization_id = ${ORGANIZATION_ID}
       order by (status = 'Active') desc, name
     `,
+    // Open customer invoices, so a receipt can be allocated against one the way
+    // a supplier payment is allocated against a bill. Mirrors the outstanding
+    // calculation the allocation validator applies on write, so the amount
+    // offered here is the amount the POST will accept.
+    sql`
+      select d.id, d.customer_id, d.reference, d.title,
+        d.due_date, d.value, coalesce(a.amount_paid, 0) as allocated
+      from sales_documents d join customers c on c.id = d.customer_id
+      left join (
+        select pa.sales_document_id, sum(pa.amount) as amount_paid
+        from payment_allocations pa join payments p on p.id = pa.payment_id
+        where p.organization_id = ${ORGANIZATION_ID}
+        group by pa.sales_document_id
+      ) a on a.sales_document_id = d.id
+      where c.organization_id = ${ORGANIZATION_ID}
+        and d.type = 'Invoice'
+        and d.status not in ('Draft', 'Cancelled')
+        and d.value > coalesce(a.amount_paid, 0)
+      order by d.due_date nulls last, d.issue_date nulls last
+      limit 200
+    `,
   ]);
 
   return {
@@ -204,6 +226,13 @@ async function snapshot() {
       onLedger: Boolean(row.journal_entry_id),
     })),
     customers: customerRows.map((row: any) => ({ id: row.id, name: row.name })),
+    customerInvoices: customerInvoiceRows.map((row: any) => ({
+      id: row.id, customerId: row.customer_id,
+      reference: row.reference || "", title: row.title || "",
+      dueDate: isoDate(row.due_date, ""),
+      value: Number(row.value), allocated: Number(row.allocated),
+      balance: Number(row.value) - Number(row.allocated),
+    })),
   };
 }
 
