@@ -23,6 +23,7 @@ import { HRMSPayrollWorkbench } from "@/components/hrms-payroll-workbench";
 import { HRTeamHub } from "@/components/hrms-team-hub";
 import {
   getPermittedHRMSNavigation,
+  useHRViewAs,
   HRMS_NAV_ITEMS,
   HRMSShell,
   type HRMSRole as Role,
@@ -106,9 +107,13 @@ async function requestJson(url: string, init?: RequestInit) {
 export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; session: Session }) {
   const confirm = useConfirm();
   const router = useRouter();
-  const permittedTabs = getPermittedHRMSNavigation(session);
+  const { viewAs } = useHRViewAs(session);
+  const permittedTabs = getPermittedHRMSNavigation(session, viewAs);
   const [data, setData] = useState<Snapshot>(emptySnapshot);
-  const [tab, setTab] = useState<Tab>(validTab(initialTab || (session.authEnabled === false ? "overview" : "self")));
+  // "My HR" is the landing screen for everyone. It used to open on the
+  // operations dashboard whenever sign-in was off, which put the admin view in
+  // front of whoever happened to open the app.
+  const [tab, setTab] = useState<Tab>(validTab(initialTab || "self"));
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<Editor>(null);
   const [loading, setLoading] = useState(true);

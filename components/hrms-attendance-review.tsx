@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DateInput } from "@/components/date-input";
-import { getPermittedHRMSNavigation, HRMSShell, type HRMSSession } from "@/components/hrms-shell";
+import { getPermittedHRMSNavigation, HRMSShell, useHRViewAs, type HRMSSession } from "@/components/hrms-shell";
 import { cn } from "@/lib/utils";
 
 type Employee = {
@@ -129,6 +129,7 @@ async function requestSnapshot() {
 }
 
 export function HRMSAttendanceReview({ session }: { session: HRMSSession }) {
+  const { viewAs } = useHRViewAs(session);
   const [data, setData] = useState<Snapshot>(emptySnapshot);
   const [selected, setSelected] = useState<AttendanceRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -196,7 +197,7 @@ export function HRMSAttendanceReview({ session }: { session: HRMSSession }) {
     activeId="attendance"
     title="Attendance Review"
     description="Photo evidence and timestamp verification"
-    navigation={getPermittedHRMSNavigation(session)}
+    navigation={getPermittedHRMSNavigation(session, viewAs)}
     session={session}
     actions={<>
       <Button asChild variant="outline" size="icon" className="bg-card sm:w-auto sm:px-4" aria-label="Back"><a href="/hr?section=attendance" aria-label="Back to attendance"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Attendance</span></a></Button>
