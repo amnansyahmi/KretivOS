@@ -160,7 +160,7 @@ export default function AccountingPage() {
     window.history.pushState({}, "", url);
   }
 
-  const actions = <Button variant="outline" className="bg-white" onClick={() => void load()} disabled={loading}>
+  const actions = <Button variant="outline" className="bg-card" onClick={() => void load()} disabled={loading}>
       <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
       <span className="hidden sm:inline">Sync</span>
     </Button>;
@@ -168,7 +168,7 @@ export default function AccountingPage() {
   const content = <>
     {error && <div className="mb-5 flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
       <span>{error}</span>
-      <Button variant="outline" size="sm" className="bg-white" onClick={() => void load()}><RefreshCw className="h-3.5 w-3.5" />Retry</Button>
+      <Button variant="outline" size="sm" className="bg-card" onClick={() => void load()}><RefreshCw className="h-3.5 w-3.5" />Retry</Button>
     </div>}
 
     {!purchasesMode && !loading && Number(data.unpostedInvoices?.count) > 0 && <div className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center">
@@ -226,7 +226,7 @@ function Stat({ label, value, note, icon: Icon, tone }: any) {
   return <Card className="bg-white/80"><CardContent className="p-5">
     <div className="flex items-start justify-between">
       <div className="text-xs text-muted-foreground">{label}</div>
-      {Icon && <Icon className={cn("h-4 w-4", tone === "bad" ? "text-red-500" : "text-[#ba5c42]")} />}
+      {Icon && <Icon className={cn("h-4 w-4", tone === "bad" ? "text-red-500" : "text-accent")} />}
     </div>
     <div className={cn("mt-3 text-2xl font-semibold tracking-tight", tone === "bad" && "text-red-600")}>{value}</div>
     <div className="mt-2 text-xs text-muted-foreground">{note}</div>
@@ -260,7 +260,7 @@ function Overview({ data, totals, loading, onGo }: any) {
         <CardContent className="space-y-3">
           {loading && <RowSkeleton rows={3} />}
           {!loading && !dueSoon.length && <p className="py-8 text-center text-sm text-muted-foreground">Nothing is owed. Capture a receipt or record a bill to start.</p>}
-          {dueSoon.map((bill: any) => <div key={bill.id} className="flex items-center gap-3 rounded-lg border bg-white p-3">
+          {dueSoon.map((bill: any) => <div key={bill.id} className="flex items-center gap-3 rounded-lg border bg-card p-3">
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{bill.vendorName}</div>
               <div className="truncate text-[11px] text-muted-foreground">{bill.billNumber || "No number"} · due {bill.dueDate || "—"}</div>
@@ -282,8 +282,8 @@ function Overview({ data, totals, loading, onGo }: any) {
           ].map(([Icon, label, target]: any) => <button
             key={label}
             onClick={() => onGo(target)}
-            className="flex items-center gap-3 rounded-lg border bg-white p-3 text-left text-sm hover:bg-[#f7f4ed]"
-          ><Icon className="h-4 w-4 text-[#ba5c42]" />{label}<ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" /></button>)}
+            className="flex items-center gap-3 rounded-lg border bg-card p-3 text-left text-sm hover:bg-background"
+          ><Icon className="h-4 w-4 text-accent" />{label}<ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" /></button>)}
         </CardContent>
       </Card>
     </div>
@@ -321,7 +321,7 @@ function PurchaseOverview({ data, totals, loading, onGo }: any) {
         <CardContent className="space-y-3">
           {loading && <RowSkeleton rows={3} />}
           {!loading && !dueSoon.length && <p className="py-8 text-center text-sm text-muted-foreground">Nothing is owed to suppliers.</p>}
-          {dueSoon.map((bill: any) => <div key={bill.id} className="flex items-center gap-3 rounded-lg border bg-white p-3">
+          {dueSoon.map((bill: any) => <div key={bill.id} className="flex items-center gap-3 rounded-lg border bg-card p-3">
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{bill.vendorName}</div>
               <div className="truncate text-[11px] text-muted-foreground">{bill.billNumber || "No invoice number"} · due {bill.dueDate || "—"}</div>
@@ -343,8 +343,8 @@ function PurchaseOverview({ data, totals, loading, onGo }: any) {
           ].map(([Icon, label, target]: any) => <button
             key={label}
             onClick={() => onGo(target)}
-            className="flex items-center gap-3 rounded-lg border bg-white p-3 text-left text-sm hover:bg-[#f7f4ed]"
-          ><Icon className="h-4 w-4 text-[#ba5c42]" />{label}<ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" /></button>)}
+            className="flex items-center gap-3 rounded-lg border bg-card p-3 text-left text-sm hover:bg-background"
+          ><Icon className="h-4 w-4 text-accent" />{label}<ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" /></button>)}
         </CardContent>
       </Card>
     </div>
@@ -431,7 +431,7 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
           <label className="text-xs font-medium">
             Document type
-            <select value={kind} onChange={(event) => setKind(event.target.value)} className="mt-2 block h-10 w-full rounded-lg border bg-white px-3 text-sm sm:w-48">
+            <select value={kind} onChange={(event) => setKind(event.target.value)} className="mt-2 block h-10 w-full rounded-lg border bg-card px-3 text-sm sm:w-48">
               <option value="receipt">Receipt</option>
               <option value="invoice">Supplier invoice</option>
               <option value="cheque">Cheque</option>
@@ -462,7 +462,7 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
           <CardTitle>Review queue</CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">Least confident first</p>
         </div>
-        {pending.length > 0 && <span className="rounded-full bg-[#ba5c42] px-2.5 py-1 text-[10px] font-semibold text-white">{pending.length}</span>}
+        {pending.length > 0 && <span className="rounded-full bg-accent px-2.5 py-1 text-[10px] font-semibold text-white">{pending.length}</span>}
       </CardHeader>
       <CardContent className="space-y-3">
         {loading && <RowSkeleton rows={3} />}
@@ -470,14 +470,14 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
         {captures.map((capture) => <button
           key={capture.id}
           onClick={() => setActive(capture)}
-          className="flex w-full items-center gap-3 rounded-lg border bg-white p-3 text-left hover:bg-[#f7f4ed]"
+          className="flex w-full items-center gap-3 rounded-lg border bg-card p-3 text-left hover:bg-background"
         >
           <div className={cn(
             "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
             capture.status === "Posted" ? "bg-emerald-50 text-emerald-600"
               : capture.status === "Failed" ? "bg-amber-50 text-amber-600"
                 : capture.status === "Duplicate" ? "bg-red-50 text-red-600"
-                  : "bg-[#f4f1e8] text-[#ba5c42]",
+                  : "bg-background text-accent",
           )}>
             {capture.status === "Posted" ? <Check className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
           </div>
@@ -613,11 +613,11 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
       <Card className="bg-white/80">
         <CardHeader>
           <CardTitle>Check the details</CardTitle>
-          {lowConfidence.length > 0 && <p className="mt-1 text-xs text-[#ba5c42]">Read with low confidence: {lowConfidence.join(", ")}. Verify against the image.</p>}
+          {lowConfidence.length > 0 && <p className="mt-1 text-xs text-accent">Read with low confidence: {lowConfidence.join(", ")}. Verify against the image.</p>}
         </CardHeader>
         <CardContent className="space-y-4">
           <Field label="Vendor" flagged={lowConfidence.includes("vendorName")}>
-            <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm">
+            <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
               <option value="">Select a vendor…</option>
               {vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
             </select>
@@ -626,7 +626,7 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Document number" flagged={lowConfidence.includes("documentNumber")}>
-              <input value={form.documentNumber} onChange={(event) => set({ documentNumber: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+              <input value={form.documentNumber} onChange={(event) => set({ documentNumber: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm" />
             </Field>
             <Field label="Date" flagged={lowConfidence.includes("documentDate")}>
               <DateInput value={form.documentDate} onChange={(event) => set({ documentDate: event.target.value })} className="h-10 rounded-lg" />
@@ -635,24 +635,24 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Subtotal" flagged={lowConfidence.includes("subtotal")}>
-              <input type="number" step="0.01" value={form.subtotal} onChange={(event) => set({ subtotal: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+              <input type="number" step="0.01" value={form.subtotal} onChange={(event) => set({ subtotal: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm" />
             </Field>
             <Field label="Tax" flagged={lowConfidence.includes("taxAmount")}>
-              <input type="number" step="0.01" value={form.taxAmount} onChange={(event) => set({ taxAmount: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+              <input type="number" step="0.01" value={form.taxAmount} onChange={(event) => set({ taxAmount: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm" />
             </Field>
             <Field label="Total" flagged={lowConfidence.includes("total")}>
-              <input type="number" step="0.01" value={form.total} onChange={(event) => set({ total: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm font-semibold" />
+              <input type="number" step="0.01" value={form.total} onChange={(event) => set({ total: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm font-semibold" />
             </Field>
           </div>
 
           <Field label="Expense account">
-            <select value={form.accountId} onChange={(event) => set({ accountId: event.target.value })} className="h-10 w-full rounded-lg border bg-white px-3 text-sm">
+            <select value={form.accountId} onChange={(event) => set({ accountId: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
               <option value="">Select an account…</option>
               {expenseAccounts.map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
             </select>
           </Field>
 
-          {capture.kind === "cheque" && (capture.chequeNumber || capture.chequePayee) && <div className="rounded-lg border bg-[#faf8f3] p-3 text-xs">
+          {capture.kind === "cheque" && (capture.chequeNumber || capture.chequePayee) && <div className="rounded-lg border bg-card p-3 text-xs">
             <div className="font-medium">Cheque details read</div>
             <div className="mt-1 text-muted-foreground">
               {capture.chequeNumber && <>No. {capture.chequeNumber}<br /></>}
@@ -662,7 +662,7 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
           </div>}
 
           {detail?.lines?.length > 0 && <div className="rounded-lg border">
-            <div className="border-b bg-[#faf8f3] px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lines read</div>
+            <div className="border-b bg-card px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lines read</div>
             <div className="max-h-40 overflow-y-auto">
               {detail.lines.map((line: any) => <div key={line.id} className="flex justify-between gap-3 border-b px-3 py-2 text-xs last:border-b-0">
                 <span className="min-w-0 truncate">{line.description || "—"}</span>
@@ -676,7 +676,7 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {capture.status === "Posted" ? "Already posted" : "Confirm and post"}
             </Button>
-            <Button variant="outline" className="bg-white" onClick={reject} disabled={busy}><X className="h-4 w-4" />Reject</Button>
+            <Button variant="outline" className="bg-card" onClick={reject} disabled={busy}><X className="h-4 w-4" />Reject</Button>
           </div>
         </CardContent>
       </Card>
@@ -686,7 +686,7 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
 
 function Field({ label, flagged, children }: { label: string; flagged?: boolean; children: React.ReactNode }) {
   return <Label className="block">
-    <span className={cn("mb-2 flex items-center gap-1.5", flagged && "text-[#ba5c42]")}>
+    <span className={cn("mb-2 flex items-center gap-1.5", flagged && "text-accent")}>
       {label}
       {flagged && <AlertTriangle className="h-3 w-3" />}
     </span>
@@ -719,13 +719,13 @@ function Bills({ data, loading, submit }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       <label className="text-xs font-medium">Supplier
-        <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {data.vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
         </select>
       </label>
       <label className="text-xs font-medium">Their invoice number
-        <input value={form.billNumber} onChange={(event) => set({ billNumber: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.billNumber} onChange={(event) => set({ billNumber: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Bill date
         <DateInput value={form.billDate} onChange={(event) => set({ billDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
@@ -734,19 +734,19 @@ function Bills({ data, loading, submit }: any) {
         <DateInput value={form.dueDate} onChange={(event) => set({ dueDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Expense account
-        <select value={form.accountId} onChange={(event) => set({ accountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.accountId} onChange={(event) => set({ accountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {data.accounts.filter((a: any) => a.type === "expense").map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
         </select>
       </label>
       <label className="text-xs font-medium">Description
-        <input value={form.description} onChange={(event) => set({ description: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.description} onChange={(event) => set({ description: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Amount before tax
-        <input type="number" step="0.01" value={form.amount} onChange={(event) => set({ amount: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" step="0.01" value={form.amount} onChange={(event) => set({ amount: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Tax rate %
-        <input type="number" step="0.01" value={form.taxRate} onChange={(event) => set({ taxRate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" step="0.01" value={form.taxRate} onChange={(event) => set({ taxRate: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <div className="md:col-span-2"><Button onClick={create}>Post the bill</Button></div>
     </CardContent></Card>}
@@ -762,7 +762,7 @@ function Bills({ data, loading, submit }: any) {
         <span className={cn(
           "justify-self-start rounded-full px-2.5 py-1 text-[10px] font-medium sm:justify-self-auto",
           bill.status === "Paid" ? "bg-emerald-50 text-emerald-700"
-            : bill.aging !== "current" ? "bg-red-50 text-red-700" : "bg-[#eeeae0] text-[#5a605a]",
+            : bill.aging !== "current" ? "bg-red-50 text-red-700" : "bg-muted text-foreground-soft",
         )}>{bill.status}{bill.aging !== "current" && bill.status !== "Paid" ? ` · ${bill.aging}` : ""}</span>
         <div className="text-right">
           <div className="font-semibold">{money(bill.total)}</div>
@@ -788,22 +788,22 @@ function Vendors({ data, loading, submit }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       <label className="text-xs font-medium">Supplier name
-        <input value={form.name} onChange={(event) => set({ name: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.name} onChange={(event) => set({ name: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">TIN <span className="text-muted-foreground">(needed for e-Invoice)</span>
-        <input value={form.tin} onChange={(event) => set({ tin: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.tin} onChange={(event) => set({ tin: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">SST number
-        <input value={form.sstNumber} onChange={(event) => set({ sstNumber: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.sstNumber} onChange={(event) => set({ sstNumber: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Email
-        <input value={form.email} onChange={(event) => set({ email: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.email} onChange={(event) => set({ email: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Payment terms (days)
-        <input type="number" value={form.paymentTermsDays} onChange={(event) => set({ paymentTermsDays: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" value={form.paymentTermsDays} onChange={(event) => set({ paymentTermsDays: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Usual expense account
-        <select value={form.defaultExpenseAccountId} onChange={(event) => set({ defaultExpenseAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.defaultExpenseAccountId} onChange={(event) => set({ defaultExpenseAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">None</option>
           {data.accounts.filter((a: any) => a.type === "expense").map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
         </select>
@@ -849,7 +849,7 @@ function Payments({ data, loading, submit, directionLock }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       {!directionLock && <label className="text-xs font-medium">Direction
-        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, vendorId: "", customerId: "", billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, vendorId: "", customerId: "", billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="out">Money out — paying a supplier</option>
           <option value="in">Money in — receiving from a client</option>
         </select>
@@ -858,34 +858,34 @@ function Payments({ data, loading, submit, directionLock }: any) {
         <DateInput value={form.paymentDate} onChange={(event) => set({ paymentDate: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">From / to account
-        <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {data.accounts.filter((a: any) => a.isBank).map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
         </select>
       </label>
       {form.direction === "out" && <label className="text-xs font-medium">Supplier
-        <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value, billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value, billId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {data.vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
         </select>
       </label>}
       {form.direction === "in" && <label className="text-xs font-medium">Customer
-        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {(data.customers || []).map((customer: any) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
       </label>}
       {form.direction === "out" && openBills.length > 0 && <label className="text-xs font-medium">Settle which bill
-        <select value={form.billId} onChange={(event) => { const bill = openBills.find((b: any) => b.id === event.target.value); set({ billId: event.target.value, amount: bill ? String(bill.balance) : form.amount }); }} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.billId} onChange={(event) => { const bill = openBills.find((b: any) => b.id === event.target.value); set({ billId: event.target.value, amount: bill ? String(bill.balance) : form.amount }); }} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Leave unallocated</option>
           {openBills.map((bill: any) => <option key={bill.id} value={bill.id}>{bill.billNumber || bill.billDate} — {money(bill.balance)} outstanding</option>)}
         </select>
       </label>}
       <label className="text-xs font-medium">Amount
-        <input type="number" step="0.01" value={form.amount} onChange={(event) => set({ amount: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" step="0.01" value={form.amount} onChange={(event) => set({ amount: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Reference
-        <input value={form.reference} onChange={(event) => set({ reference: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.reference} onChange={(event) => set({ reference: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <div className="md:col-span-2"><Button onClick={create}>Post the payment</Button></div>
     </CardContent></Card>}
@@ -957,7 +957,7 @@ function GeneralLedger({ accounts }: { accounts: any[] }) {
 
       {ledger && !loading && <div className="mt-4 overflow-x-auto rounded-lg border">
         <table className="w-full text-xs">
-          <thead className="bg-[#faf8f3] text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+          <thead className="bg-card text-left text-[10px] uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-medium">Date</th>
               <th className="px-3 py-2 font-medium">Detail</th>
@@ -982,7 +982,7 @@ function GeneralLedger({ accounts }: { accounts: any[] }) {
             </tr>)}
           </tbody>
           <tfoot>
-            <tr className="border-t bg-[#faf8f3] font-semibold">
+            <tr className="border-t bg-card font-semibold">
               <td className="px-3 py-2" colSpan={5}>Closing balance · {ledger.account.code} {ledger.account.name}</td>
               <td className="px-3 py-2 text-right tabular-nums">{money(ledger.closing)}</td>
             </tr>
@@ -1020,7 +1020,7 @@ function Journal({ data, submit }: any) {
       </button>
       {openId === entry.id && lines && <div className="mt-3 overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[420px] text-left text-xs">
-          <thead className="bg-[#faf8f3] text-muted-foreground"><tr>
+          <thead className="bg-card text-muted-foreground"><tr>
             <th className="px-3 py-2">Account</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th>
           </tr></thead>
           <tbody>{lines.map((line: any) => <tr key={line.id} className="border-t">
@@ -1031,7 +1031,7 @@ function Journal({ data, submit }: any) {
         </table>
       </div>}
       {openId === entry.id && entry.status === "Posted" && <div className="mt-3">
-        <Button variant="outline" size="sm" className="bg-white" onClick={() => submit({ resource: "journal", operation: "void", data: { id: entry.id, reason: "Voided from the journal" } }, "Entry reversed.")}>
+        <Button variant="outline" size="sm" className="bg-card" onClick={() => submit({ resource: "journal", operation: "void", data: { id: entry.id, reason: "Voided from the journal" } }, "Entry reversed.")}>
           <Trash2 className="h-3.5 w-3.5 text-red-500" />Void with a reversing entry
         </Button>
       </div>}
@@ -1133,7 +1133,7 @@ function Reports() {
         {!report.clients.length && <p className="py-6 text-center text-sm text-muted-foreground">No client-tagged postings in this period yet.</p>}
         {report.clients.length > 0 && <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] text-left text-xs">
-            <thead className="bg-[#faf8f3] text-muted-foreground"><tr>
+            <thead className="bg-card text-muted-foreground"><tr>
               <th className="px-3 py-2">Client</th><th className="px-3 py-2 text-right">Income</th>
               <th className="px-3 py-2 text-right">Cost</th><th className="px-3 py-2 text-right">Margin</th><th className="px-3 py-2 text-right">%</th>
             </tr></thead>
@@ -1171,7 +1171,7 @@ function PeriodReview() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <Card className="bg-[#26342b] text-white"><CardContent className="flex items-center gap-3 p-6 text-sm">
+  if (loading) return <Card className="bg-foreground text-white"><CardContent className="flex items-center gap-3 p-6 text-sm">
     <Loader2 className="h-4 w-4 animate-spin" />Reviewing the ledger…
   </CardContent></Card>;
   if (error || !data) return null;
@@ -1179,9 +1179,9 @@ function PeriodReview() {
   const { review, signals } = data;
   const tone = (severity: string) => severity === "high" ? "bg-red-400" : severity === "medium" ? "bg-amber-300" : "bg-white/30";
 
-  return <Card className="overflow-hidden bg-[#26342b] text-white"><CardContent className="p-6">
+  return <Card className="overflow-hidden bg-foreground text-white"><CardContent className="p-6">
     <div className="flex items-center gap-2 text-[10px] uppercase tracking-[.2em] text-white/45">
-      <Sparkles className="h-3.5 w-3.5 text-[#ef9a75]" />Month-end review · {data.period}
+      <Sparkles className="h-3.5 w-3.5 text-accent-muted" />Month-end review · {data.period}
     </div>
     <h2 className="mt-4 max-w-2xl text-xl font-medium leading-snug">{review.headline}</h2>
     {review.commentary && <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/70">{review.commentary}</p>}
@@ -1260,7 +1260,7 @@ function AgedCard({ title, note, aged, nameOf, referenceOf, totalLabel }: {
 
       {open && <div className="mt-3 overflow-x-auto rounded-lg border">
         <table className="w-full text-xs">
-          <thead className="bg-[#faf8f3] text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+          <thead className="bg-card text-left text-[10px] uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-medium">Who</th>
               <th className="px-3 py-2 font-medium">Reference</th>
@@ -1275,7 +1275,7 @@ function AgedCard({ title, note, aged, nameOf, referenceOf, totalLabel }: {
               .map((row: any) => <tr key={row.id} className="border-t">
                 <td className="px-3 py-2">{nameOf(row)}</td>
                 <td className="px-3 py-2 text-muted-foreground">{referenceOf(row)}</td>
-                <td className={cn("px-3 py-2", row.bucket !== "current" && "text-[#ba5c42]")}>
+                <td className={cn("px-3 py-2", row.bucket !== "current" && "text-accent")}>
                   {isoDate(row.due_date) || "No date"}
                   {row.bucket !== "current" && <span className="ml-1 text-[10px]">({row.bucket})</span>}
                 </td>
@@ -1325,7 +1325,7 @@ function TrialBalanceCard({ trialBalance, range }: { trialBalance: any; range: {
 
       {open && <div className="mt-4 overflow-x-auto rounded-lg border">
         <table className="w-full text-xs">
-          <thead className="bg-[#faf8f3] text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+          <thead className="bg-card text-left text-[10px] uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-medium">Code</th>
               <th className="px-3 py-2 font-medium">Account</th>
@@ -1345,7 +1345,7 @@ function TrialBalanceCard({ trialBalance, range }: { trialBalance: any; range: {
             </tr>)}
           </tbody>
           <tfoot>
-            <tr className="border-t bg-[#faf8f3] font-semibold">
+            <tr className="border-t bg-card font-semibold">
               <td className="px-3 py-2" colSpan={3}>Total</td>
               <td className="px-3 py-2 text-right tabular-nums">{money(trialBalance.debit)}</td>
               <td className="px-3 py-2 text-right tabular-nums">{money(trialBalance.credit)}</td>
@@ -1361,7 +1361,7 @@ function Row({ label, value, bold, highlight }: { label: string; value: string; 
   return <div className={cn(
     "flex justify-between gap-4 py-1",
     bold && "border-t pt-2 font-semibold",
-    highlight && "text-[#ba5c42]",
+    highlight && "text-accent",
   )}>
     <span className="min-w-0 truncate">{label}</span>
     <span className="shrink-0 tabular-nums">{value}</span>
@@ -1405,7 +1405,7 @@ function Transactions({ data, loading, submit }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       <label className="text-xs font-medium">Direction
-        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, ledgerAccountId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.direction} onChange={(event) => set({ direction: event.target.value, ledgerAccountId: "" })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="out">Money out</option>
           <option value="in">Money in</option>
         </select>
@@ -1414,25 +1414,25 @@ function Transactions({ data, loading, submit }: any) {
         <DateInput value={form.date} onChange={(event) => set({ date: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Bank or cash account
-        <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {data.accounts.filter((a: any) => a.isBank).map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
         </select>
       </label>
       <label className="text-xs font-medium">Category
-        <select value={form.ledgerAccountId} onChange={(event) => set({ ledgerAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.ledgerAccountId} onChange={(event) => set({ ledgerAccountId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {categories.map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
         </select>
       </label>
       <label className="text-xs font-medium">Amount
-        <input type="number" step="0.01" value={form.amount} onChange={(event) => set({ amount: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" step="0.01" value={form.amount} onChange={(event) => set({ amount: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Reference
-        <input value={form.reference} onChange={(event) => set({ reference: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.reference} onChange={(event) => set({ reference: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium md:col-span-2">Description
-        <input value={form.memo} onChange={(event) => set({ memo: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.memo} onChange={(event) => set({ memo: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <div className="md:col-span-2">
         <Button onClick={create}>Post it</Button>
@@ -1523,7 +1523,7 @@ function Settlements({ data, loading, submit }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       <label className="text-xs font-medium">Client
-        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           <option value="">Select…</option>
           {(data.customers ?? []).map((customer: any) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
@@ -1538,19 +1538,19 @@ function Settlements({ data, loading, submit }: any) {
         <DateInput value={form.periodEnd} onChange={(event) => set({ periodEnd: event.target.value })} className="mt-2 h-10 rounded-lg" />
       </label>
       <label className="text-xs font-medium">Units sold
-        <input type="number" value={form.units} onChange={(event) => set({ units: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" value={form.units} onChange={(event) => set({ units: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Fee per unit
-        <input type="number" step="0.01" value={form.feePerUnit} onChange={(event) => set({ feePerUnit: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" step="0.01" value={form.feePerUnit} onChange={(event) => set({ feePerUnit: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Advertising reimbursement
-        <input type="number" step="0.01" value={form.adReimbursement} onChange={(event) => set({ adReimbursement: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" step="0.01" value={form.adReimbursement} onChange={(event) => set({ adReimbursement: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Incentive
-        <input type="number" step="0.01" value={form.incentive} onChange={(event) => set({ incentive: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input type="number" step="0.01" value={form.incentive} onChange={(event) => set({ incentive: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium md:col-span-2">Notes
-        <textarea value={form.notes} onChange={(event) => set({ notes: event.target.value })} className="mt-2 min-h-20 w-full rounded-lg border bg-white px-3 py-2 text-sm" />
+        <textarea value={form.notes} onChange={(event) => set({ notes: event.target.value })} className="mt-2 min-h-20 w-full rounded-lg border bg-card px-3 py-2 text-sm" />
       </label>
       <div className="md:col-span-2 flex flex-wrap items-center gap-3">
         <Button onClick={save}>{editing ? "Save changes" : "Create settlement"}</Button>
@@ -1573,14 +1573,14 @@ function Settlements({ data, loading, submit }: any) {
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          {["Draft", "Verified"].includes(item.status) && <Button size="sm" variant="outline" className="bg-white"
+          {["Draft", "Verified"].includes(item.status) && <Button size="sm" variant="outline" className="bg-card"
             onClick={() => submit({ resource: "settlement", operation: "advance", data: { id: item.id } }, "Settlement advanced.")}
           >{item.status === "Draft" ? "Verify" : "Mark invoiced"}</Button>}
           {item.status !== "Paid" && <Button size="sm"
             onClick={() => submit({ resource: "settlement", operation: "mark_paid", data: { id: item.id } }, "Settlement paid and posted.")}
           >Mark paid</Button>}
-          {!item.onLedger && <Button size="sm" variant="outline" className="bg-white" onClick={() => edit(item)}>Edit</Button>}
-          {item.status === "Paid" && !item.onLedger && <Button size="sm" variant="outline" className="bg-white"
+          {!item.onLedger && <Button size="sm" variant="outline" className="bg-card" onClick={() => edit(item)}>Edit</Button>}
+          {item.status === "Paid" && !item.onLedger && <Button size="sm" variant="outline" className="bg-card"
             onClick={() => submit({ resource: "settlement", operation: "post", data: { id: item.id } }, "Settlement posted.")}
           >Post to ledger</Button>}
         </div>
@@ -1617,18 +1617,18 @@ function Accounts({ data, submit }: any) {
 
     {open && <Card className="bg-white/80"><CardContent className="grid gap-4 p-5 md:grid-cols-2">
       <label className="text-xs font-medium">Code
-        <input value={form.code} onChange={(event) => set({ code: event.target.value })} placeholder="6600" className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.code} onChange={(event) => set({ code: event.target.value })} placeholder="6600" className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Name
-        <input value={form.name} onChange={(event) => set({ name: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.name} onChange={(event) => set({ name: event.target.value })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       <label className="text-xs font-medium">Type
-        <select value={form.type} onChange={(event) => set({ type: event.target.value, isBank: false })} className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm">
+        <select value={form.type} onChange={(event) => set({ type: event.target.value, isBank: false })} className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm">
           {["asset", "liability", "equity", "income", "expense"].map((type) => <option key={type} value={type}>{type}</option>)}
         </select>
       </label>
       <label className="text-xs font-medium">Grouping
-        <input value={form.subtype} onChange={(event) => set({ subtype: event.target.value })} placeholder="Operating" className="mt-2 h-10 w-full rounded-lg border bg-white px-3 text-sm" />
+        <input value={form.subtype} onChange={(event) => set({ subtype: event.target.value })} placeholder="Operating" className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm" />
       </label>
       {form.type === "asset" && <label className="flex items-center gap-2 text-xs font-medium">
         <input type="checkbox" checked={form.isBank} onChange={(event) => set({ isBank: event.target.checked })} />
@@ -1651,7 +1651,7 @@ function Accounts({ data, submit }: any) {
           )}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium",
-            period.status === "Closed" ? "border-[#202c25] bg-[#202c25] text-white" : "bg-white hover:bg-[#f7f4ed]",
+            period.status === "Closed" ? "border-foreground bg-foreground text-white" : "bg-card hover:bg-background",
           )}
         >
           {period.status === "Closed" ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
@@ -1666,7 +1666,7 @@ function Accounts({ data, submit }: any) {
         {group.accounts.map((account: any) => <div key={account.id} className="flex items-center gap-3 py-2 text-sm">
           <span className="w-14 shrink-0 tabular-nums text-muted-foreground">{account.code}</span>
           <span className="min-w-0 flex-1 truncate">{account.name}</span>
-          {account.isBank && <span className="shrink-0 rounded-full bg-[#eeeae0] px-2 py-0.5 text-[10px]">bank</span>}
+          {account.isBank && <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px]">bank</span>}
           {account.systemKey && <span className="shrink-0 text-[10px] text-muted-foreground">{account.systemKey}</span>}
         </div>)}
       </CardContent>

@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --noEmit && node scripts/check-tokens.mjs",
+    "check:tokens": "node scripts/check-tokens.mjs",
     "test": "node --test --experimental-strip-types lib/*.test.ts"
   },
   "dependencies": {

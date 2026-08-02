@@ -114,11 +114,11 @@ function SidebarContent({
     window.location.replace("/hr/login");
   }
 
-  return <div className="flex h-full min-h-0 flex-col bg-[#1c2b23] text-white">
+  return <div className="flex h-full min-h-0 flex-col bg-foreground text-white">
     <div className="flex h-[88px] shrink-0 items-center gap-3 border-b border-white/10 px-5">
-      <div className="flex h-10 w-10 items-center justify-center border border-white/15 bg-white/10 text-[#f19a7f]"><UsersRound className="h-5 w-5" /></div>
+      <div className="flex h-10 w-10 items-center justify-center border border-white/15 bg-white/10 text-accent-muted"><UsersRound className="h-5 w-5" /></div>
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-semibold uppercase tracking-[.2em] text-[#f19a7f]">Kretivco</div>
+        <div className="text-[10px] font-semibold uppercase tracking-[.2em] text-accent-muted">Kretivco</div>
         <div className="mt-0.5 text-lg font-semibold tracking-tight">People & HR</div>
       </div>
       {onClose && <button onClick={onClose} className="flex h-10 w-10 items-center justify-center text-white/65 hover:bg-white/10 hover:text-white" aria-label="Close HR menu"><X className="h-5 w-5" /></button>}
@@ -136,11 +136,11 @@ function SidebarContent({
             onClick={() => navigate(item)}
             className={cn(
               "group relative flex min-h-[48px] w-full items-center gap-3 border-l-2 px-3 py-2.5 text-left transition",
-              active ? "border-[#ef8a6b] bg-white/10 text-white" : "border-transparent text-white/62 hover:bg-white/[.06] hover:text-white"
+              active ? "border-accent-soft bg-white/10 text-white" : "border-transparent text-white/62 hover:bg-white/[.06] hover:text-white"
             )}
             aria-current={active ? "page" : undefined}
           >
-            <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[#f19a7f]" : "text-white/45 group-hover:text-white/75")} />
+            <Icon className={cn("h-4 w-4 shrink-0", active ? "text-accent-muted" : "text-white/45 group-hover:text-white/75")} />
             <span className="min-w-0">
               <span className="block text-[13px] font-medium">{item.label}</span>
               <span className={cn("mt-0.5 block truncate text-[10px]", active ? "text-white/55" : "text-white/32")}>{item.description}</span>
@@ -188,18 +188,18 @@ export function HRMSShell({
   // Radix owns the scroll lock, the Escape handler and the focus trap.
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  return <main className="min-h-screen bg-[#f5f2ea] text-[#202820]">
+  return <main className="min-h-screen bg-background text-foreground">
     <div className="lg:grid lg:min-h-screen lg:grid-cols-[272px_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-dvh self-start border-r border-black/10 lg:block">
         <SidebarContent activeId={activeId} navigation={navigation} session={session} onNavigate={onNavigate} />
       </aside>
 
       <div className="min-w-0 pb-24">
-        <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f5f2ea]/95 backdrop-blur-xl">
+        <header className="sticky top-0 z-40 border-b border-black/5 bg-background/95 backdrop-blur-xl">
           <div className="mx-auto flex min-h-[72px] max-w-[1600px] items-center gap-3 px-4 md:min-h-24 md:px-8 md:py-5">
-            <Button variant="outline" size="icon" className="shrink-0 bg-white lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open HR navigation"><Menu className="h-5 w-5" /></Button>
+            <Button variant="outline" size="icon" className="shrink-0 bg-card lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open HR navigation"><Menu className="h-5 w-5" /></Button>
             <div className="min-w-0 flex-1">
-              <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] sm:block">Kretivco people operations</div>
+              <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-accent sm:block">Kretivco people operations</div>
               <h1 className="truncate text-lg font-semibold tracking-tight sm:mt-1 md:text-3xl">{title}</h1>
               <p className="mt-0.5 truncate text-[10px] text-muted-foreground sm:mt-1 sm:text-sm">{description}</p>
             </div>

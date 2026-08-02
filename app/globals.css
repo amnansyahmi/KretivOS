@@ -2,25 +2,95 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * The palette, as one source of truth.
+ *
+ * These values are not new art direction. They are the colours the app was
+ * already painted in, measured: every hardcoded hex in app/ and components/
+ * was clustered by perceptual distance in OKLab, and each token takes the
+ * most-used colour in its cluster. 78 chrome colours resolved to 11, which is
+ * why the pages looked subtly inconsistent — the same surface was a slightly
+ * different cream in every file that drew it.
+ *
+ * Anchoring on the most-used member is deliberate: it means the majority of
+ * screens do not shift at all, and the diff is a rename rather than a redesign.
+ */
 :root {
-  --background: 44 36% 97%;
-  --foreground: 150 8% 12%;
-  --card: 42 30% 99%;
-  --card-foreground: 150 8% 12%;
-  --primary: 145 22% 19%;
-  --primary-foreground: 42 40% 98%;
-  --secondary: 43 26% 92%;
-  --secondary-foreground: 145 18% 18%;
-  --muted: 42 21% 93%;
-  --muted-foreground: 150 5% 43%;
-  --accent: 13 39% 49%;
-  --accent-foreground: 42 40% 98%;
-  --destructive: 0 62% 44%;
-  --destructive-foreground: 42 40% 98%;
+  /* Surfaces, in the order they stack. */
+  --background: 42 38.5% 94.9%;     /* #f7f4ed — the page */
+  /*
+   * Raised panels are white, not cream. Measuring only the hardcoded hex made
+   * this look like #fbfaf7 (73 uses); counting `bg-white` as well — which a hex
+   * scan cannot see — puts plain white ahead 263 to 73. Same anchor rule as
+   * everywhere else here: the majority keeps its appearance.
+   */
+  --card: 0 0% 100%;
+  --muted: 42.9 29.2% 90.6%;        /* #eeeae0 — sunken wells */
+  --secondary: 43 26% 92%;          /* interactive hover ground */
+
+  /*
+   * Hairlines stay where they were. Unlike the surfaces, --border is already
+   * live on every primitive through `* { @apply border-border }`, so moving it
+   * to the cluster anchor (#d9d3c7, the darkest and least-used member) would
+   * darken every existing rule in the app to fix sixteen hardcoded ones.
+   */
   --border: 42 18% 86%;
   --input: 42 18% 86%;
+
+  /*
+   * A recessed surface, one step below --muted: the desk behind a document
+   * preview, a skeleton's pulse, the off position of a switch. It shares the
+   * hairline value because that is the depth these already had, but it gets its
+   * own name — a border colour used as a fill is how a token system starts
+   * eroding back into arbitrary values.
+   */
+  --well: 42 18% 86%;
+
+  /*
+   * Three weights of ink. --muted-foreground is deliberately NOT retuned to the
+   * measured cluster: it already has 464 uses at this lightness, while the
+   * hardcoded secondary text sits ten points darker. They are two roles, not
+   * one drifted role, so the darker weight gets its own token and the 464
+   * existing usages are left exactly as they are.
+   */
+  --foreground: 145 15.8% 14.9%;    /* #202c25 — headings, primary copy */
+  --foreground-soft: 140 7.1% 32.9%;/* #4e5a52 — secondary copy */
+  --muted-foreground: 150 5% 43%;   /* captions, metadata, placeholders */
+  --card-foreground: 145 15.8% 14.9%;
+
+  --primary: 145 22% 19%;
+  --primary-foreground: 42 40% 98%;
+  --secondary-foreground: 145 18% 18%;
+
+  /* The terracotta, and the lighter steps it needs on dark grounds. */
+  --accent: 13 47.6% 49.4%;         /* #ba5c42 */
+  --accent-soft: 14.1 80.5% 67.8%;  /* #ef8a6b */
+  --accent-muted: 14.2 80.3% 72.2%; /* #f19a7f */
+  --accent-faint: 20 38.7% 75.7%;   /* #d9b9a9 */
+  --accent-foreground: 42 40% 98%;
+  /* The badge's accent tone: a tint ground with its own readable ink. */
+  --accent-tint: 18.3 56.1% 92%;             /* #f6e6df */
+  --accent-tint-foreground: 13.7 48.9% 36.9%;/* #8c4530 */
+
+  --destructive: 0 62% 44%;
+  --destructive-foreground: 42 40% 98%;
   --ring: 145 22% 19%;
   --radius: .85rem;
+
+  /*
+   * Categorical tints for the HRMS calendar. These sit within merge distance of
+   * the creams but the hue *is* the label, so they are tokenised separately and
+   * never folded into a neutral — a collapse here would look identical in a
+   * screenshot and lose the meaning.
+   */
+  --cat-event: 142.5 22.2% 92.9%;
+  --cat-event-foreground: 140.6 23.9% 26.3%;
+  --cat-holiday: 19.1 100% 95.7%;
+  --cat-holiday-foreground: 11.9 48.3% 41%;
+  --cat-leave: 225 54.5% 95.7%;
+  --cat-leave-foreground: 225.2 34% 37.5%;
+  --cat-lifecycle: 272.3 56.5% 95.5%;
+  --cat-lifecycle-foreground: 275.4 30.7% 39%;
 }
 
 * {

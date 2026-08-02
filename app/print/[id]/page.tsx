@@ -44,7 +44,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
     return () => { cancelled = true; };
   }, [id, kind]);
 
-  return <main className="ktpl-page min-h-screen bg-[#f5f2ea] py-6">
+  return <main className="ktpl-page min-h-screen bg-background py-6">
     <style>{`${PRINT_STYLES}
       @media print {
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }

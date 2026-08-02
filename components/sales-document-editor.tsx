@@ -24,8 +24,8 @@ export const SALES_DOCUMENT_TYPES = [
 
 export type SalesPrintSetup = { company: PrintCompany; templates: PrintTemplate[] };
 
-const inputClass = "h-12 w-full rounded-xl border border-[#d9d3c7] bg-white px-3 text-sm outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10";
-const textareaClass = "min-h-24 w-full rounded-xl border border-[#d9d3c7] bg-white px-3 py-3 text-sm outline-none focus:border-[#ba5c42] focus:ring-4 focus:ring-[#ba5c42]/10";
+const inputClass = "h-12 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/10";
+const textareaClass = "min-h-24 w-full rounded-xl border border-border bg-card px-3 py-3 text-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/10";
 
 const fallbackCompany: PrintCompany = {
   name: "Kretivco Mediaworks",
@@ -216,12 +216,12 @@ export function SalesDocumentEditor({
             <span>Description</span><span>Qty</span><span>Unit type</span><span>Unit price</span><span className="text-right">Amount</span><span />
           </div>
           <div className="mt-2 space-y-3">
-            {state.items.map((item, index) => <div key={item.id} className="grid gap-3 rounded-xl border bg-white p-3 md:grid-cols-[minmax(180px,1fr)_75px_95px_120px_110px_76px] md:items-start md:gap-2">
-              <label className="text-xs font-medium md:text-[0px]"><span className="mb-1 block md:hidden">Description</span><textarea aria-label={`Item ${index + 1} description`} value={item.description} onChange={(event) => updateItem(item.id, { description: event.target.value })} className="min-h-20 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[#ba5c42] md:min-h-12" placeholder="Product or service description" /></label>
-              <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Quantity</span><input aria-label={`Item ${index + 1} quantity`} type="number" min="0" step="0.01" value={item.quantity || ""} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-[#ba5c42]" /></label>
-              <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Unit type</span><input aria-label={`Item ${index + 1} unit type`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-[#ba5c42]" placeholder="item, day, project" /></label>
-              <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Unit price (RM)</span><input aria-label={`Item ${index + 1} unit price`} type="number" min="0" step="0.01" value={item.unitPrice || ""} onChange={(event) => updateItem(item.id, { unitPrice: Number(event.target.value) })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-[#ba5c42]" placeholder="0.00" /></label>
-              <div className="flex h-12 items-center justify-between rounded-lg bg-[#f7f4ed] px-3 text-sm font-semibold md:justify-end"><span className="text-xs font-medium text-muted-foreground md:hidden">Amount</span>{money(lineAmount(item))}</div>
+            {state.items.map((item, index) => <div key={item.id} className="grid gap-3 rounded-xl border bg-card p-3 md:grid-cols-[minmax(180px,1fr)_75px_95px_120px_110px_76px] md:items-start md:gap-2">
+              <label className="text-xs font-medium md:text-[0px]"><span className="mb-1 block md:hidden">Description</span><textarea aria-label={`Item ${index + 1} description`} value={item.description} onChange={(event) => updateItem(item.id, { description: event.target.value })} className="min-h-20 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-accent md:min-h-12" placeholder="Product or service description" /></label>
+              <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Quantity</span><input aria-label={`Item ${index + 1} quantity`} type="number" min="0" step="0.01" value={item.quantity || ""} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-accent" /></label>
+              <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Unit type</span><input aria-label={`Item ${index + 1} unit type`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-accent" placeholder="item, day, project" /></label>
+              <label className="text-xs font-medium"><span className="mb-1 block md:hidden">Unit price (RM)</span><input aria-label={`Item ${index + 1} unit price`} type="number" min="0" step="0.01" value={item.unitPrice || ""} onChange={(event) => updateItem(item.id, { unitPrice: Number(event.target.value) })} className="h-12 w-full rounded-lg border px-2 text-sm outline-none focus:border-accent" placeholder="0.00" /></label>
+              <div className="flex h-12 items-center justify-between rounded-lg bg-background px-3 text-sm font-semibold md:justify-end"><span className="text-xs font-medium text-muted-foreground md:hidden">Amount</span>{money(lineAmount(item))}</div>
               <div className="flex gap-1 md:justify-end"><Button type="button" variant="ghost" size="icon" aria-label="Duplicate item" onClick={() => duplicateItem(item)}><Copy className="h-4 w-4" /></Button><Button type="button" variant="ghost" size="icon" aria-label="Remove item" disabled={state.items.length === 1} onClick={() => removeItem(item.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div>
             </div>)}
           </div>
@@ -234,7 +234,7 @@ export function SalesDocumentEditor({
           <SalesField label="Tax label"><input value={state.settings.taxLabel} onChange={(event) => setState({ ...state, settings: { ...state.settings, taxLabel: event.target.value } })} className={inputClass} placeholder="SST" /></SalesField>
           <SalesField label="Tax rate (%)"><input type="number" min="0" max="100" step="0.01" value={state.settings.taxRate || ""} onChange={(event) => setState({ ...state, settings: { ...state.settings, taxRate: Number(event.target.value) } })} className={inputClass} placeholder="0" /></SalesField>
           <SalesField label="Notes" wide improveValue={record.notes} onImprove={(value) => setField("notes", value)}><textarea value={record.notes} onChange={(event) => setField("notes", event.target.value)} className={textareaClass} placeholder="Payment terms, delivery notes or customer-facing remarks" /></SalesField>
-          <div className="sm:col-span-2 rounded-xl bg-[#202c25] p-4 text-white">
+          <div className="sm:col-span-2 rounded-xl bg-foreground p-4 text-white">
             <TotalRow label="Subtotal" value={totals.subtotal} />
             {totals.discountAmount > 0 && <TotalRow label="Discount" value={-totals.discountAmount} />}
             {totals.taxAmount > 0 && <TotalRow label={state.settings.taxLabel || "Tax"} value={totals.taxAmount} />}
@@ -245,9 +245,9 @@ export function SalesDocumentEditor({
       </div>
 
       <aside className={cn("min-w-0", mobilePane === "edit" && "hidden lg:block")}>
-        <div className="sticky top-24 rounded-2xl border bg-[#e8e4da] p-3">
-          <div className="mb-3 flex items-center justify-between gap-3 px-1"><div><div className="text-sm font-semibold">Live preview</div><div className="text-[10px] text-muted-foreground">Updates before you save</div></div><Link href="/documents?section=print" target="_blank" rel="noreferrer" className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-black/10 bg-white/65 px-2.5 text-[10px] font-medium text-[#4f5d54] transition hover:bg-white"><Settings2 className="h-3.5 w-3.5" />Print settings</Link></div>
-          <div className="max-h-[72vh] overflow-auto rounded-xl bg-[#d8d4ca] p-2 sm:p-4">
+        <div className="sticky top-24 rounded-2xl border bg-well p-3">
+          <div className="mb-3 flex items-center justify-between gap-3 px-1"><div><div className="text-sm font-semibold">Live preview</div><div className="text-[10px] text-muted-foreground">Updates before you save</div></div><Link href="/documents?section=print" target="_blank" rel="noreferrer" className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-black/10 bg-white/65 px-2.5 text-[10px] font-medium text-foreground-soft transition hover:bg-card"><Settings2 className="h-3.5 w-3.5" />Print settings</Link></div>
+          <div className="max-h-[72vh] overflow-auto rounded-xl bg-well p-2 sm:p-4">
             <ResponsivePrintDocument model={model} />
           </div>
         </div>

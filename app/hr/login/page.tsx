@@ -55,11 +55,11 @@ export default function HRLoginPage() {
   }
 
   const setup = status && !status.configured;
-  return <main className="min-h-screen bg-[#f5f2ea] px-4 py-8 text-[#202820] sm:flex sm:items-center sm:justify-center">
+  return <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:flex sm:items-center sm:justify-center">
     <div className="w-full max-w-lg">
-      <Link href="/" className="mb-5 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-[#202820]"><ArrowLeft className="h-4 w-4" />Back to KretivOS</Link>
+      <Link href="/" className="mb-5 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to KretivOS</Link>
       <Card className="overflow-hidden border-black/8 bg-white/90 shadow-xl">
-        <div className="bg-[#202c25] p-6 text-white sm:p-8"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10"><UsersRound className="h-5 w-5" /></div><div className="mt-6 text-[10px] font-semibold uppercase tracking-[.2em] text-[#ef9a79]">Kretivco people operations</div><h1 className="mt-2 text-3xl font-semibold">{setup ? "Set up HRMS" : "Sign in to HRMS"}</h1><p className="mt-2 text-sm leading-6 text-white/55">{setup ? "Claim the first HR administrator account. This can only be completed once." : "Use your work email or team name and private PIN."}</p></div>
+        <div className="bg-foreground p-6 text-white sm:p-8"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10"><UsersRound className="h-5 w-5" /></div><div className="mt-6 text-[10px] font-semibold uppercase tracking-[.2em] text-accent-muted">Kretivco people operations</div><h1 className="mt-2 text-3xl font-semibold">{setup ? "Set up HRMS" : "Sign in to HRMS"}</h1><p className="mt-2 text-sm leading-6 text-white/55">{setup ? "Claim the first HR administrator account. This can only be completed once." : "Use your work email or team name and private PIN."}</p></div>
         <CardContent className="p-5 sm:p-8">
           {!status && !error && <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Checking HRMS security…</div>}
           {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -73,7 +73,7 @@ export default function HRLoginPage() {
             <Field label={setup ? "Create PIN" : "PIN"}><Input type="password" value={pin} onChange={(event) => setPin(event.target.value)} autoComplete={setup ? "new-password" : "current-password"} minLength={6} required /></Field>
             <Button className="h-12 w-full" disabled={busy || Boolean(setup && !status.setupAvailable)}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : setup ? <ShieldCheck className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}{busy ? "Please wait…" : setup ? "Create administrator" : "Sign in"}</Button>
           </form>}
-          <div className="mt-5 flex items-start gap-3 rounded-xl bg-[#f7f4ed] p-4 text-xs leading-5 text-muted-foreground"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-[#ba5c42]" />Sessions use an HTTP-only cookie. PIN hashes and session tokens are never returned to the browser.</div>
+          <div className="mt-5 flex items-start gap-3 rounded-xl bg-background p-4 text-xs leading-5 text-muted-foreground"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-accent" />Sessions use an HTTP-only cookie. PIN hashes and session tokens are never returned to the browser.</div>
         </CardContent>
       </Card>
     </div>
@@ -81,5 +81,5 @@ export default function HRLoginPage() {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <Label className="block text-[#4e5a52]"><span>{label}</span><span className="mt-2 block">{children}</span></Label>;
+  return <Label className="block text-foreground-soft"><span>{label}</span><span className="mt-2 block">{children}</span></Label>;
 }

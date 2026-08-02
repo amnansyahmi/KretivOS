@@ -16,7 +16,7 @@ export function Table({ className, containerClassName, ...props }: React.HTMLAtt
 }
 
 export function TableHeader({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead className={cn("bg-[#faf8f3] text-left text-[10px] uppercase tracking-wider text-muted-foreground", className)} {...props} />;
+  return <thead className={cn("bg-card text-left text-[10px] uppercase tracking-wider text-muted-foreground", className)} {...props} />;
 }
 
 export function TableBody({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
@@ -24,7 +24,7 @@ export function TableBody({ className, ...props }: React.HTMLAttributes<HTMLTabl
 }
 
 export function TableFooter({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
-  return <tfoot className={cn("border-t bg-[#faf8f3] font-semibold", className)} {...props} />;
+  return <tfoot className={cn("border-t bg-card font-semibold", className)} {...props} />;
 }
 
 export function TableRow({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) {

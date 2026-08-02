@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Verifies that migrations 0006 to 0013 are actually applied, and that the
+ * Verifies that migrations 0006 to 0014 are actually applied, and that the
  * ledger they create holds together.
  *
  * Every accounting feature since PR #2 was written against a schema that had
@@ -129,6 +129,60 @@ const EXPECTED = [
     triggers: [["journal_lines", "journal_lines_reconciliation_open"]],
     systemKeys: ["customer_advances", "supplier_advances"],
   },
+  {
+    migration: "0014_print_templates",
+    tables: ["print_templates"],
+    columns: [
+      ["organizations", "logo_url"],
+      ["sales_documents", "delivery_amount"],
+    ],
+    triggers: [["print_templates", "print_templates_set_updated_at"]],
+  },
+];
+
+/**
+ * Checks that survive schema presence — a table can exist while the rows that
+ * make it useful are missing or stale.
+ */
+const DATA_EXPECTATIONS = [
+  {
+    label: "the three print templates are seeded",
+    sql: `select count(*)::int as n from print_templates
+          where organization_id = $1 and document_type in ('Invoice', 'Quotation', 'Receipt')`,
+    expect: (rows) => rows[0].n === 3,
+    describe: (rows) => `${rows[0].n} of 3 present`,
+  },
+  {
+    /*
+     * The Documents composer used to ship markdown Quotation, Invoice and
+     * Receipt templates. They produce no line items, no customer link and
+     * nothing reaching the ledger, so a quotation raised through one never
+     * appears in the books. 0014 archives them — but the seeder inserts with
+     * `on conflict do nothing`, so dropping them from the code does not clear
+     * a database that already ran it. This is the check that says whether the
+     * duplicates are actually gone.
+     */
+    label: "the duplicate markdown quotation/invoice/receipt are archived",
+    sql: `select coalesce(string_agg(id, ', ' order by id), '') as live
+          from document_templates
+          where organization_id = $1
+            and id in ('tpl-quotation', 'tpl-invoice', 'tpl-receipt')
+            and status <> 'Archived'`,
+    expect: (rows) => !rows[0].live,
+    describe: (rows) => rows[0].live ? `still live: ${rows[0].live}` : "all archived",
+  },
+  {
+    label: "the organisation letterhead is filled in",
+    sql: `select
+            (name is not null and name <> '') as has_name,
+            (registration_number is not null and registration_number <> '') as has_reg,
+            (contact_email is not null and contact_email <> '') as has_email
+          from organizations where id = $1`,
+    expect: (rows) => rows.length > 0 && rows[0].has_name && rows[0].has_reg && rows[0].has_email,
+    describe: (rows) => rows.length
+      ? `name ${rows[0].has_name ? "✓" : "✗"} registration ${rows[0].has_reg ? "✓" : "✗"} email ${rows[0].has_email ? "✓" : "✗"}`
+      : "no organisation row",
+  },
 ];
 
 async function checkSchema(db) {
@@ -175,6 +229,27 @@ async function checkSchema(db) {
     else record(false, missing.length > 3 ? "not applied" : "partially applied", missing.join(", "));
   }
   return has;
+}
+
+/**
+ * Schema presence is not the whole story. A migration can create its table and
+ * still leave the rows wrong — most importantly the archived-duplicates step,
+ * which is an UPDATE and so leaves no schema trace at all to check against.
+ */
+async function checkData(db, has) {
+  section("Seeded data");
+  for (const expectation of DATA_EXPECTATIONS) {
+    if (!has.table.has("print_templates") && expectation.sql.includes("print_templates")) {
+      record(false, expectation.label, "print_templates is missing — 0014 has not been applied");
+      continue;
+    }
+    try {
+      const { rows } = await db.query(expectation.sql, [ORG]);
+      record(expectation.expect(rows), expectation.label, expectation.describe(rows));
+    } catch (error) {
+      record(false, expectation.label, error.message.split("\n")[0]);
+    }
+  }
 }
 
 async function checkInvariants(db, has) {
@@ -459,6 +534,7 @@ async function main() {
     console.log(`\x1b[2m${rows[0].version.split(",")[0]}\x1b[0m`);
 
     const has = await checkSchema(db);
+    await checkData(db, has);
     await checkInvariants(db, has);
     if (PROBE) await probe(db, has);
     else console.log("\n\x1b[2mRe-run with --probe to also exercise the constraint triggers.\x1b[0m");

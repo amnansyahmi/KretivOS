@@ -332,8 +332,8 @@ export function DocumentComposer({
 
   return (
     <div className="fixed inset-0 z-[140] flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-      <Card className="max-h-[98vh] w-full max-w-[1500px] overflow-y-auto rounded-b-none bg-[#f7f4ed] shadow-2xl sm:rounded-xl">
-        <CardHeader className="sticky top-0 z-30 flex-row items-start justify-between border-b bg-[#f7f4ed]/95 p-4 backdrop-blur sm:p-6">
+      <Card className="max-h-[98vh] w-full max-w-[1500px] overflow-y-auto rounded-b-none bg-background shadow-2xl sm:rounded-xl">
+        <CardHeader className="sticky top-0 z-30 flex-row items-start justify-between border-b bg-background/95 p-4 backdrop-blur sm:p-6">
           <div>
             <CardTitle className="text-xl sm:text-2xl">Create from {template.name}</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">Edit content, apply the approved layout, add a logo, then save or export.</p>
@@ -344,7 +344,7 @@ export function DocumentComposer({
         <CardContent className="p-4 sm:p-6">
           {notice && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
 
-          <div className="mb-5 flex flex-col gap-3 rounded-xl border bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-5 flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="text-sm font-semibold">{selectedLayout.label}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{selectedLayout.note}</div>
@@ -358,12 +358,12 @@ export function DocumentComposer({
 
           {/* On small screens the editor and the A4 preview are separate panes
               rather than one very long scroll. */}
-          <div className="mb-4 flex rounded-xl border bg-white p-1.5 xl:hidden">
+          <div className="mb-4 flex rounded-xl border bg-card p-1.5 xl:hidden">
             {(["edit", "preview"] as const).map((pane) => (
               <button
                 key={pane}
                 onClick={() => setMobilePane(pane)}
-                className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium capitalize ${mobilePane === pane ? "bg-[#202c25] text-white" : "text-muted-foreground"}`}
+                className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium capitalize ${mobilePane === pane ? "bg-foreground text-white" : "text-muted-foreground"}`}
               >
                 {pane === "edit" ? <Settings2 className="h-4 w-4" /> : <FileText className="h-4 w-4" />}{pane}
               </button>
@@ -382,11 +382,11 @@ export function DocumentComposer({
                 </select>
               </Field>
 
-              <details className="rounded-xl border bg-white" open>
-                <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold"><Settings2 className="h-4 w-4 text-[#ba5c42]" />Brand, logo and letterhead</summary>
+              <details className="rounded-xl border bg-card" open>
+                <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold"><Settings2 className="h-4 w-4 text-accent" />Brand, logo and letterhead</summary>
                 <div className="space-y-4 border-t p-4">
                   <div className="flex flex-wrap items-center gap-3">
-                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium hover:bg-[#f7f4ed]">
+                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border bg-card px-4 text-sm font-medium hover:bg-background">
                       <ImagePlus className="h-4 w-4" />Upload logo
                       <input type="file" accept="image/*" className="hidden" onChange={uploadLogo} />
                     </label>
@@ -399,14 +399,14 @@ export function DocumentComposer({
                 </div>
               </details>
 
-              {usesLineItems && <div className="rounded-xl border bg-white">
+              {usesLineItems && <div className="rounded-xl border bg-card">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
-                  <div className="flex items-center gap-2 text-sm font-semibold"><Table2 className="h-4 w-4 text-[#ba5c42]" />Line items</div>
+                  <div className="flex items-center gap-2 text-sm font-semibold"><Table2 className="h-4 w-4 text-accent" />Line items</div>
                   <div className="text-xs text-muted-foreground">{lineState.items.length} {lineState.items.length === 1 ? "row" : "rows"}</div>
                 </div>
 
                 <div className="space-y-3 p-4">
-                  {lineState.items.map((item, index) => <div key={item.id} className="rounded-xl border bg-[#fbfaf7] p-3">
+                  {lineState.items.map((item, index) => <div key={item.id} className="rounded-xl border bg-card p-3">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Item {index + 1}</span>
                       <div className="flex items-center gap-0.5">
@@ -436,7 +436,7 @@ export function DocumentComposer({
                       </label>
                     </div>
 
-                    <div className="mt-2 flex items-center justify-between rounded-lg bg-[#f2efe8] px-3 py-2">
+                    <div className="mt-2 flex items-center justify-between rounded-lg bg-background px-3 py-2">
                       <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Amount</span>
                       <span className="text-sm font-semibold">{formatMoney(lineState.settings.currency, lineAmount(item))}</span>
                     </div>
@@ -464,7 +464,7 @@ export function DocumentComposer({
                   </div>
                   <datalist id="kdoc-currencies">{CURRENCIES.map((value) => <option key={value} value={value} />)}</datalist>
 
-                  <div className="mt-4 space-y-1.5 rounded-xl bg-[#26342b] p-4 text-white">
+                  <div className="mt-4 space-y-1.5 rounded-xl bg-foreground p-4 text-white">
                     <TotalRow label="Subtotal" value={formatMoney(lineState.settings.currency, totals.subtotal)} />
                     {totals.discountAmount > 0 && <TotalRow label={`Discount (${lineState.settings.discountPercent}%)`} value={`−${formatMoney(lineState.settings.currency, totals.discountAmount)}`} />}
                     {lineState.settings.taxRate > 0 && <TotalRow label={`${lineState.settings.taxLabel || "Tax"} (${lineState.settings.taxRate}%)`} value={formatMoney(lineState.settings.currency, totals.taxAmount)} />}
@@ -476,7 +476,7 @@ export function DocumentComposer({
                 </div>
               </div>}
 
-              <div className="rounded-xl border bg-white p-4">
+              <div className="rounded-xl border bg-card p-4">
                 <div className="mb-4 text-sm font-semibold">Document content</div>
                 <div className="space-y-4">
                   {variables.map((variable) => {
@@ -485,7 +485,7 @@ export function DocumentComposer({
                     // Totals are derived from the rows above, so they are shown read-only.
                     if (usesLineItems && COMPUTED_VARIABLES.includes(variable)) {
                       return <Field key={variable} label={`${prettyLabel(variable)} · calculated`}>
-                        <input value={values[variable] || ""} readOnly className="doc-input bg-[#f2efe8] text-muted-foreground" />
+                        <input value={values[variable] || ""} readOnly className="doc-input bg-background text-muted-foreground" />
                       </Field>;
                     }
 
@@ -507,7 +507,7 @@ export function DocumentComposer({
               </div>
               {/* The shell reserves the scaled height so the page never overlaps
                   what follows, and the transform stays off the exported node. */}
-              <div ref={previewShellRef} className="rounded-xl border bg-[#dedbd3] p-3 sm:p-6">
+              <div ref={previewShellRef} className="rounded-xl border bg-well p-3 sm:p-6">
                 <div style={{ height: previewHeight, overflow: "hidden" }}>
                   <div style={{ transform: `scale(${previewScale})`, transformOrigin: "top left", width: "210mm" }}>
                 <div ref={previewRef} className={pageClass}>
@@ -535,13 +535,15 @@ export function DocumentComposer({
 
       <style jsx global>{`
         ${exportCss}
-        .doc-input { height: 2.75rem; width: 100%; border-radius: .7rem; border: 1px solid #ddd8cf; background: #fff; padding: 0 .85rem; font-size: .875rem; outline: none; }
-        .doc-input:focus, .doc-textarea:focus { border-color: #ba5c42; box-shadow: 0 0 0 3px rgba(186,92,66,.10); }
-        .doc-textarea { min-height: 7rem; width: 100%; resize: vertical; border-radius: .7rem; border: 1px solid #ddd8cf; background: #fff; padding: .8rem; font-size: .875rem; line-height: 1.55; outline: none; }
-        .line-action { display: inline-flex; height: 2.5rem; width: 2.5rem; align-items: center; justify-content: center; border-radius: .5rem; color: #5d665f; }
-        .line-action:hover:not(:disabled) { background: #efece4; color: #202c25; }
+        /* Editor chrome, on tokens. The letterhead above it in exportCss stays
+           on its own fixed colours: that is ink on paper, not app chrome. */
+        .doc-input { height: 2.75rem; width: 100%; border-radius: .7rem; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); padding: 0 .85rem; font-size: .875rem; outline: none; }
+        .doc-input:focus, .doc-textarea:focus { border-color: hsl(var(--accent)); box-shadow: 0 0 0 3px hsl(var(--accent) / .10); }
+        .doc-textarea { min-height: 7rem; width: 100%; resize: vertical; border-radius: .7rem; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); padding: .8rem; font-size: .875rem; line-height: 1.55; outline: none; }
+        .line-action { display: inline-flex; height: 2.5rem; width: 2.5rem; align-items: center; justify-content: center; border-radius: .5rem; color: hsl(var(--muted-foreground)); }
+        .line-action:hover:not(:disabled) { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
         .line-action:disabled { opacity: .3; }
-        .line-action-danger:hover:not(:disabled) { background: #fee2e2; color: #dc2626; }
+        .line-action-danger:hover:not(:disabled) { background: hsl(var(--destructive) / .12); color: hsl(var(--destructive)); }
         .kdoc-page { box-shadow: 0 16px 50px rgba(0,0,0,.14); }
       `}</style>
     </div>
@@ -549,7 +551,7 @@ export function DocumentComposer({
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <Label className="block"><span className="mb-2 block text-[#343a35]">{label}</span>{children}</Label>;
+  return <Label className="block"><span className="mb-2 block text-foreground-soft">{label}</span>{children}</Label>;
 }
 
 function TotalRow({ label, value }: { label: string; value: string }) {

@@ -44,11 +44,11 @@ function SidebarContent({
   onNewTemplate: () => void;
   onClose?: () => void;
 }) {
-  return <div className="flex h-full min-h-0 flex-col bg-[#1c2b23] text-white">
+  return <div className="flex h-full min-h-0 flex-col bg-foreground text-white">
     <div className="flex h-[88px] shrink-0 items-center gap-3 border-b border-white/10 px-5">
-      <div className="flex h-10 w-10 items-center justify-center border border-white/15 bg-white/10 text-[#f19a7f]"><FileText className="h-5 w-5" /></div>
+      <div className="flex h-10 w-10 items-center justify-center border border-white/15 bg-white/10 text-accent-muted"><FileText className="h-5 w-5" /></div>
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-semibold uppercase tracking-[.2em] text-[#f19a7f]">Kretivco</div>
+        <div className="text-[10px] font-semibold uppercase tracking-[.2em] text-accent-muted">Kretivco</div>
         <div className="mt-0.5 text-lg font-semibold tracking-tight">Documents</div>
       </div>
       {onClose && <button onClick={onClose} className="flex h-10 w-10 items-center justify-center text-white/65 hover:bg-white/10 hover:text-white" aria-label="Close documents menu"><X className="h-5 w-5" /></button>}
@@ -56,7 +56,7 @@ function SidebarContent({
 
     <div className="shrink-0 border-b border-white/10 p-3">
       <div className="mb-2 px-2 text-[9px] font-semibold uppercase tracking-[.18em] text-white/35">Quick create</div>
-      <button type="button" onClick={() => { onClose?.(); onNewTemplate(); }} className="flex min-h-11 w-full items-center gap-3 bg-[#ef8a6b] px-3 text-left text-xs font-semibold text-[#1c2b23] transition hover:bg-[#f19a7f]">
+      <button type="button" onClick={() => { onClose?.(); onNewTemplate(); }} className="flex min-h-11 w-full items-center gap-3 bg-accent-soft px-3 text-left text-xs font-semibold text-foreground transition hover:bg-accent-muted">
         <Plus className="h-4 w-4" />New template
       </button>
       <Link href="/document-ai" onClick={onClose} className="mt-2 flex min-h-10 w-full items-center gap-3 border border-white/10 px-3 text-xs font-medium text-white/65 transition hover:border-white/20 hover:bg-white/[.06] hover:text-white">
@@ -76,16 +76,16 @@ function SidebarContent({
             onClick={() => { onClose?.(); onNavigate(item.id); }}
             className={cn(
               "group relative flex min-h-[48px] w-full items-center gap-3 border-l-2 px-3 py-2.5 text-left transition",
-              active ? "border-[#ef8a6b] bg-white/10 text-white" : "border-transparent text-white/62 hover:bg-white/[.06] hover:text-white",
+              active ? "border-accent-soft bg-white/10 text-white" : "border-transparent text-white/62 hover:bg-white/[.06] hover:text-white",
             )}
             aria-current={active ? "page" : undefined}
           >
-            <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[#f19a7f]" : "text-white/45 group-hover:text-white/75")} />
+            <Icon className={cn("h-4 w-4 shrink-0", active ? "text-accent-muted" : "text-white/45 group-hover:text-white/75")} />
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] font-medium">{item.label}</span>
               <span className={cn("mt-0.5 block truncate text-[10px]", active ? "text-white/55" : "text-white/32")}>{item.description}</span>
             </span>
-            {item.id === "documents" && documentCount > 0 && <span className="ml-auto flex h-5 min-w-5 items-center justify-center bg-[#ef8a6b] px-1.5 text-[10px] font-semibold text-[#1c2b23]">{documentCount > 99 ? "99+" : documentCount}</span>}
+            {item.id === "documents" && documentCount > 0 && <span className="ml-auto flex h-5 min-w-5 items-center justify-center bg-accent-soft px-1.5 text-[10px] font-semibold text-foreground">{documentCount > 99 ? "99+" : documentCount}</span>}
           </button>
         </Fragment>;
       })}
@@ -121,15 +121,15 @@ export function DocumentsShell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const sidebarProps = { activeId, documentCount, onNavigate, onNewTemplate };
 
-  return <main className="min-h-screen bg-[#f5f2ea] text-[#202820]">
+  return <main className="min-h-screen bg-background text-foreground">
     <div className="lg:grid lg:min-h-screen lg:grid-cols-[272px_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-dvh self-start border-r border-black/10 lg:block"><SidebarContent {...sidebarProps} /></aside>
       <div className="min-w-0 pb-24">
-        <header className="sticky top-0 z-40 border-b border-black/5 bg-[#f5f2ea]/95 backdrop-blur-xl">
+        <header className="sticky top-0 z-40 border-b border-black/5 bg-background/95 backdrop-blur-xl">
           <div className="mx-auto flex min-h-[72px] max-w-[1600px] items-center gap-3 px-4 md:min-h-24 md:px-8 md:py-5">
-            <Button variant="outline" size="icon" className="shrink-0 bg-white lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open documents navigation"><Menu className="h-5 w-5" /></Button>
+            <Button variant="outline" size="icon" className="shrink-0 bg-card lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open documents navigation"><Menu className="h-5 w-5" /></Button>
             <div className="min-w-0 flex-1">
-              <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-[#ba5c42] sm:block">Kretivco documents</div>
+              <div className="hidden text-[10px] font-semibold uppercase tracking-[.2em] text-accent sm:block">Kretivco documents</div>
               <h1 className="truncate text-lg font-semibold tracking-tight sm:mt-1 md:text-3xl">{title}</h1>
               <p className="mt-0.5 truncate text-[10px] text-muted-foreground sm:mt-1 sm:text-sm">{description}</p>
             </div>

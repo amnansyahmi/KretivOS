@@ -115,25 +115,25 @@ export function NotificationBell() {
     <Button
       variant="outline"
       size="icon"
-      className="relative bg-white"
+      className="relative bg-card"
       aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
       aria-expanded={open}
       onClick={() => setOpen(!open)}
     >
       <Bell className="h-4 w-4" />
-      {unread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ba5c42] px-1 text-[9px] font-semibold text-white">
+      {unread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold text-white">
         {unread > 9 ? "9+" : unread}
       </span>}
     </Button>
 
-    {open && <div className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-white shadow-xl">
+    {open && <div className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-card shadow-xl">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="text-sm font-semibold">Notifications</div>
         <div className="ml-auto flex items-center gap-2">
           {unread > 0 && <button onClick={markAllRead} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
             <Check className="h-3 w-3" />Mark all read
           </button>}
-          <button type="button" onClick={() => setOpen(false)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-[#f7f4ed] hover:text-foreground" aria-label="Close notifications">
+          <button type="button" onClick={() => setOpen(false)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-background hover:text-foreground" aria-label="Close notifications">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -148,15 +148,15 @@ export function NotificationBell() {
             key={item.id}
             href={item.href}
             onClick={() => { if (!item.read) void markRead(item.id); setOpen(false); }}
-            className={cn("flex gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-[#f7f4ed]", !item.read && "bg-[#fdf9f4]")}
+            className={cn("flex gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-background", !item.read && "bg-card")}
           >
-            <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", item.type === "warning" ? "text-[#ba5c42]" : "text-muted-foreground")} />
+            <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", item.type === "warning" ? "text-accent" : "text-muted-foreground")} />
             <div className="min-w-0 flex-1">
               <div className={cn("text-xs leading-snug", !item.read && "font-semibold")}>{item.title}</div>
               {item.body && <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{item.body}</div>}
               {due && <div className="mt-1 text-[10px] text-muted-foreground">Due {due}</div>}
             </div>
-            {!item.read && <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ba5c42]" />}
+            {!item.read && <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
           </Link>;
         })}
       </div>
