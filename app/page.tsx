@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, ArrowRight, BarChart3, Bot, Building2, Check,
+  Activity, ArrowLeft, ArrowRight, BarChart3, Bot, Building2, Check,
   ChevronRight, CircleDollarSign, Clapperboard, ClipboardCheck, Cloud, Code2,
   Calculator, Database, FileText, Film, GitBranch,
   HandCoins, LayoutDashboard, Library, Megaphone, Menu, MessageSquareText,
@@ -66,6 +66,18 @@ const views = [...navGroups.flatMap(group => group.items.map(item => item.view).
 
 /** Folded into Marketing Studio, but still live in old bookmarks and links. */
 const LEGACY_VIEWS = ["Marketing Plans", "Content Planner", "Storyboard Studio"];
+
+/**
+ * Views that are deliberately kept out of the sidebar.
+ *
+ * Every other screen in KretivOS has a way back: the routed workspaces carry a
+ * "Back to KretivOS" link in their shell, and a view that appears in the
+ * sidebar can be left by clicking any other entry. These two have neither —
+ * nothing is highlighted while you are on them, and on a phone the sidebar is
+ * behind a hamburger — so they were the only screens you could reach and then
+ * have to guess your way out of.
+ */
+const SECONDARY_VIEWS: string[] = ["Prompt Lab", "Technology"];
 
 /**
  * The dashboard's view lives in the URL.
@@ -246,17 +258,34 @@ export default function Home() {
           <Button onClick={() => setChat(true)}><Bot className="h-4 w-4" /><span className="hidden sm:inline">Ask Kretiv AI</span></Button>
         </div>
       </header>
-      <div className="p-4 md:p-7 lg:p-8"><ViewRouter view={active} /></div>
+      <div className="p-4 md:p-7 lg:p-8">
+        {SECONDARY_VIEWS.includes(active) && <BackToCommandCentre onNavigate={() => setView("Command Centre")} />}
+        <ViewRouter view={active} />
+      </div>
     </main>
     {mobile && <div className="fixed inset-0 z-40 bg-black/45 lg:hidden" onClick={() => setMobile(false)} />}
     {chat && <KretivAIChat onClose={() => setChat(false)} module={active} />}
   </div>;
 }
 
+/**
+ * A button rather than a Link: these views are rendered by "/" itself, so
+ * setView keeps the client-side transition and the history entry that the URL
+ * routing depends on, where a full navigation to "/" would reload the page.
+ */
+function BackToCommandCentre({ onNavigate }: { onNavigate: () => void }) {
+  return <button
+    type="button"
+    onClick={onNavigate}
+    className="mb-5 inline-flex min-h-9 items-center gap-2 rounded-lg border bg-card px-3 text-xs font-medium text-foreground-soft transition hover:bg-background hover:text-foreground"
+  >
+    <ArrowLeft className="h-3.5 w-3.5" /> Back to Command Centre
+  </button>;
+}
+
 function ViewRouter({ view }: { view: View }) {
   switch (view) {
     case "Command Centre": return <CommandCentre />;
-    case "Approvals": return <Approvals />;
     case "Marketing Studio": return <MarketingStudio />;
     case "Prompt Lab": return <PromptLab />;
     case "Technology": return <Technology />;
@@ -478,106 +507,6 @@ type ApprovalItem = {
   approve: { label: string; body: Record<string, unknown>; endpoint: string };
   reject?: { label: string; body: Record<string, unknown>; endpoint: string };
 };
-
-function Approvals() {
-  const { data, loading, error, reload } = useBusinessSnapshot();
-  const [leave, setLeave] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [busy, setBusy] = useState("");
-  const [notice, setNotice] = useState("");
-  const [failure, setFailure] = useState("");
-
-  const loadHr = useCallback(async () => {
-    try {
-      const response = await fetch("/api/hr", { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) return;
-      setLeave(Array.isArray(payload.leaveRequests) ? payload.leaveRequests : []);
-      setEmployees(Array.isArray(payload.employees) ? payload.employees : []);
-    } catch {}
-  }, []);
-
-  useEffect(() => { void loadHr(); }, [loadHr]);
-
-  const items = useMemo<ApprovalItem[]>(() => {
-    const customerName = (id: string) => data.customers.find(item => item.id === id)?.name || "Unknown customer";
-    const list: ApprovalItem[] = [];
-
-    for (const doc of data.documents) {
-      if (!["Draft", "Sent"].includes(doc.status)) continue;
-      list.push({
-        id: `doc-${doc.id}`, source: "Sales", reference: doc.reference || doc.type,
-        title: doc.title, context: `${customerName(doc.customerId)} · ${doc.type}`,
-        value: money(doc.value), tone: "amber",
-        approve: { label: "Approve", endpoint: "/api/business", body: { operation: "update", resource: "sales", id: doc.id, data: { ...doc, status: "Approved" } } },
-        reject: { label: "Reject", endpoint: "/api/business", body: { operation: "update", resource: "sales", id: doc.id, data: { ...doc, status: "Cancelled" } } },
-      });
-    }
-
-    for (const item of data.settlements) {
-      if (!["Draft", "Verified"].includes(item.status)) continue;
-      const total = item.units * item.feePerUnit + item.adReimbursement + item.incentive;
-      list.push({
-        id: `set-${item.id}`, source: "Settlement", reference: `${item.periodStart} → ${item.periodEnd}`,
-        title: item.status === "Draft" ? "Verify weekly settlement" : "Raise settlement invoice",
-        context: customerName(item.customerId), value: money(total), tone: "blue",
-        approve: { label: item.status === "Draft" ? "Verify" : "Create invoice", endpoint: "/api/business", body: { operation: "action", action: "advance-settlement", id: item.id } },
-      });
-    }
-
-    for (const request of leave) {
-      if (request.status !== "Pending") continue;
-      const person = employees.find(item => item.id === request.employeeId)?.name || "Team member";
-      list.push({
-        id: `leave-${request.id}`, source: "HR", reference: `${request.startDate} → ${request.endDate}`,
-        title: `${request.type} request`, context: person, value: `${request.days} days`, tone: "neutral",
-        approve: { label: "Approve", endpoint: "/api/hr", body: { operation: "action", resource: "leave", id: request.id, action: "approve" } },
-        reject: { label: "Reject", endpoint: "/api/hr", body: { operation: "action", resource: "leave", id: request.id, action: "reject" } },
-      });
-    }
-
-    return list;
-  }, [data, leave, employees]);
-
-  async function decide(item: ApprovalItem, decision: NonNullable<ApprovalItem["approve"]>) {
-    setBusy(item.id);
-    setFailure("");
-    try {
-      const response = await fetch(decision.endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(decision.body) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "The decision could not be saved.");
-      setNotice(`${item.title} · ${decision.label.toLowerCase()}d.`);
-      await Promise.all([reload(), loadHr()]);
-    } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : "The decision could not be saved.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  return <div>
-    <PageHead eyebrow="Shared decision queue" title="Approvals" description="Every open decision across sales documents, weekly settlements and HR leave, in one queue. Approving here writes straight back to the shared record." action={<Button variant="outline" className="bg-card" onClick={() => { void reload(); void loadHr(); }} disabled={loading}><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />Refresh</Button>} />
-    <DataNotice loading={loading} error={error} onRetry={reload} />
-    {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
-    {failure && <div className="mb-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><span>{failure}</span><button onClick={() => setFailure("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
-
-    {!loading && items.length === 0 && <Empty title="Nothing is waiting for a decision" description="Draft or sent sales documents, unverified settlements and pending leave requests all appear here automatically." action={<Button asChild variant="outline" className="bg-card"><Link href="/sales?tab=sales">Open Sales</Link></Button>} />}
-
-    <div className="space-y-3">{items.map(item => <Card key={item.id} className="bg-white/80"><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted"><ClipboardCheck className="h-5 w-5" /></div>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><Badge tone={item.tone}>{item.source}</Badge><span className="truncate">{item.reference}</span></div>
-        <div className="mt-1.5 font-medium">{item.title}</div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">{item.context}</div>
-      </div>
-      <div className="font-semibold">{item.value}</div>
-      <div className="flex gap-2">
-        {item.reject && <Button variant="outline" disabled={busy === item.id} onClick={() => decide(item, item.reject!)}><X className="h-4 w-4" />{item.reject.label}</Button>}
-        <Button disabled={busy === item.id} onClick={() => decide(item, item.approve)}>{busy === item.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{item.approve.label}</Button>
-      </div>
-    </CardContent></Card>)}</div>
-  </div>;
-}
 
 /** Calls one of the AI generation routes and surfaces the loading and failure states. */
 function useGenerator<T>(endpoint: string) {
