@@ -17,7 +17,7 @@ import Link from "next/link";
 import { Fragment, type ReactNode, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowLeft, ArrowLeftRight, BookOpen, CircleDollarSign, HandCoins,
+  ArrowLeft, ArrowLeftRight, BookOpen, Camera, CircleDollarSign, HandCoins,
   Landmark, LineChart, ListTree, Menu, TrendingUp, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,10 @@ export const ACCOUNTING_NAV_ITEMS: AccountingNavItem[] = [
   // only place a customer receipt can be recorded, so without this entry the
   // money-in half of payments had no route into the workspace at all.
   { id: "payments", label: "Receipts & payments", description: "Money against an invoice, or held on account", group: "Cash & bank", icon: Landmark },
+  // Purchases calls the same screen "New expense", which is the wrong name for
+  // a cheque a client handed you. Captures can resolve to a receipt now, so the
+  // queue needs a home outside the purchasing framing.
+  { id: "capture", label: "Capture a document", description: "Read a receipt, invoice or cheque", group: "Cash & bank", icon: Camera },
   { id: "settlements", label: "Settlements", description: "Weekly per-unit client fees", group: "Receivables", icon: HandCoins },
   { id: "reports", label: "Reports", description: "Profit, balance sheet and review", group: "Reports", icon: TrendingUp },
   { id: "journal", label: "Journal", description: "Every posting, for the accountant", group: "Reports", icon: BookOpen },

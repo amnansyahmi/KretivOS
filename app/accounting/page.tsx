@@ -187,7 +187,7 @@ export default function AccountingPage() {
     {tab === "overview" && (purchasesMode
       ? <PurchaseOverview data={data} totals={totals} loading={loading} onGo={navigate} />
       : <Overview data={data} totals={totals} loading={loading} onGo={navigate} />)}
-    {tab === "capture" && <CaptureQueue accounts={data.accounts} vendors={data.vendors} onPosted={load} submit={submit} />}
+    {tab === "capture" && <CaptureQueue accounts={data.accounts} vendors={data.vendors} data={data} onPosted={load} submit={submit} />}
     {tab === "transactions" && <Transactions data={data} loading={loading} submit={submit} />}
     {tab === "bills" && <Bills data={data} loading={loading} submit={submit} />}
     {tab === "vendors" && <Vendors data={data} loading={loading} submit={submit} />}
@@ -355,7 +355,7 @@ function PurchaseOverview({ data, totals, loading, onGo }: any) {
 // Capture
 // ---------------------------------------------------------------------------
 
-function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
+function CaptureQueue({ accounts, vendors, data, onPosted, submit }: any) {
   const [captures, setCaptures] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -417,6 +417,7 @@ function CaptureQueue({ accounts, vendors, onPosted, submit }: any) {
       capture={active}
       accounts={accounts}
       vendors={vendors}
+      data={data}
       onClose={() => { setActive(null); void load(); }}
       onPosted={async () => { setActive(null); await load(); await onPosted(); }}
       submit={submit}
@@ -504,7 +505,27 @@ function ConfidenceDot({ value }: { value: number }) {
   </span>;
 }
 
-function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }: any) {
+/**
+ * What a captured document becomes.
+ *
+ * Every capture used to end as a supplier bill, which is right for a receipt or
+ * a supplier invoice and wrong for everything else — a cheque received from a
+ * client posted as an expense owed to that client. `document_captures` has
+ * carried a `payment_id` since it shipped; these are the outcomes that column
+ * was waiting for.
+ */
+type CaptureOutcome = "bill" | "payment-out" | "payment-in";
+
+const CAPTURE_OUTCOMES: { id: CaptureOutcome; label: string; note: string }[] = [
+  { id: "bill", label: "Supplier bill", note: "A cost owed to a supplier, paid later" },
+  { id: "payment-out", label: "Money out", note: "Cash already paid to a supplier" },
+  { id: "payment-in", label: "Money in", note: "Cash received from a client" },
+];
+
+function CaptureReview({ capture, accounts, vendors, data, onClose, onPosted, submit }: any) {
+  // A cheque in hand is far more often one received than one written, and the
+  // selector is one click away when it is not.
+  const [outcome, setOutcome] = useState<CaptureOutcome>(capture.kind === "cheque" ? "payment-in" : "bill");
   const [form, setForm] = useState({
     vendorId: capture.vendorId || "",
     vendorName: capture.vendorName || "",
@@ -515,6 +536,11 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
     total: capture.total ?? "",
     accountId: "",
     notes: capture.notes || "",
+    bankAccountId: "",
+    customerId: "",
+    method: capture.kind === "cheque" ? "Cheque" : "Bank transfer",
+    salesDocumentId: "",
+    billId: "",
   });
   const [detail, setDetail] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -532,13 +558,59 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
   }, [capture.id]);
 
   const expenseAccounts = accounts.filter((account: any) => account.type === "expense");
+  const bankAccounts = accounts.filter((account: any) => account.isBank);
+  const openInvoices = (data?.customerInvoices || []).filter((invoice: any) => invoice.customerId === form.customerId && Number(invoice.balance) > 0);
+  const openBills = (data?.bills || []).filter((bill: any) => bill.vendorId === form.vendorId && Number(bill.balance) > 0);
+  const isPayment = outcome !== "bill";
   const set = (patch: Partial<typeof form>) => setForm((current) => ({ ...current, ...patch }));
 
   const lowConfidence = Object.entries(capture.confidence || {})
     .filter(([, value]) => Number(value) < 0.8)
     .map(([field]) => field);
 
+  async function postPayment() {
+    const direction = outcome === "payment-in" ? "in" : "out";
+    if (!form.bankAccountId) { toastError("Choose which bank or cash account the money moved through."); return; }
+    if (direction === "in" && !form.customerId) { toastError("Choose which client this came from."); return; }
+    if (direction === "out" && !form.vendorId) { toastError("Choose which supplier this was paid to."); return; }
+    if (!Number(form.total)) { toastError("Enter the amount."); return; }
+
+    const amount = Number(form.total);
+    const allocations = [];
+    if (direction === "in" && form.salesDocumentId) {
+      const invoice = openInvoices.find((item: any) => item.id === form.salesDocumentId);
+      allocations.push({ salesDocumentId: form.salesDocumentId, amount: Math.min(amount, Number(invoice?.balance ?? amount)) });
+    }
+    if (direction === "out" && form.billId) {
+      const bill = openBills.find((item: any) => item.id === form.billId);
+      allocations.push({ billId: form.billId, amount: Math.min(amount, Number(bill?.balance ?? amount)) });
+    }
+
+    setBusy(true);
+    const result = await submit({
+      resource: "payment", operation: "create",
+      data: {
+        direction,
+        paymentDate: form.documentDate,
+        bankAccountId: form.bankAccountId,
+        customerId: direction === "in" ? form.customerId : "",
+        vendorId: direction === "out" ? form.vendorId : "",
+        amount,
+        method: form.method,
+        // The cheque number is the reference a bank statement will show, so it
+        // is what reconciliation needs to match against later.
+        reference: capture.chequeNumber || form.documentNumber,
+        notes: form.notes,
+        captureId: capture.id,
+        allocations,
+      },
+    }, "Posted to the ledger.");
+    setBusy(false);
+    if (result) { success(direction === "in" ? "Receipt recorded from the captured document." : "Payment recorded from the captured document."); await onPosted(); }
+  }
+
   async function post() {
+    if (isPayment) return postPayment();
     if (!form.vendorId) { toastError("Choose which vendor this is from, or create one first."); return; }
     if (!form.accountId) { toastError("Choose which expense account this belongs to."); return; }
     if (!Number(form.total)) { toastError("Enter the document total."); return; }
@@ -616,13 +688,39 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
           {lowConfidence.length > 0 && <p className="mt-1 text-xs text-accent">Read with low confidence: {lowConfidence.join(", ")}. Verify against the image.</p>}
         </CardHeader>
         <CardContent className="space-y-4">
-          <Field label="Vendor" flagged={lowConfidence.includes("vendorName")}>
-            <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
+          <Field label="Record this as">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {CAPTURE_OUTCOMES.map((option) => <button
+                key={option.id}
+                type="button"
+                onClick={() => setOutcome(option.id)}
+                aria-pressed={outcome === option.id}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-left transition",
+                  outcome === option.id ? "border-foreground bg-foreground text-white" : "bg-card hover:bg-background",
+                )}
+              >
+                <span className="block text-xs font-semibold">{option.label}</span>
+                <span className={cn("mt-0.5 block text-[10px]", outcome === option.id ? "text-white/60" : "text-muted-foreground")}>{option.note}</span>
+              </button>)}
+            </div>
+          </Field>
+
+          {outcome !== "payment-in" && <Field label="Vendor" flagged={lowConfidence.includes("vendorName")}>
+            <select value={form.vendorId} onChange={(event) => set({ vendorId: event.target.value, billId: "" })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
               <option value="">Select a vendor…</option>
               {vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
             </select>
             {capture.vendorName && !form.vendorId && <p className="mt-1.5 text-[11px] text-muted-foreground">Read as “{capture.vendorName}” — no matching vendor yet. Create one in the Vendors tab.</p>}
-          </Field>
+          </Field>}
+
+          {outcome === "payment-in" && <Field label="Client">
+            <select value={form.customerId} onChange={(event) => set({ customerId: event.target.value, salesDocumentId: "" })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
+              <option value="">Select a client…</option>
+              {(data?.customers || []).map((customer: any) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+            </select>
+            {capture.chequePayee && <p className="mt-1.5 text-[11px] text-muted-foreground">Payee read as “{capture.chequePayee}”.</p>}
+          </Field>}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Document number" flagged={lowConfidence.includes("documentNumber")}>
@@ -633,7 +731,7 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
             </Field>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          {!isPayment && <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Subtotal" flagged={lowConfidence.includes("subtotal")}>
               <input type="number" step="0.01" value={form.subtotal} onChange={(event) => set({ subtotal: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm" />
             </Field>
@@ -643,14 +741,49 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
             <Field label="Total" flagged={lowConfidence.includes("total")}>
               <input type="number" step="0.01" value={form.total} onChange={(event) => set({ total: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm font-semibold" />
             </Field>
-          </div>
+          </div>}
 
-          <Field label="Expense account">
+          {!isPayment && <Field label="Expense account">
             <select value={form.accountId} onChange={(event) => set({ accountId: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
               <option value="">Select an account…</option>
               {expenseAccounts.map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
             </select>
-          </Field>
+          </Field>}
+
+          {isPayment && <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Amount" flagged={lowConfidence.includes("total")}>
+                <input type="number" step="0.01" value={form.total} onChange={(event) => set({ total: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm font-semibold" />
+              </Field>
+              <Field label="Method">
+                <select value={form.method} onChange={(event) => set({ method: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
+                  {PAYMENT_METHODS.map((method) => <option key={method}>{method}</option>)}
+                </select>
+              </Field>
+            </div>
+
+            <Field label="Bank or cash account">
+              <select value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
+                <option value="">Select an account…</option>
+                {bankAccounts.map((account: any) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}
+              </select>
+            </Field>
+
+            {outcome === "payment-in" && form.customerId && <Field label="Settle which invoice">
+              <select value={form.salesDocumentId} onChange={(event) => { const invoice = openInvoices.find((item: any) => item.id === event.target.value); set({ salesDocumentId: event.target.value, total: invoice ? String(invoice.balance) : form.total }); }} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
+                <option value="">Hold on account — not against an invoice</option>
+                {openInvoices.map((invoice: any) => <option key={invoice.id} value={invoice.id}>{invoice.reference || invoice.title || invoice.id.slice(0, 8)} — {money(invoice.balance)} outstanding</option>)}
+              </select>
+              {!form.salesDocumentId && <p className="mt-1.5 text-[11px] text-muted-foreground">Held as a customer advance — a liability — until it is applied to an invoice.</p>}
+            </Field>}
+
+            {outcome === "payment-out" && openBills.length > 0 && <Field label="Settle which bill">
+              <select value={form.billId} onChange={(event) => { const bill = openBills.find((item: any) => item.id === event.target.value); set({ billId: event.target.value, total: bill ? String(bill.balance) : form.total }); }} className="h-10 w-full rounded-lg border bg-card px-3 text-sm">
+                <option value="">Leave unallocated</option>
+                {openBills.map((bill: any) => <option key={bill.id} value={bill.id}>{bill.billNumber || bill.billDate} — {money(bill.balance)} outstanding</option>)}
+              </select>
+            </Field>}
+          </>}
 
           {capture.kind === "cheque" && (capture.chequeNumber || capture.chequePayee) && <div className="rounded-lg border bg-card p-3 text-xs">
             <div className="font-medium">Cheque details read</div>
@@ -674,7 +807,10 @@ function CaptureReview({ capture, accounts, vendors, onClose, onPosted, submit }
           <div className="flex flex-wrap gap-2 pt-1">
             <Button onClick={post} disabled={busy || capture.status === "Posted"}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              {capture.status === "Posted" ? "Already posted" : "Confirm and post"}
+              {capture.status === "Posted" ? "Already posted"
+                : outcome === "bill" ? "Confirm and post the bill"
+                : outcome === "payment-in" ? "Confirm and record the receipt"
+                : "Confirm and record the payment"}
             </Button>
             <Button variant="outline" className="bg-card" onClick={reject} disabled={busy}><X className="h-4 w-4" />Reject</Button>
           </div>

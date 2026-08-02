@@ -753,6 +753,16 @@ export async function POST(request: NextRequest) {
           `);
         }
       }
+      // document_captures.payment_id has existed since captures shipped; a
+      // captured cheque or receipt that settles money rather than incurring a
+      // cost now has the same "posted, and here is what it became" trail a
+      // captured supplier invoice gets.
+      if (clean(data.captureId, 100)) {
+        statements.push(sql`
+          update document_captures set status = 'Posted', payment_id = ${paymentId}, journal_entry_id = ${entry.id}, reviewed_at = now()
+          where id = ${clean(data.captureId, 100)} and organization_id = ${ORGANIZATION_ID}
+        `);
+      }
       await sql.transaction(statements);
       return NextResponse.json({ id: paymentId, journalEntryId: entry.id, ...(await snapshot()) }, { status: 201 });
     }
