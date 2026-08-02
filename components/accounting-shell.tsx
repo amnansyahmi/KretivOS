@@ -18,7 +18,7 @@ import { Fragment, type ReactNode, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft, ArrowLeftRight, BookOpen, CircleDollarSign, HandCoins,
-  LineChart, ListTree, Menu, TrendingUp, X,
+  LineChart, ListTree, Menu, Scale, TrendingUp, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 
 export type AccountingTab =
   | "overview" | "capture" | "transactions" | "bills" | "vendors"
-  | "payments" | "settlements" | "reports" | "journal" | "forecast" | "accounts";
+  | "payments" | "settlements" | "reconciliation" | "reports" | "journal" | "forecast" | "accounts";
 
 type NavigationGroup = "Workspace" | "Cash & bank" | "Receivables" | "Reports" | "Planning" | "Setup";
 
@@ -43,6 +43,7 @@ export type AccountingNavItem = {
 export const ACCOUNTING_NAV_ITEMS: AccountingNavItem[] = [
   { id: "overview", label: "Accounting overview", description: "Ledger health and financial position", group: "Workspace", icon: CircleDollarSign },
   { id: "transactions", label: "Cash & bank", description: "Money movements without an invoice", group: "Cash & bank", icon: ArrowLeftRight },
+  { id: "reconciliation", label: "Reconciliation", description: "Prove the bank against the books", group: "Cash & bank", icon: Scale },
   { id: "settlements", label: "Settlements", description: "Weekly per-unit client fees", group: "Receivables", icon: HandCoins },
   { id: "reports", label: "Reports", description: "Profit, balance sheet and review", group: "Reports", icon: TrendingUp },
   { id: "journal", label: "Journal", description: "Every posting, for the accountant", group: "Reports", icon: BookOpen },

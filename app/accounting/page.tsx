@@ -28,6 +28,7 @@ import { DateInput } from "@/components/date-input";
 import {
   AccountingShell, ACCOUNTING_NAV_ITEMS, type AccountingTab,
 } from "@/components/accounting-shell";
+import { BankReconciliation } from "@/components/bank-reconciliation";
 import {
   PurchasesShell, PURCHASES_NAV_ITEMS, type PurchasesTab,
 } from "@/components/purchases-shell";
@@ -193,6 +194,7 @@ export default function AccountingPage() {
     {tab === "vendors" && <Vendors data={data} loading={loading} submit={submit} />}
     {tab === "payments" && <Payments data={data} loading={loading} submit={submit} directionLock={purchasesMode ? "out" : undefined} />}
     {tab === "settlements" && <Settlements data={data} loading={loading} submit={submit} />}
+    {tab === "reconciliation" && <BankReconciliation />}
     {tab === "reports" && <Reports />}
     {tab === "journal" && <Journal data={data} submit={submit} />}
     {tab === "forecast" && <BudgetForecast />}
