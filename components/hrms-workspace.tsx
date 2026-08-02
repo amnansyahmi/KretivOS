@@ -465,6 +465,9 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
   const record = editor.record;
   const admin = session.role === "hr_admin";
   const update = (key: string, value: any) => setEditor({ ...editor, record: { ...record, [key]: value } });
+  // Several fields at once: calling update() in sequence would each spread the
+  // same stale record and only the last would survive.
+  const updateMany = (patch: Record<string, any>) => setEditor({ ...editor, record: { ...record, ...patch } });
   const employeeOptions = data.employees;
   const employeeSelect = <Field label="Team member" wide><Select value={record.employeeId} disabled={session.role === "employee"} onChange={(e) => update("employeeId", e.target.value)} >{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field>;
 
@@ -494,7 +497,16 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
 
         {editor.resource === "attendance_corrections" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Attendance date"><DateInput value={record.date || ""} onChange={(e) => update("date", e.target.value)} /></Field><Field label="Original record"><Select value={record.attendanceId || ""} onChange={(e) => update("attendanceId", e.target.value)} ><option value="">Match by date</option>{data.attendance.filter((item: any) => item.employeeId === record.employeeId).map((item: any) => <option key={item.id} value={item.id}>{formatDate(item.date)} · {item.checkIn || "—"}–{item.checkOut || "—"}</option>)}</Select></Field><Field label="Requested check-in"><Input type="time" value={record.requestedCheckIn || ""} onChange={(e) => update("requestedCheckIn", e.target.value)} /></Field><Field label="Requested check-out"><Input type="time" value={record.requestedCheckOut || ""} onChange={(e) => update("requestedCheckOut", e.target.value)} /></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field></div>}
 
-        {editor.resource === "claims" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Claim date"><DateInput value={record.claimDate || ""} onChange={(e) => update("claimDate", e.target.value)} /></Field><Field label="Category"><Select value={record.category || "General"} onChange={(e) => update("category", e.target.value)} >{["General", "Travel", "Meals", "Medical", "Software", "Equipment", "Client expense"].map((item) => <option key={item}>{item}</option>)}</Select></Field><Field label="Amount (RM)"><Input type="number" min="0" step="0.01" value={record.amount ?? 0} onChange={(e) => update("amount", Number(e.target.value))} /></Field><Field label="Description" wide><Textarea value={record.description || ""} onChange={(e) => update("description", e.target.value)} /></Field><EvidenceUpload purpose="claim_receipt" employeeId={record.employeeId} value={record.receiptAssetId} onUploaded={(id: string) => update("receiptAssetId", id)} /></div>}
+        {editor.resource === "claims" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Claim date"><DateInput value={record.claimDate || ""} onChange={(e) => update("claimDate", e.target.value)} /></Field><Field label="Category"><Select value={record.category || "General"} onChange={(e) => update("category", e.target.value)} >{["General", "Travel", "Meals", "Medical", "Software", "Equipment", "Client expense"].map((item) => <option key={item}>{item}</option>)}</Select></Field><Field label="Amount (RM)"><Input type="number" min="0" step="0.01" value={record.amount ?? 0} onChange={(e) => update("amount", Number(e.target.value))} /></Field><Field label="Description" wide><Textarea value={record.description || ""} onChange={(e) => update("description", e.target.value)} /></Field><EvidenceUpload purpose="claim_receipt" employeeId={record.employeeId} value={record.receiptAssetId} onUploaded={(id: string, suggested?: any) => updateMany({
+            receiptAssetId: id,
+            // Only fills what the claimant has not already entered — a read
+            // amount never overwrites a figure somebody typed deliberately.
+            ...(suggested?.total && !Number(record.amount) ? { amount: Number(suggested.total) } : {}),
+            // claimDate is pre-filled with today, so "empty" is not the test:
+            // on a new claim the date read off the receipt beats that default.
+            ...(suggested?.documentDate && (editor.isNew || !record.claimDate) ? { claimDate: suggested.documentDate } : {}),
+            ...(suggested?.vendorName && !String(record.description || "").trim() ? { description: suggested.vendorName } : {}),
+          })} /></div>}
 
         {editor.resource === "payroll" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Payroll period"><MonthInput value={record.period || ""} onChange={(e) => update("period", e.target.value)} /></Field>{[["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Overtime", "overtime"], ["Bonus", "bonus"], ["EPF employee", "epfEmployee"], ["EPF employer", "epfEmployer"], ["SOCSO employee", "socsoEmployee"], ["SOCSO employer", "socsoEmployer"], ["EIS employee", "eisEmployee"], ["EIS employer", "eisEmployer"], ["PCB", "pcb"], ["Other deductions", "otherDeductions"]].map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}<Field label="Statutory profile"><Select value={record.statutoryProfileId || "my-default"} onChange={(e) => update("statutoryProfileId", e.target.value)} >{(data.settings.statutoryProfiles || []).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field><Field label="Verification note" wide><Textarea value={record.verificationNote || ""} onChange={(e) => update("verificationNote", e.target.value)} /></Field></div>}
 
@@ -518,20 +530,25 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
   </div>;
 }
 
-function EvidenceUpload({ purpose, employeeId, value, onUploaded }: { purpose: string; employeeId?: string; value?: string; onUploaded: (id: string) => void }) {
+function EvidenceUpload({ purpose, employeeId, value, onUploaded }: { purpose: string; employeeId?: string; value?: string; onUploaded: (id: string, suggested?: any) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [read, setRead] = useState("");
   async function upload(file?: File) {
     if (!file) return;
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setRead("");
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
       const result = await requestJson("/api/hr/files", { method: "POST", body: JSON.stringify({ purpose, employeeId, filename: file.name, dataUrl }) });
-      onUploaded(result.id);
+      onUploaded(result.id, result.suggested);
+      // Said plainly, because a form that silently rewrites what someone typed
+      // is worse than one that never helped. They can still edit every field.
+      if (result.suggested?.total) setRead("Read from the receipt — check the amount and date before saving.");
+      else if (purpose === "claim_receipt") setRead("Could not read this automatically. Enter the details yourself.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Upload failed."); }
     finally { setBusy(false); }
   }
-  return <div className="sm:col-span-2 rounded-xl border border-dashed bg-card p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="flex-1"><div className="text-xs font-semibold">Supporting file</div><div className="mt-1 text-[10px] text-muted-foreground">PDF, JPG, PNG or WebP · maximum 2 MB</div>{value && <a href={`/api/hr/files/${value}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-accent">View uploaded file</a>}{error && <div className="mt-2 text-xs text-red-600">{error}</div>}</div><label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border bg-card px-4 text-xs font-semibold hover:bg-background">{busy ? "Uploading…" : value ? "Replace file" : "Choose file"}<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" disabled={busy} onChange={(event) => upload(event.target.files?.[0])} /></label></div></div>;
+  return <div className="sm:col-span-2 rounded-xl border border-dashed bg-card p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="flex-1"><div className="text-xs font-semibold">Supporting file</div><div className="mt-1 text-[10px] text-muted-foreground">PDF, JPG, PNG or WebP · maximum 2 MB</div>{value && <a href={`/api/hr/files/${value}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-accent">View uploaded file</a>}{read && <div className="mt-2 text-[11px] text-muted-foreground">{read}</div>}{error && <div className="mt-2 text-xs text-red-600">{error}</div>}</div><label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border bg-card px-4 text-xs font-semibold hover:bg-background">{busy ? (purpose === "claim_receipt" ? "Reading…" : "Uploading…") : value ? "Replace file" : "Choose file"}<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" disabled={busy} onChange={(event) => upload(event.target.files?.[0])} /></label></div></div>;
 }
 
 function resourceLabel(resource: Resource) { return ({ employees: "team member", leave: "leave request", attendance: "attendance record", attendance_corrections: "attendance correction", goals: "goal", learning: "learning record", documents: "HR document", claims: "expense claim", payroll: "payroll record", lifecycle: "lifecycle case", announcements: "announcement", events: "team event" } as Record<Resource, string>)[resource]; }

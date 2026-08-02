@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
+import { extractDocument } from "@/lib/ocr";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,6 +21,35 @@ function parseFile(value: unknown) {
   const size = Math.floor(match[2].length * 0.75);
   if (size > 2 * 1024 * 1024) throw new Error("File exceeds the 2 MB limit.");
   return { dataUrl, mimeType: match[1], size };
+}
+
+/**
+ * Read a claim receipt so the amount and date do not have to be keyed twice.
+ *
+ * Purchasing has had extraction since captures shipped while staff submitting
+ * a claim typed everything by hand off the same kind of photograph. This runs
+ * the same extractor, but the file is already stored by the time it is called
+ * and a failure returns null rather than throwing: a receipt that cannot be
+ * read is still a receipt on file, and the form stays keyable.
+ *
+ * Suggestions only — nothing is written from this, and the reviewer still sees
+ * whatever the claimant finally submitted.
+ */
+async function readClaimReceipt(purpose: string, dataUrl: string) {
+  if (purpose !== "claim_receipt") return null;
+  try {
+    const extraction = await extractDocument({ imageDataUrl: dataUrl, kind: "receipt" });
+    if (!extraction.ok) return null;
+    return {
+      total: extraction.total,
+      documentDate: extraction.documentDate,
+      vendorName: extraction.vendorName,
+      confidence: extraction.confidence,
+      warnings: extraction.warnings,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -47,7 +77,11 @@ export async function POST(request: NextRequest) {
         ${JSON.stringify({ filename, purpose, employeeId, mimeType: file.mimeType, fileSize: file.size })}::jsonb,
         ${JSON.stringify({ source: "hr-files-api", authenticated: true, private: true })}::jsonb)
     `;
-    return NextResponse.json({ id, filename, purpose, mimeType: file.mimeType, fileSize: file.size, url: `/api/hr/files/${id}` });
+    return NextResponse.json({
+      id, filename, purpose, mimeType: file.mimeType, fileSize: file.size,
+      url: `/api/hr/files/${id}`,
+      suggested: await readClaimReceipt(purpose, file.dataUrl),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to upload HR file.";
     return NextResponse.json({ error: message }, { status: error instanceof HRAuthError ? error.status : 400 });
