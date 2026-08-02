@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
@@ -70,23 +70,84 @@ export const HRMS_NAV_ITEMS: HRMSNavigationItem[] = [
   { id: "settings", label: "Settings", description: "Lists, rules and policies", group: "Administration", icon: Settings2, href: "/hr?section=settings" },
 ];
 
-export function getPermittedHRMSNavigation(session: HRMSSession) {
-  if (session.authEnabled === false) return HRMS_NAV_ITEMS.filter((item) => item.id !== "self");
-  if (session.role === "hr_admin") return HRMS_NAV_ITEMS;
+const PERMITTED_TABS: Record<HRMSRole, HRMSTab[]> = {
+  hr_admin: HRMS_NAV_ITEMS.map((item) => item.id),
+  manager: ["self", "overview", "team", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
+  finance: ["self", "overview", "team", "people", "claims", "payslips", "documents"],
+  employee: ["self", "team", "attendance", "leave", "goals", "learning", "claims", "payslips", "documents"],
+};
 
-  const permitted: Record<HRMSRole, HRMSTab[]> = {
-    hr_admin: HRMS_NAV_ITEMS.map((item) => item.id),
-    manager: ["self", "overview", "team", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
-    finance: ["self", "overview", "team", "people", "claims", "payslips", "documents"],
-    employee: ["self", "team", "attendance", "leave", "goals", "learning", "claims", "payslips", "documents"],
-  };
+export const HR_VIEW_AS_KEY = "kretivos-hr-view-as";
+export const HR_VIEW_AS_EVENT = "kretivos-hr-view-as-change";
 
-  return HRMS_NAV_ITEMS.filter((item) => permitted[session.role].includes(item.id));
+/** The order they appear in the switcher: least access first, so the default reads as the floor. */
+export const HR_VIEW_AS_ROLES: { id: HRMSRole; label: string }[] = [
+  { id: "employee", label: "Employee" },
+  { id: "manager", label: "Manager" },
+  { id: "finance", label: "Finance" },
+  { id: "hr_admin", label: "HR Admin" },
+];
+
+/**
+ * Which menus a session may see.
+ *
+ * With authentication switched off every visitor is handed the hr_admin role,
+ * and this used to return every tab *except* "My HR" — so the person who just
+ * wanted their leave balance was shown the payroll workbench and the org
+ * settings, while the one screen built for them was the single one hidden.
+ *
+ * The floor is now the employee experience, and `viewAs` opts into the wider
+ * menus. That is a view preference, not a permission boundary: with auth off
+ * the API routes are open regardless, so this decides what is *shown*, never
+ * what is *allowed*. Turning HRMS_AUTH_ENABLED on restores the real check
+ * below, where the session's own role is the only thing consulted.
+ */
+export function getPermittedHRMSNavigation(session: HRMSSession, viewAs?: HRMSRole | null) {
+  const role = session.authEnabled === false ? (viewAs ?? "employee") : session.role;
+  if (role === "hr_admin") return HRMS_NAV_ITEMS;
+  return HRMS_NAV_ITEMS.filter((item) => PERMITTED_TABS[role].includes(item.id));
+}
+
+/**
+ * Reads the chosen lens, and keeps every mounted shell in step.
+ *
+ * The `storage` event only fires in *other* tabs, so a same-tab change needs
+ * its own event — without it the sidebar would update while the workspace
+ * beside it kept rendering the previous role's tabs.
+ */
+export function useHRViewAs(session: HRMSSession) {
+  const disabled = session.authEnabled !== false;
+  const [viewAs, setViewAsState] = useState<HRMSRole>("employee");
+
+  useEffect(() => {
+    if (disabled) return;
+    const read = () => {
+      const stored = localStorage.getItem(HR_VIEW_AS_KEY) as HRMSRole | null;
+      if (stored && stored in PERMITTED_TABS) setViewAsState(stored);
+    };
+    read();
+    window.addEventListener(HR_VIEW_AS_EVENT, read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener(HR_VIEW_AS_EVENT, read);
+      window.removeEventListener("storage", read);
+    };
+  }, [disabled]);
+
+  const setViewAs = useCallback((next: HRMSRole) => {
+    setViewAsState(next);
+    localStorage.setItem(HR_VIEW_AS_KEY, next);
+    window.dispatchEvent(new Event(HR_VIEW_AS_EVENT));
+  }, []);
+
+  return { viewAs: disabled ? session.role : viewAs, setViewAs, canSwitch: !disabled };
 }
 
 function initials(name: string) {
   return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 }
+
+type ViewAsControl = { value: HRMSRole; onChange: (role: HRMSRole) => void };
 
 function SidebarContent({
   activeId,
@@ -94,12 +155,14 @@ function SidebarContent({
   session,
   onNavigate,
   onClose,
+  viewAs,
 }: {
   activeId: HRMSTab;
   navigation: HRMSNavigationItem[];
   session: HRMSSession;
   onNavigate?: (id: HRMSTab) => void;
   onClose?: () => void;
+  viewAs?: ViewAsControl | null;
 }) {
   const router = useRouter();
 
@@ -158,6 +221,24 @@ function SidebarContent({
           <div className="mt-0.5 truncate text-[9px] capitalize text-white/40">{session.authEnabled === false ? "Shared workspace" : session.role.replace("_", " ")}</div>
         </div>
       </div>
+
+      {/*
+        * Only while authentication is off. Once it is on, the session's own role
+        * decides the menus and offering a switch here would imply a permission
+        * this cannot grant.
+        */}
+      {viewAs && <label className="mb-2 block px-2">
+        <span className="mb-1.5 block text-[9px] font-semibold uppercase tracking-[.14em] text-white/35">Viewing as</span>
+        <select
+          value={viewAs.value}
+          onChange={(event) => viewAs.onChange(event.target.value as HRMSRole)}
+          className="h-10 w-full rounded-xl border border-white/10 bg-white/[.06] px-2.5 text-xs text-white outline-none focus:border-white/25"
+        >
+          {/* Native option styling ignores the parent, so the dark ground is set here. */}
+          {HR_VIEW_AS_ROLES.map((role) => <option key={role.id} value={role.id} className="bg-foreground text-white">{role.label}</option>)}
+        </select>
+        <span className="mt-1.5 block text-[9px] leading-4 text-white/30">Changes which menus are shown. Sign-in is off, so it grants no extra access.</span>
+      </label>}
       <Link href="/" onClick={onClose} className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 px-3 text-xs font-medium text-white/65 transition hover:border-white/20 hover:bg-white/[.06] hover:text-white">
         <ArrowLeft className="h-4 w-4" />Back to KretivOS
       </Link>
@@ -187,11 +268,13 @@ export function HRMSShell({
 }) {
   // Radix owns the scroll lock, the Escape handler and the focus trap.
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { viewAs, setViewAs, canSwitch } = useHRViewAs(session);
+  const viewAsControl: ViewAsControl | null = canSwitch ? { value: viewAs, onChange: setViewAs } : null;
 
   return <main className="min-h-screen bg-background text-foreground">
     <div className="lg:grid lg:min-h-screen lg:grid-cols-[272px_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-dvh self-start border-r border-black/10 lg:block">
-        <SidebarContent activeId={activeId} navigation={navigation} session={session} onNavigate={onNavigate} />
+        <SidebarContent activeId={activeId} navigation={navigation} session={session} onNavigate={onNavigate} viewAs={viewAsControl} />
       </aside>
 
       <div className="min-w-0 pb-24">
@@ -221,7 +304,7 @@ export function HRMSShell({
           <DialogTitle>HR navigation</DialogTitle>
           <DialogDescription>Move between the sections of the people operations workspace.</DialogDescription>
         </VisuallyHidden>
-        <SidebarContent activeId={activeId} navigation={navigation} session={session} onNavigate={onNavigate} onClose={() => setMobileOpen(false)} />
+        <SidebarContent activeId={activeId} navigation={navigation} session={session} onNavigate={onNavigate} onClose={() => setMobileOpen(false)} viewAs={viewAsControl} />
       </DialogContent>
     </Dialog>
   </main>;

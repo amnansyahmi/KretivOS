@@ -23,6 +23,7 @@ import { HRMSPayrollWorkbench } from "@/components/hrms-payroll-workbench";
 import { HRTeamHub } from "@/components/hrms-team-hub";
 import {
   getPermittedHRMSNavigation,
+  useHRViewAs,
   HRMS_NAV_ITEMS,
   HRMSShell,
   type HRMSRole as Role,
@@ -64,6 +65,8 @@ type Snapshot = {
     leavePolicy?: { annualAccrual?: string; carryForwardDays?: number; carryForwardExpiryMonth?: number; prorateNewJoiner?: boolean };
     publicHolidays?: { date: string; name: string }[];
     statutoryProfiles?: any[];
+    /** Printed at the head of every EA statement. */
+    employer?: { name?: string; employerNumber?: string; registrationNumber?: string; address?: string };
   };
   session?: Session;
   version: number;
@@ -106,9 +109,13 @@ async function requestJson(url: string, init?: RequestInit) {
 export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; session: Session }) {
   const confirm = useConfirm();
   const router = useRouter();
-  const permittedTabs = getPermittedHRMSNavigation(session);
+  const { viewAs } = useHRViewAs(session);
+  const permittedTabs = getPermittedHRMSNavigation(session, viewAs);
   const [data, setData] = useState<Snapshot>(emptySnapshot);
-  const [tab, setTab] = useState<Tab>(validTab(initialTab || (session.authEnabled === false ? "overview" : "self")));
+  // "My HR" is the landing screen for everyone. It used to open on the
+  // operations dashboard whenever sign-in was off, which put the admin view in
+  // front of whoever happened to open the app.
+  const [tab, setTab] = useState<Tab>(validTab(initialTab || "self"));
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<Editor>(null);
   const [loading, setLoading] = useState(true);
@@ -364,7 +371,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
               todayContent={<><div className="flex justify-end">{["hr_admin", "manager"].includes(session.role) && <Button asChild variant="outline" className="bg-card"><Link href="/hr/attendance-review"><ShieldCheck className="h-4 w-4" />Review attendance evidence</Link></Button>}</div><HRPhotoAttendance employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} query={query} onRefresh={load} onNotice={setNotice} onError={setError} /></>}
               correctionsContent={<HRAttendanceCorrections records={data.attendanceCorrections.filter((item) => matches(employeeName(item.employeeId), item.date, item.status, item.reason))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} onCreate={() => openCreate("attendance_corrections")} onEdit={(item: any) => openEdit("attendance_corrections", item)} onDelete={(id: string) => deleteRecord("attendance_corrections", id)} onAction={(id: string, action: string) => recordAction("attendance_corrections", id, action)} />}
               onCreateShift={(item: any) => managedMutation({ operation: "create", resource: "shifts", data: item })} onUpdateShift={(item: any) => managedMutation({ operation: "update", resource: "shifts", id: item.id, data: item })} onDeleteShift={(id: string) => deleteManaged("shifts", id)} />}
-            {tab === "payslips" && <HRMSPayrollWorkbench records={data.payroll} vouchers={data.paymentVouchers} employees={data.employees} employeeName={employeeName} canManage={["hr_admin", "finance"].includes(session.role)} onCreatePayroll={() => openCreate("payroll")} onEditPayroll={(item: any) => openEdit("payroll", item)} onPayrollAction={(id: string, action: string) => recordAction("payroll", id, action)} onCreateVoucher={(item: any) => managedMutation({ operation: "create", resource: "payment_vouchers", data: item })} onUpdateVoucher={(item: any) => managedMutation({ operation: "update", resource: "payment_vouchers", id: item.id, data: item })} onDeleteVoucher={(id: string) => deleteManaged("payment_vouchers", id)} onVoucherAction={(id: string, action: string) => managedMutation({ operation: "action", resource: "payment_vouchers", id, action })} />}
+            {tab === "payslips" && <HRMSPayrollWorkbench records={data.payroll} vouchers={data.paymentVouchers} employees={data.employees} employer={data.settings.employer} employeeName={employeeName} canManage={["hr_admin", "finance"].includes(session.role)} onCreatePayroll={() => openCreate("payroll")} onEditPayroll={(item: any) => openEdit("payroll", item)} onPayrollAction={(id: string, action: string) => recordAction("payroll", id, action)} onCreateVoucher={(item: any) => managedMutation({ operation: "create", resource: "payment_vouchers", data: item })} onUpdateVoucher={(item: any) => managedMutation({ operation: "update", resource: "payment_vouchers", id: item.id, data: item })} onDeleteVoucher={(id: string) => deleteManaged("payment_vouchers", id)} onVoucherAction={(id: string, action: string) => managedMutation({ operation: "action", resource: "payment_vouchers", id, action })} />}
 
             {tab === "claims" && <HRClaims claims={data.claims.filter((item) => matches(employeeName(item.employeeId), item.category, item.description, item.status, item.financeStatus))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} canPay={["hr_admin", "finance"].includes(session.role)} onCreate={() => openCreate("claims")} onEdit={(item: any) => openEdit("claims", item)} onDelete={(id: string) => deleteRecord("claims", id)} onAction={(id: string, action: string) => recordAction("claims", id, action)} />}
 
