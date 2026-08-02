@@ -58,6 +58,18 @@ const defaultOperations = {
     leavePolicy: { annualAccrual: "annual", carryForwardDays: 5, carryForwardExpiryMonth: 3, prorateNewJoiner: true },
     publicHolidays: [] as { date: string; name: string }[],
     statutoryProfiles: [{ id: "my-default", name: "Malaysia · verify current rates", effectiveFrom: "2026-01-01", epfEmployeeRate: 11, epfEmployerRate: 12, eisEmployeeRate: 0.2, eisEmployerRate: 0.2 }],
+    /*
+     * The employer block printed at the head of every EA statement. The E
+     * number is LHDN's own reference for the employer and is not the company
+     * registration number, so it cannot be copied from the organisation record
+     * and is left blank until somebody enters it.
+     */
+    employer: {
+      name: "Kretivco Mediaworks",
+      employerNumber: "",
+      registrationNumber: "SA0463354-A",
+      address: "No.15A, Jalan USJ1/19, 47600 Subang Jaya, Selangor",
+    },
   },
 };
 
@@ -93,6 +105,16 @@ function mapEmployee(row: any) {
     managerId: clean(metadata.managerId),
     probationEndDate: clean(metadata.probationEndDate),
     confirmationDate: clean(metadata.confirmationDate),
+    endDate: clean(metadata.endDate),
+    /*
+     * Statutory identity, required on the annual EA statement. Held per person
+     * rather than derived, because a foreign hire has a passport number where a
+     * citizen has an NRIC, and neither is inferable from anything else on file.
+     */
+    identificationNumber: clean(metadata.identificationNumber),
+    incomeTaxNumber: clean(metadata.incomeTaxNumber),
+    epfNumber: clean(metadata.epfNumber),
+    socsoNumber: clean(metadata.socsoNumber),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -429,6 +451,8 @@ export async function POST(request: NextRequest) {
           emailPlaceholder: !suppliedEmail, title: clean(data.title), department: clean(data.department) || "Leadership",
           employmentType: clean(data.employmentType) || "Core Team", workMode: clean(data.workMode) || "Hybrid",
           location: clean(data.location), startDate: clean(data.startDate), phone: clean(data.phone), emergencyContact: clean(data.emergencyContact),
+          identificationNumber: clean(data.identificationNumber), incomeTaxNumber: clean(data.incomeTaxNumber),
+          epfNumber: clean(data.epfNumber), socsoNumber: clean(data.socsoNumber), endDate: clean(data.endDate),
           annualLeaveBalance: number(data.annualLeaveBalance || 14), medicalLeaveBalance: number(data.medicalLeaveBalance || 14),
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
@@ -461,6 +485,8 @@ export async function POST(request: NextRequest) {
           ...previousMetadata, emailPlaceholder: clean(data.email) ? false : bool(previousMetadata.emailPlaceholder),
           title: clean(data.title), department: clean(data.department), employmentType: clean(data.employmentType), workMode: clean(data.workMode),
           location: clean(data.location), startDate: clean(data.startDate), phone: clean(data.phone), emergencyContact: clean(data.emergencyContact),
+          identificationNumber: clean(data.identificationNumber), incomeTaxNumber: clean(data.incomeTaxNumber),
+          epfNumber: clean(data.epfNumber), socsoNumber: clean(data.socsoNumber), endDate: clean(data.endDate),
           annualLeaveBalance: number(data.annualLeaveBalance), medicalLeaveBalance: number(data.medicalLeaveBalance),
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
