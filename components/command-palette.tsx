@@ -12,7 +12,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight, Bot, Building2, CircleDollarSign, ClipboardCheck, Code2, FileText,
+  ArrowRight, Bot, Building2, CircleDollarSign, Clapperboard, ClipboardCheck, Code2, FileText,
   Library, Loader2, Palette, Search, Settings2, ShoppingCart, Sparkles, UsersRound, WandSparkles, Workflow, X,
 } from "lucide-react";
 import {
@@ -33,6 +33,7 @@ const DESTINATIONS: Destination[] = [
   { label: "Purchases", href: "/purchases", group: "Finance", icon: ShoppingCart, keywords: "expenses suppliers purchase invoice bills payment payable" },
   { label: "AI Studio", href: "/ai-studio", group: "Creative", icon: Bot, keywords: "chat ai prompts image generation" },
   { label: "Marketing Studio", href: "/?view=Marketing%20Studio", group: "Creative", icon: Sparkles, keywords: "marketing strategy content writer copywriting planner storyboard funnel campaigns" },
+  { label: "Funnel Builder", href: "/funnels", group: "Creative", icon: Clapperboard, keywords: "funnel campaign landing page journey steps conversion" },
   { label: "Brand DNA", href: "/brands", group: "Creative", icon: Palette, keywords: "brand assets colours tone claims" },
   { label: "AI Proposal Package", href: "/document-ai", group: "Actions", icon: Sparkles, keywords: "proposal quotation generate document" },
   { label: "Prompt Lab", href: "/?view=Prompt%20Lab", group: "Actions", icon: WandSparkles, keywords: "image prompt production prompt realism" },

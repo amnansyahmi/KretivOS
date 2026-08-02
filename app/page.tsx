@@ -47,6 +47,9 @@ const navGroups: NavGroup[] = [
   { label: "Creative Studio", items: [
     { name: "AI Studio", icon: Bot, href: "/ai-studio" },
     { name: "Marketing Studio", icon: Megaphone, view: "Marketing Studio" },
+    // Funnel Builder was reachable only from a button inside Marketing Studio,
+    // so it appeared in neither the sidebar nor the command palette.
+    { name: "Funnel Builder", icon: Clapperboard, href: "/funnels" },
     { name: "Brand DNA", icon: Palette, href: "/brands" },
   ]},
   { label: "Operations", items: [
