@@ -6,6 +6,7 @@ import { Fragment, type ReactNode, useCallback, useEffect, useState } from "reac
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
+  ArrowUpRight,
   BookOpenCheck,
   BriefcaseBusiness,
   CalendarCheck,
@@ -22,6 +23,7 @@ import {
   Settings2,
   UserCheck,
   Users,
+  UserSearch,
   UsersRound,
   X,
 } from "lucide-react";
@@ -33,6 +35,14 @@ import { cn } from "@/lib/utils";
 
 export type HRMSRole = "hr_admin" | "manager" | "employee" | "finance";
 export type HRMSTab = "self" | "overview" | "team" | "people" | "attendance" | "leave" | "onboarding" | "lifecycle" | "goals" | "learning" | "claims" | "payslips" | "documents" | "settings";
+/**
+ * Menu entries that hand off to another application instead of rendering a
+ * section here. Kept out of `HRMSTab` on purpose: nothing in this workspace can
+ * draw them, so they must never survive `?section=` resolution or become the
+ * fallback tab.
+ */
+export type HRMSExternalId = "recruitment";
+export type HRMSNavigationId = HRMSTab | HRMSExternalId;
 export type HRMSSession = {
   userId: string;
   name: string;
@@ -45,19 +55,27 @@ export type HRMSSession = {
 type NavigationGroup = "Workspace" | "Workforce" | "Development" | "Finance & records" | "Administration";
 
 export type HRMSNavigationItem = {
-  id: HRMSTab;
+  id: HRMSNavigationId;
   label: string;
   description: string;
   group: NavigationGroup;
   icon: LucideIcon;
   href: string;
+  /** An absolute link to another application, opened in its own tab. */
+  external?: boolean;
 };
+
+/** Narrows to the entries this workspace can actually render as a section. */
+export function isHRMSSection(item: HRMSNavigationItem): item is HRMSNavigationItem & { id: HRMSTab } {
+  return !item.external;
+}
 
 export const HRMS_NAV_ITEMS: HRMSNavigationItem[] = [
   { id: "self", label: "My HR", description: "Profile and personal requests", group: "Workspace", icon: UserCheck, href: "/hr?section=self" },
   { id: "overview", label: "Dashboard", description: "People operations overview", group: "Workspace", icon: LayoutDashboard, href: "/hr?section=overview" },
   { id: "team", label: "Team Hub", description: "News, calendar and organisation", group: "Workspace", icon: MessagesSquare, href: "/hr?section=team" },
   { id: "people", label: "People", description: "Directory and employee profiles", group: "Workforce", icon: Users, href: "/hr?section=people" },
+  { id: "recruitment", label: "Recruitment", description: "Job postings and applicants", group: "Workforce", icon: UserSearch, href: "https://kretivco-jobs-dashboard.vercel.app", external: true },
   { id: "attendance", label: "Attendance", description: "Clock-in and work records", group: "Workforce", icon: Clock3, href: "/hr?section=attendance" },
   { id: "leave", label: "Leave", description: "Balances, requests and approvals", group: "Workforce", icon: CalendarCheck, href: "/hr?section=leave" },
   { id: "onboarding", label: "Onboarding", description: "New joiner readiness", group: "Workforce", icon: ClipboardList, href: "/hr?section=onboarding" },
@@ -70,9 +88,9 @@ export const HRMS_NAV_ITEMS: HRMSNavigationItem[] = [
   { id: "settings", label: "Settings", description: "Lists, rules and policies", group: "Administration", icon: Settings2, href: "/hr?section=settings" },
 ];
 
-const PERMITTED_TABS: Record<HRMSRole, HRMSTab[]> = {
+const PERMITTED_TABS: Record<HRMSRole, HRMSNavigationId[]> = {
   hr_admin: HRMS_NAV_ITEMS.map((item) => item.id),
-  manager: ["self", "overview", "team", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
+  manager: ["self", "overview", "team", "people", "recruitment", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
   finance: ["self", "overview", "team", "people", "claims", "payslips", "documents"],
   employee: ["self", "team", "attendance", "leave", "goals", "learning", "claims", "payslips", "documents"],
 };
@@ -106,6 +124,18 @@ export function getPermittedHRMSNavigation(session: HRMSSession, viewAs?: HRMSRo
   const role = session.authEnabled === false ? (viewAs ?? "employee") : session.role;
   if (role === "hr_admin") return HRMS_NAV_ITEMS;
   return HRMS_NAV_ITEMS.filter((item) => PERMITTED_TABS[role].includes(item.id));
+}
+
+/**
+ * The permitted menu minus the hand-offs to other applications.
+ *
+ * Tab resolution reads this rather than the full menu: an external entry has no
+ * section to show, so treating it as one would leave the workspace blank — and
+ * as the *first* permitted entry it would become the fallback for every
+ * unrecognised `?section=`.
+ */
+export function getHRMSSectionNavigation(session: HRMSSession, viewAs?: HRMSRole | null) {
+  return getPermittedHRMSNavigation(session, viewAs).filter(isHRMSSection);
 }
 
 /**
@@ -168,6 +198,13 @@ function SidebarContent({
 
   function navigate(item: HRMSNavigationItem) {
     onClose?.();
+    // Another application entirely, so it gets its own tab: the HR workspace
+    // keeps unsaved editor state, and returning is a tab switch rather than a
+    // reload and a re-navigation back to the section they were on.
+    if (!isHRMSSection(item)) {
+      window.open(item.href, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (onNavigate) onNavigate(item.id);
     else router.push(item.href);
   }
@@ -204,10 +241,12 @@ function SidebarContent({
             aria-current={active ? "page" : undefined}
           >
             <Icon className={cn("h-4 w-4 shrink-0", active ? "text-accent-muted" : "text-white/45 group-hover:text-white/75")} />
-            <span className="min-w-0">
+            <span className="min-w-0 flex-1">
               <span className="block text-[13px] font-medium">{item.label}</span>
               <span className={cn("mt-0.5 block truncate text-[10px]", active ? "text-white/55" : "text-white/32")}>{item.description}</span>
             </span>
+            {/* Says before the click that this leaves KretivOS. */}
+            {item.external && <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-white/30 group-hover:text-white/60" />}
           </button>
         </Fragment>;
       })}
