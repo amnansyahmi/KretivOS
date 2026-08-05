@@ -13,15 +13,91 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/badge";
 import { eaAvailableYears, eaStatementsForYear, eaYearSummary, type EAStatement } from "@/lib/ea-form";
+import { buildExport, EXPORT_LABELS, EXPORTABLE_STATUSES, toCsv, type ExportKind } from "@/lib/statutory-exports";
 import { cn } from "@/lib/utils";
 
-type View = "runs" | "yearly" | "vouchers";
+type View = "runs" | "monthly" | "yearly" | "vouchers";
 const money = (value: unknown) => `RM ${Number(value || 0).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 export function HRMSPayrollWorkbench({ records, vouchers, employees, employer, employeeName, canManage, onCreatePayroll, onEditPayroll, onPayrollAction, onCreateVoucher, onUpdateVoucher, onDeleteVoucher, onVoucherAction }: any) {
-  const [view, setView] = useState<View>("runs"); const tabs: { id: View; label: string }[] = canManage ? [{ id: "runs", label: "Payroll runs" }, { id: "yearly", label: "Yearly forms" }, { id: "vouchers", label: "Payment vouchers" }] : [{ id: "runs", label: "My payslips" }];
-  return <div className="space-y-4">{canManage && <div className="overflow-x-auto rounded-2xl border bg-card p-1.5 shadow-sm"><div className="flex min-w-max gap-1">{tabs.map((item) => <button key={item.id} onClick={() => setView(item.id)} className={cn("rounded-xl px-4 py-2.5 text-xs font-semibold sm:text-sm", view === item.id ? "bg-foreground text-white" : "text-muted-foreground")}>{item.label}</button>)}</div></div>}{view === "runs" && <><HRPayroll records={records} employeeName={employeeName} canManage={canManage} onCreate={onCreatePayroll} onEdit={onEditPayroll} onAction={onPayrollAction} />{canManage && <PayrollAI records={records} />}</>}{view === "yearly" && <Yearly records={records} employees={employees} employer={employer} />}{view === "vouchers" && <Vouchers vouchers={vouchers} employees={employees} onCreate={onCreateVoucher} onUpdate={onUpdateVoucher} onDelete={onDeleteVoucher} onAction={onVoucherAction} />}</div>;
+  const [view, setView] = useState<View>("runs"); const tabs: { id: View; label: string }[] = canManage ? [{ id: "runs", label: "Payroll runs" }, { id: "monthly", label: "Monthly submissions" }, { id: "yearly", label: "Yearly forms" }, { id: "vouchers", label: "Payment vouchers" }] : [{ id: "runs", label: "My payslips" }];
+  return <div className="space-y-4">{canManage && <div className="overflow-x-auto rounded-2xl border bg-card p-1.5 shadow-sm"><div className="flex min-w-max gap-1">{tabs.map((item) => <button key={item.id} onClick={() => setView(item.id)} className={cn("rounded-xl px-4 py-2.5 text-xs font-semibold sm:text-sm", view === item.id ? "bg-foreground text-white" : "text-muted-foreground")}>{item.label}</button>)}</div></div>}{view === "runs" && <><HRPayroll records={records} employeeName={employeeName} canManage={canManage} onCreate={onCreatePayroll} onEdit={onEditPayroll} onAction={onPayrollAction} />{canManage && <PayrollAI records={records} />}</>}{view === "monthly" && <MonthlySubmissions records={records} employees={employees} employer={employer} />}{view === "yearly" && <Yearly records={records} employees={employees} employer={employer} />}{view === "vouchers" && <Vouchers vouchers={vouchers} employees={employees} onCreate={onCreateVoucher} onUpdate={onUpdateVoucher} onDelete={onDeleteVoucher} onAction={onVoucherAction} />}</div>;
+}
+
+/**
+ * The four files that go out every month.
+ *
+ * Shown together because they are one task done four times, and because their
+ * totals should reconcile against each other — the EPF payment, the PERKESO
+ * payment, the CP39 and the bank file are all views of the same closed payroll.
+ * Warnings are shown before the download rather than after, since a missing
+ * identifier is fixed in the employee record and the file regenerated.
+ */
+function MonthlySubmissions({ records, employees, employer }: any) {
+  const periods = useMemo(() => [...new Set<string>(
+    (records as any[])
+      .filter((item) => EXPORTABLE_STATUSES.includes(String(item.status)))
+      .map((item) => String(item.period || ""))
+      .filter(Boolean),
+  )].sort().reverse(), [records]);
+  const [period, setPeriod] = useState(() => periods[0] ?? today().slice(0, 7));
+
+  const exportEmployees = useMemo(() => (employees as any[]).map((item) => ({
+    id: item.id, name: item.name, employeeNumber: item.employeeNumber,
+    identificationNumber: item.identificationNumber, incomeTaxNumber: item.incomeTaxNumber,
+    epfNumber: item.epfNumber, socsoNumber: item.socsoNumber,
+    bankName: item.bankName, bankAccountNumber: item.bankAccountNumber,
+  })), [employees]);
+
+  const files = useMemo(() => (Object.keys(EXPORT_LABELS) as ExportKind[]).map((kind) => ({
+    kind,
+    ...EXPORT_LABELS[kind],
+    file: buildExport(kind, records, exportEmployees, period, {
+      name: employer?.name, employerNumber: employer?.employerNumber,
+      registrationNumber: employer?.registrationNumber, bankAccountNumber: employer?.bankAccountNumber,
+      epfEmployerNumber: employer?.epfNumber, socsoEmployerNumber: employer?.socsoNumber,
+    }),
+  })), [records, exportEmployees, period, employer]);
+
+  function download(kind: ExportKind) {
+    const entry = files.find((item) => item.kind === kind);
+    if (!entry) return;
+    const url = URL.createObjectURL(new Blob([toCsv(entry.file)], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = entry.file.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return <div className="space-y-4">
+    <Card className="border-amber-200 bg-amber-50"><CardContent className="flex gap-3 p-4"><ShieldCheck className="h-4 w-4 shrink-0 text-amber-700" /><p className="text-xs leading-5 text-amber-900">Built from closed and paid payroll only. These are CSV files carrying the right figures and identifiers — check them against the layout your portal expects before uploading, and reconcile the totals against the payment you make.</p></CardContent></Card>
+
+    <Card className="bg-card"><CardContent className="p-5">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs font-medium">Period<Select className="mt-2" value={period} onChange={(e) => setPeriod(e.target.value)}>{[...new Set([period, ...periods])].map((item) => <option key={item}>{item}</option>)}</Select></label>
+      </div>
+      {!periods.length && <p className="mt-4 text-xs text-muted-foreground">No closed payroll yet, so there is nothing to submit.</p>}
+    </CardContent></Card>
+
+    <div className="grid gap-4 md:grid-cols-2">{files.map(({ kind, label, note, file }) => <Card key={kind} className="bg-card"><CardContent className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-accent" /><b className="text-sm">{label}</b></div>
+          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{note}</p>
+        </div>
+        <Button size="sm" variant="outline" disabled={!file.rows.length} onClick={() => download(kind)}><Download className="h-3.5 w-3.5" />CSV</Button>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
+        <span>{file.rows.length} row{file.rows.length === 1 ? "" : "s"}</span>
+        <span>Total {money(file.totals[file.totals.length - 1] || file.totals.find((value) => typeof value === "number") || 0)}</span>
+      </div>
+      {file.warnings.length > 0 && <ul className="mt-3 list-disc space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-3 pl-7 text-[11px] leading-5 text-amber-900">
+        {file.warnings.map((warning: string) => <li key={warning}>{warning}</li>)}
+      </ul>}
+    </CardContent></Card>)}</div>
+  </div>;
 }
 
 function PayrollAI({ records }: any) { const period = String(([...new Set<string>(records.map((item: any) => String(item.period || "")).filter(Boolean))].sort().reverse()[0]) || "Current period"); const metrics = records.filter((item: any) => item.period === period).map((item: any, index: number) => ({ label: `Employee ${index + 1}`, status: item.status, grossPay: Number(item.grossPay || 0), netPay: Number(item.netPay || 0), totalDeductions: Number(item.totalDeductions || 0), epfEmployee: Number(item.epfEmployee || 0), socsoEmployee: Number(item.socsoEmployee || 0), eisEmployee: Number(item.eisEmployee || 0), pcb: Number(item.pcb || 0), hasVerificationNote: Boolean(item.verificationNote) })); return <HRMSAIInsight task="payroll_review" period={period} metrics={metrics} context="Flag completeness or unusual differences only. Do not calculate or confirm statutory compliance." label="Review payroll" />; }
