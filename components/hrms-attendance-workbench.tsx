@@ -63,16 +63,20 @@ function OvertimeReview({ employees, attendance, payroll, settings, publicHolida
   const [status, setStatus] = useState("Pending");
   const nameOf = (id: string) => employees.find((item: any) => item.id === id)?.name || "Unknown";
   /*
-   * A salary lives on the payroll line, not the employee, so the wage used to
-   * price an hour is the one from that month's payroll — or the most recent
-   * earlier month, since overtime is usually reviewed before the period is
-   * created. A manager only ever sees their own payroll, so for them this comes
-   * back as nothing and the amount column shows a dash rather than a number
-   * they are not entitled to.
+   * That month's payroll first, since it is what was actually paid; then the
+   * agreed salary on the employee record, because overtime is usually reviewed
+   * before the period exists; then the most recent earlier month. A manager
+   * sees neither their colleagues' payroll nor their salary, so for them this
+   * comes back as nothing and the amount column shows a dash rather than a
+   * figure they are not entitled to.
    */
   const wageOf = (id: string, forMonth: string) => {
     const exact = (payroll || []).find((item: any) => item.employeeId === id && item.period === forMonth);
     if (exact) return Number(exact.basicSalary || 0);
+    // The agreed salary on the employee record, which is what a month with no
+    // payroll line yet would be paid from.
+    const agreed = Number(employees.find((item: any) => item.id === id)?.basicSalary || 0);
+    if (agreed > 0) return agreed;
     const earlier = (payroll || [])
       .filter((item: any) => item.employeeId === id && String(item.period || "") <= forMonth)
       .sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)))[0];

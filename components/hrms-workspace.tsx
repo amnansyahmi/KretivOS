@@ -194,7 +194,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
       learning: { ...common, employeeId: firstEmployee, title: "", provider: "", status: "Planned", progress: 0, dueDate: today(), certification: "", notes: "" },
       documents: { ...common, title: "", category: "Policy", employeeId: "", reference: "", expiryDate: "", status: "Active", notes: "" },
       claims: { ...common, employeeId: firstEmployee, claimDate: today(), category: "General", amount: 0, description: "", receiptAssetId: "", status: "Pending" },
-      payroll: { ...common, employeeId: firstEmployee, period: today().slice(0, 7), basicSalary: 0, allowances: 0, overtime: 0, bonus: 0, epfEmployee: 0, epfEmployer: 0, socsoEmployee: 0, socsoEmployer: 0, eisEmployee: 0, eisEmployer: 0, pcb: 0, otherDeductions: 0, statutoryMode: "auto", statutoryProfileId: "my-default", verificationNote: "", status: "Draft" },
+      payroll: { ...common, employeeId: firstEmployee, period: today().slice(0, 7), basicSalary: Number(data.employees.find((item) => item.id === firstEmployee)?.basicSalary || 0), allowances: Number(data.employees.find((item) => item.id === firstEmployee)?.allowances || 0), overtime: 0, bonus: 0, epfEmployee: 0, epfEmployer: 0, socsoEmployee: 0, socsoEmployer: 0, eisEmployee: 0, eisEmployer: 0, pcb: 0, otherDeductions: 0, statutoryMode: "auto", statutoryProfileId: "my-default", verificationNote: "", status: "Draft" },
       lifecycle: { ...common, employeeId: firstEmployee, type: "Probation", title: "Probation review", dueDate: today(), status: "Open", notes: "", tasks: [{ id: uid(), label: "Manager review completed", done: false }, { id: uid(), label: "Confirmation decision recorded", done: false }] },
       announcements: { ...common, title: "", body: "", category: "General", status: "Published", publishAt: today(), expiresAt: "", pinned: false },
       events: { ...common, title: "", eventType: "Team event", startDate: today(), endDate: today(), location: "", description: "", status: "Scheduled" },
@@ -743,7 +743,20 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
   // same stale record and only the last would survive.
   const updateMany = (patch: Record<string, any>) => setEditor({ ...editor, record: { ...record, ...patch } });
   const employeeOptions = data.employees;
-  const employeeSelect = <Field label="Team member" wide><Select value={record.employeeId} disabled={session.role === "employee"} onChange={(e) => update("employeeId", e.target.value)} >{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field>;
+  /*
+   * Choosing a different person on a draft payroll line brings their own agreed
+   * pay with them. Without it the figures from the previous selection stay on
+   * screen and read as though they belong to whoever is now named.
+   */
+  function selectEmployee(employeeId: string) {
+    const chosen = employeeOptions.find((item: any) => item.id === employeeId);
+    if (editor.resource !== "employees" && editor.isNew && chosen && Number(chosen.basicSalary)) {
+      updateMany({ employeeId, basicSalary: Number(chosen.basicSalary || 0), allowances: Number(chosen.allowances || 0) });
+      return;
+    }
+    update("employeeId", employeeId);
+  }
+  const employeeSelect = <Field label="Team member" wide><Select value={record.employeeId} disabled={session.role === "employee"} onChange={(e) => selectEmployee(e.target.value)} >{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field>;
 
   return <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/45 sm:items-center sm:p-4">
     <Card className="max-h-[94dvh] w-full max-w-3xl overflow-y-auto rounded-b-none bg-background shadow-2xl sm:rounded-2xl">
@@ -793,6 +806,43 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
               {([["epfApplicable", "EPF"], ["socsoApplicable", "SOCSO"], ["eisApplicable", "EIS"]] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-xs font-medium"><input type="checkbox" className="h-4 w-4" checked={record[key] !== false} onChange={(e) => update(key, e.target.checked)} />{label} applies</label>)}
             </div>}
           </div>}
+          {/*
+            * HR Admin only, and separated from the rest of the form rather than
+            * mixed into it. Everything here is something the employee may see
+            * about themselves but must never set, and something a manager has
+            * no reason to read at all — so the boundary is worth being visible
+            * in the layout, not just enforced on the server.
+            */}
+          {admin && <div className="rounded-2xl border border-accent/25 bg-card p-4">
+            <div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Compensation and entitlement</h3><span className="rounded-full bg-accent/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent">HR Admin only</span></div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Current pay is held here rather than only on each month&rsquo;s payroll, so a new period and any overtime start from the agreed figure. Every change is kept with its date and who made it.</p>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Basic salary (RM / month)"><Input type="number" min="0" step="0.01" value={record.basicSalary ?? 0} onChange={(e) => update("basicSalary", Number(e.target.value))} /></Field>
+              <Field label="Fixed allowances (RM / month)"><Input type="number" min="0" step="0.01" value={record.allowances ?? 0} onChange={(e) => update("allowances", Number(e.target.value))} /></Field>
+              <Field label="Effective from"><DateInput value={record.salaryEffectiveFrom || ""} onChange={(e) => update("salaryEffectiveFrom", e.target.value)} /></Field>
+              <Field label="Reason for change"><Input value={record.salaryNote || ""} onChange={(e) => update("salaryNote", e.target.value)} placeholder="Annual review, promotion…" /></Field>
+            </div>
+
+            {Array.isArray(record.salaryHistory) && record.salaryHistory.length > 0 && <div className="mt-4 rounded-xl bg-background p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Salary history</div>
+              <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">{record.salaryHistory.slice(0, 5).map((entry: any, index: number) => <li key={index}>
+                RM {Number(entry.basicSalary || 0).toLocaleString("en-MY", { minimumFractionDigits: 2 })}{Number(entry.allowances) > 0 ? ` + ${Number(entry.allowances).toLocaleString("en-MY", { minimumFractionDigits: 2 })} allowances` : ""}
+                {entry.effectiveFrom ? ` from ${formatDate(entry.effectiveFrom)}` : ""}{entry.note ? ` · ${entry.note}` : ""}
+              </li>)}</ul>
+            </div>}
+
+            <div className="mt-5 border-t pt-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Leave entitlement</div>
+              <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Leave blank to use the entitlement their length of service earns. A figure here is a contractual promise and overrides it upwards; it cannot take them below the statutory minimum.</p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {toLeaveRules(data.settings.leaveTypes).filter((rule: LeaveTypeRule) => rule.deductsBalance).map((rule: LeaveTypeRule) => <Field key={rule.name} label={`${rule.name} (days)`}>
+                  <Input type="number" min="0" step="0.5" value={record.leaveEntitlements?.[rule.name] ?? ""} placeholder="By service" onChange={(e) => update("leaveEntitlements", { ...(record.leaveEntitlements || {}), [rule.name]: Number(e.target.value) })} />
+                </Field>)}
+              </div>
+            </div>
+          </div>}
+
           {/*
             * Steps are completed from the Onboarding tab and from My HR, not
             * here — a second set of tick boxes on the edit form would be a

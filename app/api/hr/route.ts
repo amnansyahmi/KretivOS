@@ -109,6 +109,39 @@ function payrollProfileMetadata(data: Record<string, any>) {
   };
 }
 
+/**
+ * Compensation, and the trail of how it got there.
+ *
+ * A salary field that is simply overwritten answers "what do they earn" and
+ * nothing else — not what they earned in March, not when the raise happened,
+ * not who approved it. Those are the questions actually asked, usually months
+ * later and usually in a disagreement, so each change appends rather than
+ * replaces. Only a real change is recorded; re-saving the form is not a raise.
+ */
+function compensationMetadata(data: Record<string, any>, previous: Record<string, any>, userId: string) {
+  const basicSalary = Math.max(0, number(data.basicSalary));
+  const allowances = Math.max(0, number(data.allowances));
+  const effectiveFrom = clean(data.salaryEffectiveFrom);
+  const changed = basicSalary !== number(previous.basicSalary)
+    || allowances !== number(previous.allowances)
+    || effectiveFrom !== clean(previous.salaryEffectiveFrom);
+
+  const history = array(previous.salaryHistory);
+  return {
+    basicSalary,
+    allowances,
+    salaryEffectiveFrom: effectiveFrom,
+    salaryHistory: changed
+      ? [{ basicSalary, allowances, effectiveFrom, changedAt: new Date().toISOString(), changedBy: userId, note: clean(data.salaryNote) }, ...history].slice(0, 50)
+      : history,
+    leaveEntitlements: Object.fromEntries(
+      Object.entries(object(data.leaveEntitlements))
+        .map(([name, days]) => [clean(name), Math.max(0, number(days))])
+        .filter(([name, days]) => name && Number(days) > 0),
+    ),
+  };
+}
+
 function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "") || "team.member";
 }
@@ -175,6 +208,22 @@ function mapEmployee(row: any) {
     employeeNumber: clean(metadata.employeeNumber),
     bankName: clean(metadata.bankName),
     bankAccountNumber: clean(metadata.bankAccountNumber),
+    /*
+     * Current pay, held on the person rather than only on each month's payroll.
+     * Payroll lines are a record of what was paid; this is what they are
+     * supposed to be paid, which is the thing a raise changes and the thing
+     * overtime is priced from before any payroll line for the month exists.
+     */
+    basicSalary: number(metadata.basicSalary),
+    allowances: number(metadata.allowances),
+    salaryEffectiveFrom: clean(metadata.salaryEffectiveFrom),
+    salaryHistory: array(metadata.salaryHistory),
+    /*
+     * Per-type entitlement overrides. `annualLeaveBalance` and
+     * `medicalLeaveBalance` predate this and are still honoured, so nobody's
+     * agreed entitlement disappears when the map is empty.
+     */
+    leaveEntitlements: object(metadata.leaveEntitlements),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -209,6 +258,9 @@ function withoutPersonalFinanceData(employee: ReturnType<typeof mapEmployee>) {
     identificationNumber: "", incomeTaxNumber: "", epfNumber: "", socsoNumber: "",
     dateOfBirth: "", maritalStatus: "", spouseWorking: false, childRelief: 0,
     bankName: "", bankAccountNumber: "",
+    // What somebody earns is the most sensitive field on the record and the
+    // least necessary for approving their leave.
+    basicSalary: 0, allowances: 0, salaryEffectiveFrom: "", salaryHistory: [],
     redacted: true,
   };
 }
@@ -371,7 +423,18 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
   if (session.role === "hr_admin") return { ...value, session: publicSession(session) };
   if (session.role === "finance") return {
     ...value,
-    employees: array(value.employees).map((item: any) => item.id === session.userId ? item : ({ id: item.id, name: item.name, title: item.title, department: item.department, status: item.status, workMode: item.workMode })),
+    /*
+     * Finance keeps pay and payment details for everyone — running payroll is
+     * the job — and nothing else. The personal half of the record, statutory
+     * identity aside, is not theirs to read.
+     */
+    employees: array(value.employees).map((item: any) => item.id === session.userId ? item : ({
+      id: item.id, name: item.name, title: item.title, department: item.department, status: item.status, workMode: item.workMode,
+      employeeNumber: item.employeeNumber, basicSalary: item.basicSalary, allowances: item.allowances,
+      bankName: item.bankName, bankAccountNumber: item.bankAccountNumber,
+      identificationNumber: item.identificationNumber, incomeTaxNumber: item.incomeTaxNumber,
+      epfNumber: item.epfNumber, socsoNumber: item.socsoNumber, dateOfBirth: item.dateOfBirth,
+    })),
     leaveRequests: own(array(value.leaveRequests)),
     attendance: own(array(value.attendance)),
     goals: own(array(value.goals)),
@@ -502,9 +565,11 @@ async function checkLeaveBalance(
   const policy = { ...defaultOperations.settings.leavePolicy, ...object(object(state.settings).leavePolicy) };
   const year = Number(clean(startDate).slice(0, 4));
   const requestMonth = Number(clean(startDate).slice(5, 7));
-  const recorded = rule.kind === "annual" ? employee.annualLeaveBalance
-    : rule.kind === "sick" ? employee.medicalLeaveBalance
-      : undefined;
+  const override = number(object(employee.leaveEntitlements)[type]);
+  const recorded = override > 0 ? override
+    : rule.kind === "annual" ? employee.annualLeaveBalance
+      : rule.kind === "sick" ? employee.medicalLeaveBalance
+        : undefined;
 
   const base = entitlementFor({ rules, typeName: type, startDate: employee.startDate, asOf: startDate, recordedDays: recorded });
   let entitlement = base.days;
@@ -802,6 +867,7 @@ export async function POST(request: NextRequest) {
           identificationNumber: clean(data.identificationNumber), incomeTaxNumber: clean(data.incomeTaxNumber),
           epfNumber: clean(data.epfNumber), socsoNumber: clean(data.socsoNumber), endDate: clean(data.endDate),
           ...payrollProfileMetadata(data),
+          ...compensationMetadata(data, {}, session.userId),
           annualLeaveBalance: number(data.annualLeaveBalance || 14), medicalLeaveBalance: number(data.medicalLeaveBalance || 14),
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
@@ -852,6 +918,7 @@ export async function POST(request: NextRequest) {
           identificationNumber: clean(data.identificationNumber), incomeTaxNumber: clean(data.incomeTaxNumber),
           epfNumber: clean(data.epfNumber), socsoNumber: clean(data.socsoNumber), endDate: clean(data.endDate),
           ...payrollProfileMetadata(data),
+          ...compensationMetadata(data, previousMetadata, session.userId),
           annualLeaveBalance: number(data.annualLeaveBalance), medicalLeaveBalance: number(data.medicalLeaveBalance),
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
