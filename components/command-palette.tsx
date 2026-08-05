@@ -12,7 +12,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight, Bot, Building2, CircleDollarSign, Clapperboard, ClipboardCheck, Code2, FileText,
+  ArrowRight, Bot, Building2, CircleDollarSign, Clapperboard, ClipboardCheck, ClipboardList, Code2, FileText,
   Library, Loader2, Palette, Search, Settings2, ShoppingCart, Sparkles, UsersRound, WandSparkles, Workflow, X,
 } from "lucide-react";
 import {
@@ -21,12 +21,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-type Destination = { label: string; href: string; group: string; icon: any; keywords?: string };
+/** `external` marks an href that leaves KretivOS for another application. */
+type Destination = { label: string; href: string; group: string; icon: any; keywords?: string; external?: boolean };
 type Hit = { id: string; type: string; title: string; subtitle: string; href: string };
 
 const DESTINATIONS: Destination[] = [
   { label: "Command Centre", href: "/", group: "Company", icon: Sparkles, keywords: "home dashboard overview" },
   { label: "Sales", href: "/sales?tab=overview", group: "Company", icon: Building2, keywords: "customers clients crm quotation order invoice receipt" },
+  { label: "Jobs Dashboard", href: "https://kretivco-jobs-dashboard.vercel.app", group: "Company", icon: ClipboardList, keywords: "jobs job order sales purchase board tracker", external: true },
   { label: "HR & Team", href: "/hr", group: "Company", icon: UsersRound, keywords: "hr people leave payroll attendance" },
   { label: "Approval Inbox", href: "/approvals", group: "Company", icon: ClipboardCheck, keywords: "approve pending" },
   { label: "Accounting", href: "/accounting", group: "Finance", icon: CircleDollarSign, keywords: "finance cash ledger money in out bills vendors reports settlements budget" },
@@ -106,8 +108,13 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
   useEffect(() => { setActive(0); }, [results.length]);
 
-  const go = useCallback((href: string) => {
+  const go = useCallback((href: string, external?: boolean) => {
     onOpenChange(false);
+    // Another application, so it opens in its own tab and KretivOS stays put.
+    if (external) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      return;
+    }
     router.push(href);
   }, [onOpenChange, router]);
 
@@ -122,7 +129,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     } else if (event.key === "Enter") {
       event.preventDefault();
       const selected = results[active];
-      if (selected) go(selected.kind === "destination" ? selected.item.href : selected.item.href);
+      if (selected) go(selected.item.href, selected.kind === "destination" && selected.item.external);
     }
   }
 
@@ -177,14 +184,14 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
           const Icon = result.kind === "destination" ? result.item.icon : FileText;
           const title = result.kind === "destination" ? result.item.label : result.item.title;
-          const subtitle = result.kind === "destination" ? "Workspace" : `${result.item.type}${result.item.subtitle ? ` · ${result.item.subtitle}` : ""}`;
+          const subtitle = result.kind === "destination" ? (result.item.external ? "Opens in a new tab" : "Workspace") : `${result.item.type}${result.item.subtitle ? ` · ${result.item.subtitle}` : ""}`;
 
           return <div key={result.kind === "destination" ? result.item.href : result.item.id}>
             {header && <div className="px-3 pb-1 pt-3 text-[9px] font-semibold uppercase tracking-[.18em] text-muted-foreground">{header}</div>}
             <button
               data-index={current}
               onMouseEnter={() => setActive(current)}
-              onClick={() => go(result.item.href)}
+              onClick={() => go(result.item.href, result.kind === "destination" && result.item.external)}
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left",
                 current === active ? "bg-background" : "hover:bg-card",

@@ -9,6 +9,9 @@ import { DateInput, MonthInput } from "@/components/date-input";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { StatusBadge } from "@/components/ui/badge";
+import { classifyDay, hourlyRate, multiplierFor, overtimeStatusOf, toOvertimeRules } from "@/lib/overtime";
+import { DEFAULT_REST_DAYS } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
 type View = "today" | "timesheet" | "shifts" | "overtime" | "lateness";
@@ -22,14 +25,15 @@ const display = (value: string) => parseDate(value).toLocaleDateString("en-MY", 
 const duration = (value: unknown) => { const minutes = Math.max(0, Number(value || 0)); return `${Math.floor(minutes / 60)}h ${minutes % 60}m`; };
 const active = (employees: any[]) => employees.filter((item) => item.status === "active");
 
-export function HRMSAttendanceWorkbench({ employees, attendance, leaveRequests, shifts, settings, role, query, todayContent, correctionsContent, onCreateShift, onUpdateShift, onDeleteShift }: any) {
+export function HRMSAttendanceWorkbench({ employees, attendance, leaveRequests, shifts, payroll, settings, publicHolidays, role, query, todayContent, correctionsContent, onCreateShift, onUpdateShift, onDeleteShift, onReviewOvertime }: any) {
   const [view, setView] = useState<View>("today");
   const today = localDate(); const current = attendance.filter((item: any) => item.date === today); const team = active(employees);
   const present = new Set(current.filter((item: any) => item.checkIn || ["Present", "WFH", "Client Site"].includes(item.status)).map((item: any) => item.employeeId)).size;
   const leave = new Set([...current.filter((item: any) => item.status === "Leave").map((item: any) => item.employeeId), ...leaveRequests.filter((item: any) => item.status === "Approved" && item.startDate <= today && item.endDate >= today).map((item: any) => item.employeeId)]).size;
   return <div className="space-y-4"><div className="overflow-x-auto rounded-2xl border bg-card p-1.5 shadow-sm"><div className="flex min-w-max gap-1">{views.map((item) => <button key={item.id} onClick={() => setView(item.id)} className={cn("rounded-xl px-4 py-2.5 text-xs font-semibold sm:text-sm", view === item.id ? "bg-foreground text-white" : "text-muted-foreground hover:bg-background")}>{item.label}</button>)}</div></div>
     {view === "today" && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Stat label="Team members" value={team.length} icon={Users} /><Stat label="Clocked in" value={present} icon={Clock3} /><Stat label="Not clocked" value={Math.max(0, team.length - present - leave)} icon={Clock3} /><Stat label="On leave" value={leave} icon={CalendarDays} /></div>{todayContent}{correctionsContent}</div>}
-    {(["timesheet", "overtime", "lateness"] as View[]).includes(view) && <AttendanceReport mode={view} employees={employees} attendance={attendance} query={query} role={role} />}
+    {view === "overtime" && <OvertimeReview employees={employees} attendance={attendance} payroll={payroll} settings={settings} publicHolidays={publicHolidays} canReview={["hr_admin", "manager"].includes(role)} onReview={onReviewOvertime} />}
+    {(["timesheet", "lateness"] as View[]).includes(view) && <AttendanceReport mode={view} employees={employees} attendance={attendance} query={query} role={role} />}
     {view === "shifts" && <ShiftPlanner employees={employees} shifts={shifts} settings={settings} canManage={["hr_admin", "manager"].includes(role)} onCreate={onCreateShift} onUpdate={onUpdateShift} onDelete={onDeleteShift} />}
   </div>;
 }
@@ -42,6 +46,98 @@ function AttendanceReport({ mode, employees, attendance, query, role }: any) {
   const rows = useMemo(() => active(employees).filter((employee: any) => (!department || employee.department === department) && (!employeeId || employee.id === employeeId) && (!query || `${employee.name} ${employee.department}`.toLowerCase().includes(String(query).toLowerCase()))).map((employee: any, index: number) => { const records = attendance.filter((item: any) => item.employeeId === employee.id && String(item.date).startsWith(month)); return { label: `Employee ${index + 1}`, name: employee.name, department: employee.department, present: records.filter((item: any) => item.checkIn || ["Present", "WFH", "Client Site"].includes(item.status)).length, leave: records.filter((item: any) => item.status === "Leave").length, worked: records.reduce((sum: number, item: any) => sum + Number(item.durationMinutes || 0), 0), overtime: records.reduce((sum: number, item: any) => sum + Number(item.overtimeMinutes || 0), 0), late: records.reduce((sum: number, item: any) => sum + Number(item.lateMinutes || 0), 0) }; }), [attendance, department, employeeId, employees, month, query]);
   const aiRows = rows.map(({ label, department, present, leave, worked, overtime, late }: any) => ({ label, department, presentDays: present, leaveDays: leave, workedMinutes: worked, overtimeMinutes: overtime, lateMinutes: late }));
   return <div className="space-y-4"><Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-end gap-3"><div className="flex-1"><h2 className="font-semibold">{mode === "timesheet" ? "Monthly timesheet" : mode === "overtime" ? "Overtime report" : "Lateness report"}</h2><p className="mt-1 text-xs text-muted-foreground">Derived from verified attendance records.</p></div><Button variant="outline" onClick={() => window.print()}><Printer className="h-4 w-4" />Print</Button></div><div className="mt-5 grid gap-3 md:grid-cols-3"><Field label="Month"><MonthInput value={month} onChange={(e) => setMonth(e.target.value)} /></Field><Field label="Department"><Select value={department} onChange={(e) => setDepartment(e.target.value)}><option value="">All departments</option>{departments.map((item) => <option key={item}>{item}</option>)}</Select></Field><Field label="Team member"><Select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}><option value="">All team members</option>{active(employees).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field></div></CardContent></Card>{["hr_admin", "manager"].includes(role) && <HRMSAIInsight task="attendance_review" period={month} metrics={aiRows} context={`Report view: ${mode}`} label="Analyse attendance" />}<Card className="overflow-hidden border-black/8 bg-white/90"><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-background"><tr><th className="p-4">Team member</th><th className="p-4">Department</th><th className="p-4">Present</th><th className="p-4">Worked</th><th className="p-4">Overtime</th><th className="p-4">Late</th></tr></thead><tbody>{rows.map((row: any) => <tr key={row.name} className="border-t"><td className="p-4 font-semibold">{row.name}</td><td className="p-4 text-muted-foreground">{row.department}</td><td className="p-4">{row.present} days</td><td className="p-4">{duration(row.worked)}</td><td className="p-4">{duration(row.overtime)}</td><td className="p-4">{duration(row.late)}</td></tr>)}{!rows.length && <tr><td colSpan={6} className="p-10 text-center text-muted-foreground">No matching records.</td></tr>}</tbody></table></div></CardContent></Card></div>;
+}
+
+/**
+ * Overtime waiting to be reviewed, and what it will cost once it is.
+ *
+ * The report this replaced totalled overtime minutes per employee, which was
+ * information without a decision attached — you could see that somebody worked
+ * forty hours of overtime and do nothing about it from that screen. Since those
+ * minutes now become money, the screen that shows them is the screen that
+ * approves them, and the amount is shown before the decision rather than
+ * discovered on the payslip.
+ */
+function OvertimeReview({ employees, attendance, payroll, settings, publicHolidays, canReview, onReview }: any) {
+  const [month, setMonth] = useState(localDate().slice(0, 7));
+  const [status, setStatus] = useState("Pending");
+  const nameOf = (id: string) => employees.find((item: any) => item.id === id)?.name || "Unknown";
+  /*
+   * That month's payroll first, since it is what was actually paid; then the
+   * agreed salary on the employee record, because overtime is usually reviewed
+   * before the period exists; then the most recent earlier month. A manager
+   * sees neither their colleagues' payroll nor their salary, so for them this
+   * comes back as nothing and the amount column shows a dash rather than a
+   * figure they are not entitled to.
+   */
+  const wageOf = (id: string, forMonth: string) => {
+    const exact = (payroll || []).find((item: any) => item.employeeId === id && item.period === forMonth);
+    if (exact) return Number(exact.basicSalary || 0);
+    // The agreed salary on the employee record, which is what a month with no
+    // payroll line yet would be paid from.
+    const agreed = Number(employees.find((item: any) => item.id === id)?.basicSalary || 0);
+    if (agreed > 0) return agreed;
+    const earlier = (payroll || [])
+      .filter((item: any) => item.employeeId === id && String(item.period || "") <= forMonth)
+      .sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)))[0];
+    return Number(earlier?.basicSalary || 0);
+  };
+
+  const rules = toOvertimeRules(settings?.overtime);
+  const restDays = settings?.restDays?.length ? settings.restDays : DEFAULT_REST_DAYS;
+  const holidays = useMemo(() => new Set<string>((publicHolidays || []).map((item: any) => String(item.date))), [publicHolidays]);
+
+  const rows = useMemo(() => attendance
+    .filter((item: any) => String(item.date || "").startsWith(month) && Number(item.overtimeMinutes || 0) > 0 && item.status !== "Leave")
+    .map((item: any) => {
+      const kind = classifyDay(String(item.date), { restDays, holidays });
+      const hours = Math.round(Number(item.overtimeMinutes) / 60 * 100) / 100;
+      // Priced from the employee's own basic salary, which is on the employee
+      // record rather than the payroll line — a period may not exist yet.
+      const rate = hourlyRate(wageOf(item.employeeId, month), rules);
+      return {
+        ...item,
+        overtimeStatus: overtimeStatusOf(item),
+        kind, hours,
+        amount: rate > 0 ? Math.round(hours * rate * multiplierFor(kind, rules) * 100) / 100 : null,
+      };
+    })
+    .filter((item: any) => status === "All" || item.overtimeStatus === status)
+    .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date))), [attendance, month, status, restDays, holidays, employees, payroll]);
+
+  const pendingCost = rows.filter((row: any) => row.overtimeStatus === "Pending").reduce((sum: number, row: any) => sum + (row.amount ?? 0), 0);
+  const label = { normal: "Working day", rest_day: "Rest day", public_holiday: "Public holiday" } as Record<string, string>;
+
+  return <div className="space-y-4">
+    <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex-1">
+          <h2 className="font-semibold">Overtime review</h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Payroll pays approved overtime only. Anything left pending is worked but unpaid, and is reported on the payroll line rather than dropped.</p>
+        </div>
+        <Field label="Month"><MonthInput value={month} onChange={(e) => setMonth(e.target.value)} /></Field>
+        <Field label="Status"><Select value={status} onChange={(e) => setStatus(e.target.value)}>{["Pending", "Approved", "Rejected", "All"].map((item) => <option key={item}>{item}</option>)}</Select></Field>
+      </div>
+      {pendingCost > 0 && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">RM {pendingCost.toFixed(2)} of overtime is waiting for a decision this month.</p>}
+    </CardContent></Card>
+
+    <Card className="overflow-hidden border-black/8 bg-white/90"><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-xs">
+      <thead className="bg-background"><tr><th className="p-4">Date</th><th className="p-4">Team member</th><th className="p-4">Kind of day</th><th className="p-4">Hours</th><th className="p-4">Amount</th><th className="p-4">Status</th>{canReview && <th className="p-4">Review</th>}</tr></thead>
+      <tbody>{rows.map((row: any) => <tr key={row.id} className="border-t">
+        <td className="p-4">{display(row.date)}</td>
+        <td className="p-4 font-semibold">{nameOf(row.employeeId)}</td>
+        <td className="p-4 text-muted-foreground">{label[row.kind]} × {multiplierFor(row.kind, rules)}</td>
+        <td className="p-4">{row.hours}h</td>
+        <td className="p-4 tabular-nums">{row.amount === null ? "—" : `RM ${row.amount.toFixed(2)}`}</td>
+        <td className="p-4"><StatusBadge value={row.overtimeStatus} /></td>
+        {canReview && <td className="p-4"><div className="flex gap-2">
+          {row.overtimeStatus !== "Approved" && <Button size="sm" onClick={() => onReview(row.id, "approve_overtime")}>Approve</Button>}
+          {row.overtimeStatus !== "Rejected" && <Button size="sm" variant="outline" onClick={() => onReview(row.id, "reject_overtime")}>Reject</Button>}
+        </div></td>}
+      </tr>)}
+      {!rows.length && <tr><td colSpan={canReview ? 7 : 6} className="p-10 text-center text-muted-foreground">No overtime {status === "All" ? "" : status.toLowerCase()} this month.</td></tr>}</tbody>
+    </table></div></CardContent></Card>
+  </div>;
 }
 
 function ShiftPlanner({ employees, shifts, settings, canManage, onCreate, onUpdate, onDelete }: any) {

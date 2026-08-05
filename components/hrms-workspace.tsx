@@ -36,6 +36,10 @@ import {
   HRLifecycle,
   HRSelfService,
 } from "@/components/hrms-extended-sections";
+import { DEFAULT_OVERTIME_RULES, toOvertimeRules } from "@/lib/overtime";
+import { DEFAULT_LEAVE_RULES, leaveTypeNames, toLeaveRules, type LeaveTypeRule } from "@/lib/leave-entitlement";
+import { SEEDED_PROFILE, toStatutoryProfile, type StatutoryProfile } from "@/lib/payroll-statutory";
+import { DEFAULT_REST_DAYS, fixedHolidays, mergeHolidays, missingGazettedHolidays, restDaysForState } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
 type Resource = "employees" | "leave" | "attendance" | "attendance_corrections" | "goals" | "learning" | "documents" | "claims" | "payroll" | "lifecycle" | "announcements" | "events";
@@ -59,9 +63,14 @@ type Snapshot = {
   paymentVouchers: any[];
   settings: {
     departments: string[];
-    leaveTypes: string[];
+    /** Rules now, not bare names — older blobs still hold strings and normalise on read. */
+    leaveTypes: any[];
     workModes: string[];
-    attendance?: { timezone?: string; shiftStart?: string; shiftEnd?: string; graceMinutes?: number; overtimeAfterMinutes?: number };
+    attendance?: {
+      timezone?: string; shiftStart?: string; shiftEnd?: string; graceMinutes?: number; overtimeAfterMinutes?: number;
+      /** Drives leave day counting and which multiple overtime is paid at. */
+      state?: string; restDays?: number[]; overtime?: Partial<typeof DEFAULT_OVERTIME_RULES>;
+    };
     leavePolicy?: { annualAccrual?: string; carryForwardDays?: number; carryForwardExpiryMonth?: number; prorateNewJoiner?: boolean };
     publicHolidays?: { date: string; name: string }[];
     statutoryProfiles?: any[];
@@ -166,6 +175,9 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
         ...common, name: "", email: "", title: "", department: data.settings.departments[0] || "Leadership",
         employmentType: "Core Team", workMode: data.settings.workModes[0] || "Hybrid", location: "", startDate: today(),
         phone: "", emergencyContact: "", annualLeaveBalance: 14, medicalLeaveBalance: 14, carryForwardLeaveBalance: 0, role: "employee", skills: [], notes: "",
+        employeeNumber: "", dateOfBirth: "", identificationNumber: "", incomeTaxNumber: "", epfNumber: "", socsoNumber: "",
+        nationality: "Malaysian", taxResident: true, maritalStatus: "Single", spouseWorking: false, childRelief: 0,
+        epfApplicable: true, socsoApplicable: true, eisApplicable: true, bankName: "", bankAccountNumber: "",
         status: "active", onboarding: [
           { id: uid(), label: "Personal and contact details", done: false },
           { id: uid(), label: "Employment terms acknowledged", done: false },
@@ -175,14 +187,14 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
           { id: uid(), label: "First-week check-in", done: false },
         ],
       },
-      leave: { ...common, employeeId: firstEmployee, type: data.settings.leaveTypes[0] || "Annual Leave", startDate: today(), endDate: today(), reason: "", status: "Pending" },
+      leave: { ...common, employeeId: firstEmployee, type: leaveTypeNames(toLeaveRules(data.settings.leaveTypes))[0] || "Annual Leave", startDate: today(), endDate: today(), reason: "", status: "Pending" },
       attendance: { ...common, employeeId: firstEmployee, date: today(), status: "Present", workMode: "Office", checkIn: "", checkOut: "", note: "" },
       attendance_corrections: { ...common, employeeId: firstEmployee, attendanceId: "", date: today(), requestedCheckIn: "", requestedCheckOut: "", reason: "", status: "Pending" },
       goals: { ...common, employeeId: firstEmployee, title: "", period: "Q3 2026", dueDate: today(), progress: 0, status: "Not started", notes: "" },
       learning: { ...common, employeeId: firstEmployee, title: "", provider: "", status: "Planned", progress: 0, dueDate: today(), certification: "", notes: "" },
       documents: { ...common, title: "", category: "Policy", employeeId: "", reference: "", expiryDate: "", status: "Active", notes: "" },
       claims: { ...common, employeeId: firstEmployee, claimDate: today(), category: "General", amount: 0, description: "", receiptAssetId: "", status: "Pending" },
-      payroll: { ...common, employeeId: firstEmployee, period: today().slice(0, 7), basicSalary: 0, allowances: 0, overtime: 0, bonus: 0, epfEmployee: 0, epfEmployer: 0, socsoEmployee: 0, socsoEmployer: 0, eisEmployee: 0, eisEmployer: 0, pcb: 0, otherDeductions: 0, statutoryProfileId: "my-default", verificationNote: "", status: "Draft" },
+      payroll: { ...common, employeeId: firstEmployee, period: today().slice(0, 7), basicSalary: Number(data.employees.find((item) => item.id === firstEmployee)?.basicSalary || 0), allowances: Number(data.employees.find((item) => item.id === firstEmployee)?.allowances || 0), overtime: 0, bonus: 0, epfEmployee: 0, epfEmployer: 0, socsoEmployee: 0, socsoEmployer: 0, eisEmployee: 0, eisEmployer: 0, pcb: 0, otherDeductions: 0, statutoryMode: "auto", statutoryProfileId: "my-default", verificationNote: "", status: "Draft" },
       lifecycle: { ...common, employeeId: firstEmployee, type: "Probation", title: "Probation review", dueDate: today(), status: "Open", notes: "", tasks: [{ id: uid(), label: "Manager review completed", done: false }, { id: uid(), label: "Confirmation decision recorded", done: false }] },
       announcements: { ...common, title: "", body: "", category: "General", status: "Published", publishAt: today(), expiresAt: "", pinned: false },
       events: { ...common, title: "", eventType: "Team event", startDate: today(), endDate: today(), location: "", description: "", status: "Scheduled" },
@@ -233,7 +245,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     finally { setSaving(false); }
   }
 
-  async function recordAction(resource: "claims" | "attendance_corrections" | "payroll", id: string, action: string) {
+  async function recordAction(resource: "claims" | "attendance_corrections" | "payroll" | "attendance", id: string, action: string) {
     const note = ["reject", "approve"].includes(action) ? window.prompt("Optional review note:") || "" : "";
     setSaving(true); setError("");
     try {
@@ -257,12 +269,19 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     await managedMutation({ operation: "delete", resource, id });
   }
 
-  async function toggleOnboarding(employee: any, itemId: string) {
-    const onboarding = (employee.onboarding || []).map((item: any) => item.id === itemId ? { ...item, done: !item.done } : item);
+  /**
+   * One step, by id.
+   *
+   * It used to send the whole employee back with a flipped boolean, which meant
+   * an employee could not tick anything — the write needed permission over the
+   * entire record — and two people ticking at once silently overwrote each
+   * other. The server now owns the step and decides who may close it.
+   */
+  async function completeStep(employeeId: string, stepId: string, done = true) {
     setSaving(true); setError("");
     try {
-      setData(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation: "update", resource: "employees", id: employee.id, data: { ...employee, onboarding } }) }));
-      setNotice("Onboarding checklist updated.");
+      setData(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation: "onboarding", resource: "employees", id: employeeId, data: { stepId, done } }) }));
+      setNotice("Onboarding updated.");
     } catch (value) { setError(value instanceof Error ? value.message : "Unable to update onboarding."); }
     finally { setSaving(false); }
   }
@@ -308,7 +327,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
           <>
             {!(["self", "overview", "payslips", "settings"] as Tab[]).includes(tab) && <div className="kretivos-search-control mb-4 flex h-11 items-center gap-2 rounded-xl border bg-card px-3"><Search className="h-5 w-5 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={`Search ${tabs.find((item) => item.id === tab)?.label.toLowerCase()}...`} /></div>}
 
-            {tab === "self" && <HRSelfService session={session} employee={data.employees.find((item) => item.id === session.userId)} leave={data.leaveRequests.filter((item) => item.employeeId === session.userId)} attendance={data.attendance.filter((item) => item.employeeId === session.userId)} claims={data.claims.filter((item) => item.employeeId === session.userId)} payroll={data.payroll.filter((item) => item.employeeId === session.userId)} onEdit={(employee: any) => openEdit("employees", employee)} onCreate={(resource: Resource) => openCreate(resource, session.userId)} onNavigate={changeTab} />}
+            {tab === "self" && <HRSelfService session={session} employee={data.employees.find((item) => item.id === session.userId)} leave={data.leaveRequests.filter((item) => item.employeeId === session.userId)} attendance={data.attendance.filter((item) => item.employeeId === session.userId)} claims={data.claims.filter((item) => item.employeeId === session.userId)} payroll={data.payroll.filter((item) => item.employeeId === session.userId)} documents={data.documents} onEdit={(employee: any) => openEdit("employees", employee)} onCreate={(resource: Resource) => openCreate(resource, session.userId)} onNavigate={changeTab} onCompleteStep={(stepId: string) => completeStep(session.userId, stepId)} />}
 
             {tab === "overview" && <Overview data={data} stats={stats} employeeName={employeeName} setTab={changeTab} />}
 
@@ -348,9 +367,38 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
             {tab === "onboarding" && <div className="grid gap-4 xl:grid-cols-2">
               {data.employees.filter((employee) => matches(employee.name, employee.title, employee.department)).map((employee) => {
                 const checklist = employee.onboarding || [];
-                const done = checklist.filter((item: any) => item.done).length;
-                const progress = checklist.length ? Math.round(done / checklist.length * 100) : 0;
-                return <Card key={employee.id} className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground text-xs font-semibold text-white">{initials(employee.name)}</div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold">{employee.name}</h2><p className="mt-1 text-xs text-muted-foreground">{employee.title || "Role not set"} · Started {formatDate(employee.startDate)}</p></div><Status value={progress === 100 ? "Completed" : `${progress}% ready`} /></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-black/5"><div className="h-full rounded-full bg-accent" style={{ width: `${progress}%` }} /></div></div></div><div className="mt-5 space-y-2">{checklist.map((item: any) => <button key={item.id} disabled={saving} onClick={() => toggleOnboarding(employee, item.id)} className="flex w-full items-center gap-3 rounded-xl border bg-card p-3 text-left text-sm transition hover:border-accent/40 disabled:opacity-60" aria-label="Mark all read"><span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", item.done ? "border-foreground bg-foreground text-white" : "bg-card")}>{item.done && <Check className="h-3.5 w-3.5" />}</span><span className={cn(item.done && "text-muted-foreground line-through")}>{item.label}</span></button>)}</div><Button variant="outline" className="mt-4 w-full" onClick={() => openEdit("employees", employee)}><Pencil className="h-4 w-4" />Edit profile and checklist</Button></CardContent></Card>;
+                const summary = employee.onboardingSummary || { percent: 0, done: 0, total: checklist.length, waitingOnEmployee: 0, waitingOnHR: 0 };
+                return <Card key={employee.id} className="border-black/8 bg-white/90"><CardContent className="p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground text-xs font-semibold text-white">{initials(employee.name)}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div><h2 className="font-semibold">{employee.name}</h2><p className="mt-1 text-xs text-muted-foreground">{employee.title || "Role not set"} · Started {formatDate(employee.startDate)}</p></div>
+                        <Status value={summary.percent === 100 ? "Completed" : `${summary.percent}% ready`} />
+                      </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/5"><div className="h-full rounded-full bg-accent" style={{ width: `${summary.percent}%` }} /></div>
+                      {/* Which side is holding it up, so chasing is aimed at the right person. */}
+                      {summary.percent < 100 && <p className="mt-2 text-[11px] text-muted-foreground">{[summary.waitingOnEmployee ? `${summary.waitingOnEmployee} waiting on ${employee.name.split(" ")[0]}` : "", summary.waitingOnHR ? `${summary.waitingOnHR} waiting on HR` : ""].filter(Boolean).join(" · ")}</p>}
+                    </div>
+                  </div>
+                  <div className="mt-5 space-y-2">{checklist.map((item: any) => {
+                    // A details step is answered by the record, so it is shown
+                    // rather than offered as a button somebody could press.
+                    const derived = item.kind === "profile";
+                    const body = <>
+                      <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", item.done ? "border-foreground bg-foreground text-white" : "bg-card")}>{item.done && <Check className="h-3.5 w-3.5" />}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className={cn("block", item.done && "text-muted-foreground line-through")}>{item.label}</span>
+                        {derived && item.missing?.length > 0 && <span className="mt-0.5 block text-[10px] text-amber-700">Missing: {item.missing.join(", ")}</span>}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-black/5 px-2 py-0.5 text-[9px] font-medium text-muted-foreground">{item.owner === "employee" ? "Employee" : "HR"}</span>
+                    </>;
+                    return derived
+                      ? <div key={item.id} className="flex w-full items-center gap-3 rounded-xl border border-dashed bg-card p-3 text-left text-sm">{body}</div>
+                      : <button key={item.id} disabled={saving} onClick={() => completeStep(employee.id, item.id, !item.done)} className="flex w-full items-center gap-3 rounded-xl border bg-card p-3 text-left text-sm transition hover:border-accent/40 disabled:opacity-60">{body}</button>;
+                  })}</div>
+                  <Button variant="outline" className="mt-4 w-full" onClick={() => openEdit("employees", employee)}><Pencil className="h-4 w-4" />Edit profile and checklist</Button>
+                </CardContent></Card>;
               })}
               {!data.employees.length && <Empty icon={BookOpenCheck} title="No employee onboarding" note="Add the first employee to start an onboarding checklist." action={() => { changeTab("people"); openCreate("employees"); }} />}
             </div>}
@@ -367,7 +415,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
               </div>
             )}
 
-            {tab === "attendance" && <HRMSAttendanceWorkbench employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} leaveRequests={data.leaveRequests} shifts={data.shifts} settings={data.settings.attendance} role={session.role} query={query}
+            {tab === "attendance" && <HRMSAttendanceWorkbench employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} leaveRequests={data.leaveRequests} shifts={data.shifts} payroll={data.payroll} publicHolidays={data.settings.publicHolidays || []} settings={data.settings.attendance} role={session.role} query={query} onReviewOvertime={(id: string, action: string) => recordAction("attendance", id, action)}
               todayContent={<><div className="flex justify-end">{["hr_admin", "manager"].includes(session.role) && <Button asChild variant="outline" className="bg-card"><Link href="/hr/attendance-review"><ShieldCheck className="h-4 w-4" />Review attendance evidence</Link></Button>}</div><HRPhotoAttendance employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} query={query} onRefresh={load} onNotice={setNotice} onError={setError} /></>}
               correctionsContent={<HRAttendanceCorrections records={data.attendanceCorrections.filter((item) => matches(employeeName(item.employeeId), item.date, item.status, item.reason))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} onCreate={() => openCreate("attendance_corrections")} onEdit={(item: any) => openEdit("attendance_corrections", item)} onDelete={(id: string) => deleteRecord("attendance_corrections", id)} onAction={(id: string, action: string) => recordAction("attendance_corrections", id, action)} />}
               onCreateShift={(item: any) => managedMutation({ operation: "create", resource: "shifts", data: item })} onUpdateShift={(item: any) => managedMutation({ operation: "update", resource: "shifts", id: item.id, data: item })} onDeleteShift={(id: string) => deleteManaged("shifts", id)} />}
@@ -410,15 +458,25 @@ function Overview({ data, stats, employeeName, setTab }: any) {
 
 function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Snapshot["settings"]; saving: boolean; authEnabled: boolean; onSave: (settings: Snapshot["settings"]) => void }) {
   const [lists, setLists] = useState({ departments: "", leaveTypes: "", workModes: "" });
-  const [attendance, setAttendance] = useState({ timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540 });
+  const [attendance, setAttendance] = useState({
+    timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540,
+    state: "Selangor", restDays: DEFAULT_REST_DAYS, overtime: DEFAULT_OVERTIME_RULES,
+  });
   const [leavePolicy, setLeavePolicy] = useState({ annualAccrual: "annual", carryForwardDays: 5, carryForwardExpiryMonth: 3, prorateNewJoiner: true });
   const [holidays, setHolidays] = useState("");
-  const [statutory, setStatutory] = useState({ id: "my-default", name: "Malaysia · verify current rates", effectiveFrom: "2026-01-01", epfEmployeeRate: 11, epfEmployerRate: 12, eisEmployeeRate: 0.2, eisEmployerRate: 0.2, notes: "" });
+  const [leaveRules, setLeaveRules] = useState<LeaveTypeRule[]>(DEFAULT_LEAVE_RULES);
+  const [statutory, setStatutory] = useState<StatutoryProfile>(SEEDED_PROFILE);
+  // Bands and official tables are edited as text for the same reason public
+  // holidays are: they are transcribed from a published document, and a row of
+  // number inputs per band turns a paste into forty separate clicks.
+  const [taxBands, setTaxBands] = useState("");
+  const [socsoTable, setSocsoTable] = useState("");
+  const [eisTable, setEisTable] = useState("");
 
   useEffect(() => {
     setLists({
       departments: (settings.departments || []).join("\n"),
-      leaveTypes: (settings.leaveTypes || []).join("\n"),
+      leaveTypes: leaveTypeNames(toLeaveRules(settings.leaveTypes)).join("\n"),
       workModes: (settings.workModes || []).join("\n"),
     });
     setAttendance({
@@ -427,6 +485,9 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
       shiftEnd: settings.attendance?.shiftEnd || "18:00",
       graceMinutes: Number(settings.attendance?.graceMinutes ?? 15),
       overtimeAfterMinutes: Number(settings.attendance?.overtimeAfterMinutes ?? 540),
+      state: settings.attendance?.state || "Selangor",
+      restDays: settings.attendance?.restDays?.length ? settings.attendance.restDays : DEFAULT_REST_DAYS,
+      overtime: toOvertimeRules(settings.attendance?.overtime),
     });
     setLeavePolicy({
       annualAccrual: settings.leavePolicy?.annualAccrual || "annual",
@@ -435,31 +496,244 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
       prorateNewJoiner: settings.leavePolicy?.prorateNewJoiner !== false,
     });
     setHolidays((settings.publicHolidays || []).map((item) => `${item.date} | ${item.name}`).join("\n"));
-    const profile = settings.statutoryProfiles?.[0];
-    if (profile) setStatutory({ ...statutory, ...profile });
+    setLeaveRules(toLeaveRules(settings.leaveTypes));
+    // Normalised on the way in as well as the way out, so a profile still
+    // stored in the older flat shape opens with every field populated.
+    const profile = toStatutoryProfile(settings.statutoryProfiles?.[0] ?? null);
+    setStatutory(profile);
+    setTaxBands(profile.pcb.bands.map((band) => `${band.upTo ?? "above"} | ${band.rate}`).join("\n"));
+    setSocsoTable((profile.socso.table || []).map((band) => `${band.upTo} | ${band.employee} | ${band.employer}`).join("\n"));
+    setEisTable((profile.eis.table || []).map((band) => `${band.upTo} | ${band.employee} | ${band.employer}`).join("\n"));
   }, [settings]);
 
   const parseList = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+  /** "upTo | employee | employer" per line; a blank box means no table. */
+  const parseTable = (value: string) => value.split("\n").map((line) => {
+    const [upTo, employee, employer] = line.split("|").map((part) => Number(part.trim()));
+    return { upTo, employee, employer };
+  }).filter((band) => Number.isFinite(band.upTo) && band.upTo > 0 && Number.isFinite(band.employee) && Number.isFinite(band.employer));
+  /** "upTo | rate" per line; a final row with a non-numeric limit is the unbounded top band. */
+  const parseBands = (value: string) => value.split("\n").map((line) => {
+    const [upTo, rateValue] = line.split("|").map((part) => part.trim());
+    return { upTo: Number.isFinite(Number(upTo)) && upTo !== "" ? Number(upTo) : null, rate: Number(rateValue) || 0 };
+  }).filter((band) => band.upTo !== null || band.rate > 0);
+
   const submit = () => onSave({
     departments: parseList(lists.departments),
-    leaveTypes: parseList(lists.leaveTypes),
+    leaveTypes: parseList(lists.leaveTypes).map((name) => leaveRules.find((rule) => rule.name.toLowerCase() === name.toLowerCase()) ?? { name }),
     workModes: parseList(lists.workModes),
     attendance,
     leavePolicy,
     publicHolidays: holidays.split("\n").map((line) => { const [date, ...name] = line.split("|"); return { date: date.trim(), name: name.join("|").trim() }; }).filter((item) => item.date && item.name),
-    statutoryProfiles: [statutory],
+    statutoryProfiles: [{
+      ...statutory,
+      socso: { ...statutory.socso, table: parseTable(socsoTable) },
+      eis: { ...statutory.eis, table: parseTable(eisTable) },
+      pcb: { ...statutory.pcb, bands: parseBands(taxBands).length ? parseBands(taxBands) : statutory.pcb.bands },
+    }],
   });
+
+  const epfField = (label: string, key: keyof StatutoryProfile["epf"]) => <Setting label={label}><Input type="number" step="0.01" value={statutory.epf[key]} onChange={(event) => setStatutory({ ...statutory, epf: { ...statutory.epf, [key]: Number(event.target.value) } })} /></Setting>;
+  const contributionField = (scheme: "socso" | "eis", label: string, key: "employeeRate" | "employerRate" | "wageCeiling" | "seniorEmployerRate") => <Setting label={label}><Input type="number" step="0.01" value={statutory[scheme][key] ?? 0} onChange={(event) => setStatutory({ ...statutory, [scheme]: { ...statutory[scheme], [key]: Number(event.target.value) } })} /></Setting>;
+  const pcbField = (label: string, key: keyof StatutoryProfile["pcb"]) => <Setting label={label}><Input type="number" step="0.01" value={statutory.pcb[key] as number} onChange={(event) => setStatutory({ ...statutory, pcb: { ...statutory.pcb, [key]: Number(event.target.value) } })} /></Setting>;
 
   return <div className="space-y-5">
     <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-foreground text-white"><Settings2 className="h-4 w-4" /></div><div><h2 className="font-semibold">HR master lists</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">One item per line. Changes are used immediately by employee and leave forms.</p></div></div><div className="mt-5 grid gap-4 lg:grid-cols-3"><label className="text-xs font-medium text-foreground-soft">Departments<Textarea value={lists.departments} onChange={(event) => setLists({ ...lists, departments: event.target.value })} className="mt-2 min-h-44" /></label><label className="text-xs font-medium text-foreground-soft">Leave types<Textarea value={lists.leaveTypes} onChange={(event) => setLists({ ...lists, leaveTypes: event.target.value })} className="mt-2 min-h-44" /></label><label className="text-xs font-medium text-foreground-soft">Work modes<Textarea value={lists.workModes} onChange={(event) => setLists({ ...lists, workModes: event.target.value })} className="mt-2 min-h-44" /></label></div></CardContent></Card>
-    <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted"><Clock3 className="h-4 w-4 text-accent" /></div><div><h2 className="font-semibold">Attendance rules</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Shift, grace period and overtime thresholds use Malaysia time by default.</p></div></div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Setting label="Timezone"><Input value={attendance.timezone} onChange={(event) => setAttendance({ ...attendance, timezone: event.target.value })} /></Setting><Setting label="Shift starts"><Input type="time" value={attendance.shiftStart} onChange={(event) => setAttendance({ ...attendance, shiftStart: event.target.value })} /></Setting><Setting label="Shift ends"><Input type="time" value={attendance.shiftEnd} onChange={(event) => setAttendance({ ...attendance, shiftEnd: event.target.value })} /></Setting><Setting label="Grace (minutes)"><Input type="number" min="0" max="180" value={attendance.graceMinutes} onChange={(event) => setAttendance({ ...attendance, graceMinutes: Number(event.target.value) })} /></Setting><Setting label="OT after (minutes)"><Input type="number" min="60" max="1440" value={attendance.overtimeAfterMinutes} onChange={(event) => setAttendance({ ...attendance, overtimeAfterMinutes: Number(event.target.value) })} /></Setting></div></CardContent></Card>
-    <div className="grid gap-5 xl:grid-cols-2"><Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">Leave engine</h2><p className="mt-1 text-xs text-muted-foreground">Entitlement, proration, carry-forward and public holiday exclusions.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><Setting label="Accrual"><Select value={leavePolicy.annualAccrual} onChange={(event) => setLeavePolicy({ ...leavePolicy, annualAccrual: event.target.value })} ><option value="annual">Annual allocation</option><option value="monthly">Monthly accrual</option></Select></Setting><Setting label="Carry-forward days"><Input type="number" min="0" max="30" value={leavePolicy.carryForwardDays} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardDays: Number(event.target.value) })} /></Setting><Setting label="Expiry month"><Input type="number" min="1" max="12" value={leavePolicy.carryForwardExpiryMonth} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardExpiryMonth: Number(event.target.value) })} /></Setting><label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium"><input type="checkbox" checked={leavePolicy.prorateNewJoiner} onChange={(event) => setLeavePolicy({ ...leavePolicy, prorateNewJoiner: event.target.checked })} />Prorate new joiners</label><Setting label="Public holidays · YYYY-MM-DD | Name" wide><Textarea value={holidays} onChange={(event) => setHolidays(event.target.value)} className="min-h-32" placeholder="2026-08-31 | National Day" /></Setting></div></CardContent></Card>
-    <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">Malaysia statutory profile</h2><p className="mt-1 text-xs text-muted-foreground">Version rates by effective date. Payroll amounts remain editable and require official verification.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><Setting label="Profile name" wide><Input value={statutory.name} onChange={(event) => setStatutory({ ...statutory, name: event.target.value })} /></Setting><Setting label="Effective from"><DateInput value={statutory.effectiveFrom} onChange={(event) => setStatutory({ ...statutory, effectiveFrom: event.target.value })} /></Setting><Setting label="EPF employee %"><Input type="number" step="0.01" value={statutory.epfEmployeeRate} onChange={(event) => setStatutory({ ...statutory, epfEmployeeRate: Number(event.target.value) })} /></Setting><Setting label="EPF employer %"><Input type="number" step="0.01" value={statutory.epfEmployerRate} onChange={(event) => setStatutory({ ...statutory, epfEmployerRate: Number(event.target.value) })} /></Setting><Setting label="EIS employee %"><Input type="number" step="0.01" value={statutory.eisEmployeeRate} onChange={(event) => setStatutory({ ...statutory, eisEmployeeRate: Number(event.target.value) })} /></Setting><Setting label="EIS employer %"><Input type="number" step="0.01" value={statutory.eisEmployerRate} onChange={(event) => setStatutory({ ...statutory, eisEmployerRate: Number(event.target.value) })} /></Setting><Setting label="Verification notes" wide><Textarea value={statutory.notes} onChange={(event) => setStatutory({ ...statutory, notes: event.target.value })} className="min-h-24" /></Setting></div></CardContent></Card></div>
+    <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted"><Clock3 className="h-4 w-4 text-accent" /></div><div><h2 className="font-semibold">Attendance rules</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Shift, grace period and overtime thresholds use Malaysia time by default.</p></div></div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Setting label="Timezone"><Input value={attendance.timezone} onChange={(event) => setAttendance({ ...attendance, timezone: event.target.value })} /></Setting><Setting label="Shift starts"><Input type="time" value={attendance.shiftStart} onChange={(event) => setAttendance({ ...attendance, shiftStart: event.target.value })} /></Setting><Setting label="Shift ends"><Input type="time" value={attendance.shiftEnd} onChange={(event) => setAttendance({ ...attendance, shiftEnd: event.target.value })} /></Setting><Setting label="Grace (minutes)"><Input type="number" min="0" max="180" value={attendance.graceMinutes} onChange={(event) => setAttendance({ ...attendance, graceMinutes: Number(event.target.value) })} /></Setting><Setting label="OT after (minutes)"><Input type="number" min="60" max="1440" value={attendance.overtimeAfterMinutes} onChange={(event) => setAttendance({ ...attendance, overtimeAfterMinutes: Number(event.target.value) })} /></Setting></div>
+
+      <div className="mt-5 border-t pt-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Working week</div>
+        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Rest days decide how many days a leave request costs, and whether an hour of overtime is paid at the rest-day rate. Johor, Kedah, Kelantan and Terengganu rest on Friday and Saturday.</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Setting label="State">
+            <Select value={attendance.state} onChange={(event) => setAttendance({ ...attendance, state: event.target.value, restDays: restDaysForState(event.target.value) })}>
+              {["Johor", "Kedah", "Kelantan", "Melaka", "Negeri Sembilan", "Pahang", "Perak", "Perlis", "Pulau Pinang", "Sabah", "Sarawak", "Selangor", "Terengganu", "Wilayah Persekutuan"].map((item) => <option key={item}>{item}</option>)}
+            </Select>
+          </Setting>
+          <Setting label="Rest days">
+            <div className="flex flex-wrap gap-2">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, day) => <label key={label} className={cn("cursor-pointer rounded-xl border px-3 py-2 text-xs font-medium", attendance.restDays.includes(day) && "bg-foreground text-white")}>
+              <input type="checkbox" className="sr-only" checked={attendance.restDays.includes(day)} onChange={() => setAttendance({ ...attendance, restDays: attendance.restDays.includes(day) ? attendance.restDays.filter((item: number) => item !== day) : [...attendance.restDays, day].sort() })} />{label}
+            </label>)}</div>
+          </Setting>
+        </div>
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Overtime rates</div>
+        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Payroll prices the overtime minutes attendance already records. The ordinary rate of pay is the monthly wage over the days below; the multiples are the statutory minimums and can be raised, not lowered.</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {([["Days per month", "daysPerMonth"], ["Hours per day", "hoursPerDay"], ["Working day ×", "normalMultiplier"], ["Rest day ×", "restDayMultiplier"], ["Public holiday ×", "publicHolidayMultiplier"]] as const).map(([label, key]) => <Setting key={key} label={label}>
+            <Input type="number" min="0" step="0.1" value={attendance.overtime[key]} onChange={(event) => setAttendance({ ...attendance, overtime: { ...attendance.overtime, [key]: Number(event.target.value) } })} />
+          </Setting>)}
+        </div>
+      </div>
+    </CardContent></Card>
+    <LeaveEntitlementSettings rules={leaveRules} onChange={setLeaveRules} />
+    <div className="grid gap-5 xl:grid-cols-2"><Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">Leave engine</h2><p className="mt-1 text-xs text-muted-foreground">Entitlement, proration, carry-forward and public holiday exclusions.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><Setting label="Accrual"><Select value={leavePolicy.annualAccrual} onChange={(event) => setLeavePolicy({ ...leavePolicy, annualAccrual: event.target.value })} ><option value="annual">Annual allocation</option><option value="monthly">Monthly accrual</option></Select></Setting><Setting label="Carry-forward days"><Input type="number" min="0" max="30" value={leavePolicy.carryForwardDays} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardDays: Number(event.target.value) })} /></Setting><Setting label="Expiry month"><Input type="number" min="1" max="12" value={leavePolicy.carryForwardExpiryMonth} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardExpiryMonth: Number(event.target.value) })} /></Setting><label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium"><input type="checkbox" checked={leavePolicy.prorateNewJoiner} onChange={(event) => setLeavePolicy({ ...leavePolicy, prorateNewJoiner: event.target.checked })} />Prorate new joiners</label><Setting label="Public holidays · YYYY-MM-DD | Name" wide><Textarea value={holidays} onChange={(event) => setHolidays(event.target.value)} className="min-h-32" placeholder="2026-08-31 | National Day" /></Setting></div><HolidaySeeder state={attendance.state} value={holidays} onChange={setHolidays} /></CardContent></Card>
+    <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
+      <h2 className="font-semibold">Malaysia statutory profile</h2>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">Payroll calculates EPF, SOCSO, EIS and PCB from these. They are versioned by effective date, so re-opening an old period uses the rates that applied to it rather than today&rsquo;s. Check them against the official schedules — nothing here is authoritative.</p>
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <Setting label="Profile name" wide><Input value={statutory.name} onChange={(event) => setStatutory({ ...statutory, name: event.target.value })} /></Setting>
+        <Setting label="Effective from"><DateInput value={statutory.effectiveFrom} onChange={(event) => setStatutory({ ...statutory, effectiveFrom: event.target.value })} /></Setting>
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">EPF · Third Schedule</div>
+        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Contributions are worked out on the top of each wage band and rounded up to the ringgit, which is why RM5,001 can cost the employer less than RM5,000.</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {epfField("Employee %", "employeeRate")}
+          {epfField("Employer % up to threshold", "employerRateBelow")}
+          {epfField("Employer % above", "employerRateAbove")}
+          {epfField("Employer rate threshold (RM)", "employerRateThreshold")}
+          {epfField("Wage band step (RM)", "wageBandStep")}
+          {epfField("Exact rate above (RM)", "exactAbove")}
+          {epfField("Senior age", "seniorAge")}
+          {epfField("Senior employee %", "seniorEmployeeRate")}
+          {epfField("Senior employer %", "seniorEmployerRate")}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 border-t pt-4 xl:grid-cols-2">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">SOCSO</div>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {contributionField("socso", "Employee %", "employeeRate")}
+            {contributionField("socso", "Employer %", "employerRate")}
+            {contributionField("socso", "Wage ceiling (RM)", "wageCeiling")}
+            {contributionField("socso", "Senior employer %", "seniorEmployerRate")}
+            <Setting label="Official table · upTo | employee | employer" wide><Textarea value={socsoTable} onChange={(event) => setSocsoTable(event.target.value)} className="min-h-28" placeholder={"1000 | 4.50 | 15.75\n2000 | 9.75 | 34.15"} /></Setting>
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">EIS</div>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {contributionField("eis", "Employee %", "employeeRate")}
+            {contributionField("eis", "Employer %", "employerRate")}
+            {contributionField("eis", "Wage ceiling (RM)", "wageCeiling")}
+            <Setting label="Stops at age"><Input type="number" value={statutory.eis.maximumAge ?? 0} onChange={(event) => setStatutory({ ...statutory, eis: { ...statutory.eis, maximumAge: Number(event.target.value) || null } })} /></Setting>
+            <Setting label="Official table · upTo | employee | employer" wide><Textarea value={eisTable} onChange={(event) => setEisTable(event.target.value)} className="min-h-28" placeholder={"1000 | 0.40 | 0.40"} /></Setting>
+          </div>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] leading-5 text-muted-foreground">Paste the published schedules above and they replace the percentages entirely — the rates only approximate the banding. Leave a box empty to keep using them.</p>
+
+      <div className="mt-5 border-t pt-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">PCB · reliefs and tax bands</div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {pcbField("Individual relief (RM)", "individualRelief")}
+          {pcbField("Spouse relief (RM)", "spouseRelief")}
+          {pcbField("Child relief each (RM)", "childRelief")}
+          {pcbField("EPF relief cap (RM)", "epfReliefCap")}
+          {pcbField("SOCSO and EIS relief cap (RM)", "socsoReliefCap")}
+          {pcbField("Rebate up to (RM)", "rebateThreshold")}
+          {pcbField("Rebate amount (RM)", "rebateAmount")}
+          {pcbField("Non-resident flat %", "nonResidentRate")}
+          <Setting label="Tax bands · upTo | rate %  (last line 'above | rate')" wide><Textarea value={taxBands} onChange={(event) => setTaxBands(event.target.value)} className="min-h-40" placeholder={"5000 | 0\n20000 | 1\nabove | 30"} /></Setting>
+        </div>
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        <Setting label="Verification notes" wide><Textarea value={statutory.notes || ""} onChange={(event) => setStatutory({ ...statutory, notes: event.target.value })} className="min-h-24" /></Setting>
+      </div>
+    </CardContent></Card></div>
     <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center"><ShieldCheck className="h-5 w-5 shrink-0 text-amber-700" /><p className="flex-1 text-xs leading-5 text-amber-900">{authEnabled ? "Role permissions and private-file access are active." : "Shared HR workspace mode is active; employee login and role isolation remain disabled as requested."} Verify EPF, SOCSO, EIS and PCB against official Malaysian sources before closing payroll.</p><Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save HRMS settings"}</Button></div>
   </div>;
 }
 
 function Setting({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) { return <Label className={cn("text-foreground-soft", wide && "sm:col-span-2")}>{label}<div className="mt-2">{children}</div></Label>; }
+
+/** Says how the chosen type behaves, before the dates are picked rather than after. */
+function LeaveTypeHint({ rules, type }: { rules: LeaveTypeRule[]; type?: string }) {
+  const rule = rules.find((item) => item.name.toLowerCase() === String(type || "").toLowerCase());
+  if (!rule) return null;
+  const parts = [
+    rule.consecutiveDays ? "Counted in consecutive calendar days, so rest days and public holidays fall inside it." : "Counted in working days.",
+    rule.deductsBalance ? "Deducted from the balance." : "Does not draw on a leave balance.",
+    rule.paid ? "" : "Unpaid.",
+    rule.note ?? "",
+  ].filter(Boolean);
+  return <p className="sm:col-span-2 -mt-1 text-[11px] leading-5 text-muted-foreground">{parts.join(" ")}</p>;
+}
+
+/**
+ * Entitlement by length of service.
+ *
+ * Kept beside the master list rather than inside it: the list is names, and a
+ * name is not a policy. What matters here is that the number rises on an
+ * anniversary rather than being typed once when somebody joins.
+ */
+function LeaveEntitlementSettings({ rules, onChange }: { rules: LeaveTypeRule[]; onChange: (next: LeaveTypeRule[]) => void }) {
+  const tiered = rules.filter((rule) => rule.tiers?.length);
+  const fixed = rules.filter((rule) => typeof rule.fixedDays === "number");
+
+  function setTier(name: string, index: number, key: "fromYears" | "days", value: number) {
+    onChange(rules.map((rule) => rule.name !== name ? rule : {
+      ...rule,
+      tiers: (rule.tiers ?? []).map((tier, tierIndex) => tierIndex === index ? { ...tier, [key]: Math.max(0, value) } : tier),
+    }));
+  }
+
+  return <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
+    <h2 className="font-semibold">Leave entitlement</h2>
+    <p className="mt-1 text-xs leading-5 text-muted-foreground">Days earned by length of service. These are the Employment Act minimums — raise them to match your contracts, but lowering one does not reduce what the Act already gives somebody.</p>
+
+    <div className="mt-5 space-y-5">{tiered.map((rule) => <div key={rule.name}>
+      <div className="text-xs font-semibold">{rule.name}</div>
+      <div className="mt-2 grid gap-3 sm:grid-cols-3">{(rule.tiers ?? []).map((tier, index) => <div key={index} className="rounded-xl border bg-card p-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">From</span>
+          <Input type="number" min="0" className="h-9 w-16" value={tier.fromYears} onChange={(event) => setTier(rule.name, index, "fromYears", Number(event.target.value))} />
+          <span className="text-[10px] text-muted-foreground">yr</span>
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <Input type="number" min="0" className="h-9 w-20" value={tier.days} onChange={(event) => setTier(rule.name, index, "days", Number(event.target.value))} />
+          <span className="text-[10px] text-muted-foreground">days</span>
+        </div>
+      </div>)}</div>
+      {rule.note && <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{rule.note}</p>}
+    </div>)}</div>
+
+    <div className="mt-5 grid gap-4 border-t pt-4 sm:grid-cols-2">{fixed.map((rule) => <Setting key={rule.name} label={`${rule.name} (consecutive days)`}>
+      <Input type="number" min="0" value={rule.fixedDays ?? 0} onChange={(event) => onChange(rules.map((item) => item.name === rule.name ? { ...item, fixedDays: Math.max(0, Number(event.target.value)) } : item))} />
+    </Setting>)}</div>
+  </CardContent></Card>;
+}
+
+/**
+ * Seeds the holidays that can be seeded, and names the ones that cannot.
+ *
+ * Most Malaysian public holidays follow the Hijri or a lunar calendar and are
+ * gazetted each year, so they are impossible to know in advance. Listing them
+ * by name is the useful half of that: an empty holiday list quietly counted
+ * leave straight through Hari Raya and left the team calendar blank, and the
+ * failure was invisible until the day nobody came in.
+ */
+function HolidaySeeder({ state, value, onChange }: { state: string; value: string; onChange: (next: string) => void }) {
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const entered = useMemo(() => value.split("\n").map((line) => {
+    const [date, ...name] = line.split("|");
+    return { date: date.trim(), name: name.join("|").trim() };
+  }).filter((item) => item.date && item.name), [value]);
+  const missing = missingGazettedHolidays(entered, year);
+
+  function seed() {
+    const merged = mergeHolidays(entered, fixedHolidays(year, state));
+    onChange(merged.map((item) => `${item.date} | ${item.name}`).join("\n"));
+  }
+
+  return <div className="mt-4 rounded-xl border border-dashed bg-card p-4">
+    <div className="flex flex-wrap items-end gap-3">
+      <Label className="text-foreground-soft">Seed year<div className="mt-2"><Input type="number" min="2000" max="2100" value={year} onChange={(event) => setYear(Number(event.target.value) || year)} className="w-28" /></div></Label>
+      <Button type="button" variant="outline" onClick={seed}><CalendarCheck className="h-4 w-4" />Add {year} fixed holidays</Button>
+    </div>
+    <p className="mt-3 text-[11px] leading-5 text-muted-foreground">Adds the federal and {state} holidays that fall on the same date every year. Anything already entered for a date is left alone.</p>
+    {missing.length > 0 && <div className="mt-3 rounded-lg bg-amber-50 p-3">
+      <b className="text-[11px] text-amber-900">{missing.length} holiday{missing.length === 1 ? "" : "s"} for {year} must be added from the gazette</b>
+      <p className="mt-1 text-[11px] leading-5 text-amber-900/80">These follow the Hijri and lunar calendars, so their dates are set each year and cannot be seeded: {missing.join(", ")}.</p>
+    </div>}
+  </div>;
+}
 
 function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any) {
   const record = editor.record;
@@ -469,7 +743,20 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
   // same stale record and only the last would survive.
   const updateMany = (patch: Record<string, any>) => setEditor({ ...editor, record: { ...record, ...patch } });
   const employeeOptions = data.employees;
-  const employeeSelect = <Field label="Team member" wide><Select value={record.employeeId} disabled={session.role === "employee"} onChange={(e) => update("employeeId", e.target.value)} >{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field>;
+  /*
+   * Choosing a different person on a draft payroll line brings their own agreed
+   * pay with them. Without it the figures from the previous selection stay on
+   * screen and read as though they belong to whoever is now named.
+   */
+  function selectEmployee(employeeId: string) {
+    const chosen = employeeOptions.find((item: any) => item.id === employeeId);
+    if (editor.resource !== "employees" && editor.isNew && chosen && Number(chosen.basicSalary)) {
+      updateMany({ employeeId, basicSalary: Number(chosen.basicSalary || 0), allowances: Number(chosen.allowances || 0) });
+      return;
+    }
+    update("employeeId", employeeId);
+  }
+  const employeeSelect = <Field label="Team member" wide><Select value={record.employeeId} disabled={session.role === "employee"} onChange={(e) => selectEmployee(e.target.value)} >{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field>;
 
   return <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/45 sm:items-center sm:p-4">
     <Card className="max-h-[94dvh] w-full max-w-3xl overflow-y-auto rounded-b-none bg-background shadow-2xl sm:rounded-2xl">
@@ -490,10 +777,99 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
             <Field label="Skills" wide><Input value={(record.skills || []).join(", ")} disabled={!admin} onChange={(e) => update("skills", e.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></Field>
             <Field label="Notes" wide><Textarea value={record.notes || ""} onChange={(e) => update("notes", e.target.value)} /></Field>
           </div>
-          {admin && <div className="rounded-2xl border bg-card p-4"><div className="flex items-center gap-2"><BookOpenCheck className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Onboarding checklist</h3></div><div className="mt-3 space-y-2">{(record.onboarding || []).map((item: any, index: number) => <label key={item.id} className="flex items-center gap-3 rounded-xl bg-background p-3 text-sm"><input type="checkbox" checked={item.done} onChange={(e) => update("onboarding", record.onboarding.map((row: any, rowIndex: number) => rowIndex === index ? { ...row, done: e.target.checked } : row))} className="h-4 w-4" /><span>{item.label}</span></label>)}</div></div>}
+
+          {/*
+            * Shown to the person it is about as well as to HR, because
+            * onboarding asks them to fill it in. Tax residency and the
+            * applicability flags stay HR-only below: those are determinations
+            * about someone, not facts they hold.
+            */}
+          {(admin || record.id === session.userId) && <div className="rounded-2xl border bg-card p-4">
+            <div className="flex items-center gap-2"><WalletCards className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Payroll and statutory</h3></div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{admin ? "What payroll works the deductions out from. Date of birth is required for the age rules on EPF, SOCSO and EIS; marital status and children set the PCB reliefs." : "Payroll needs these to pay you and to work out your EPF, SOCSO and PCB correctly. If you have no income tax or EPF number yet, leave those blank."}</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Employee number"><Input value={record.employeeNumber || ""} onChange={(e) => update("employeeNumber", e.target.value)} /></Field>
+              <Field label="Date of birth"><DateInput value={record.dateOfBirth || ""} onChange={(e) => update("dateOfBirth", e.target.value)} /></Field>
+              <Field label="Identification number (NRIC or passport)"><Input value={record.identificationNumber || ""} onChange={(e) => update("identificationNumber", e.target.value)} /></Field>
+              <Field label="Income tax number"><Input value={record.incomeTaxNumber || ""} onChange={(e) => update("incomeTaxNumber", e.target.value)} /></Field>
+              <Field label="EPF number"><Input value={record.epfNumber || ""} onChange={(e) => update("epfNumber", e.target.value)} /></Field>
+              <Field label="SOCSO number"><Input value={record.socsoNumber || ""} onChange={(e) => update("socsoNumber", e.target.value)} /></Field>
+              <Field label="Nationality"><Select value={record.nationality || "Malaysian"} onChange={(e) => update("nationality", e.target.value)}>{["Malaysian", "Permanent Resident", "Foreign"].map((item) => <option key={item}>{item}</option>)}</Select></Field>
+              {admin && <Field label="Tax residency"><Select value={record.taxResident === false ? "non-resident" : "resident"} onChange={(e) => update("taxResident", e.target.value === "resident")}><option value="resident">Resident</option><option value="non-resident">Non-resident</option></Select></Field>}
+              <Field label="Marital status"><Select value={record.maritalStatus || "Single"} onChange={(e) => update("maritalStatus", e.target.value)}><option>Single</option><option>Married</option></Select></Field>
+              <Field label="Children claimed for relief"><Input type="number" min="0" step="1" value={record.childRelief ?? 0} onChange={(e) => update("childRelief", Number(e.target.value))} /></Field>
+              {String(record.maritalStatus) === "Married" && <label className="flex items-center gap-3 rounded-xl border bg-background p-3 text-xs font-medium sm:col-span-2"><input type="checkbox" className="h-4 w-4" checked={Boolean(record.spouseWorking)} onChange={(e) => update("spouseWorking", e.target.checked)} />Spouse has their own income (no spouse relief is claimed)</label>}
+              <Field label="Bank"><Input value={record.bankName || ""} onChange={(e) => update("bankName", e.target.value)} placeholder="Maybank" /></Field>
+              <Field label="Bank account number"><Input value={record.bankAccountNumber || ""} onChange={(e) => update("bankAccountNumber", e.target.value)} /></Field>
+            </div>
+            {admin && <div className="mt-4 flex flex-wrap gap-2">
+              {([["epfApplicable", "EPF"], ["socsoApplicable", "SOCSO"], ["eisApplicable", "EIS"]] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-xs font-medium"><input type="checkbox" className="h-4 w-4" checked={record[key] !== false} onChange={(e) => update(key, e.target.checked)} />{label} applies</label>)}
+            </div>}
+          </div>}
+          {/*
+            * HR Admin only, and separated from the rest of the form rather than
+            * mixed into it. Everything here is something the employee may see
+            * about themselves but must never set, and something a manager has
+            * no reason to read at all — so the boundary is worth being visible
+            * in the layout, not just enforced on the server.
+            */}
+          {admin && <div className="rounded-2xl border border-accent/25 bg-card p-4">
+            <div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Compensation and entitlement</h3><span className="rounded-full bg-accent/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent">HR Admin only</span></div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Current pay is held here rather than only on each month&rsquo;s payroll, so a new period and any overtime start from the agreed figure. Every change is kept with its date and who made it.</p>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Basic salary (RM / month)"><Input type="number" min="0" step="0.01" value={record.basicSalary ?? 0} onChange={(e) => update("basicSalary", Number(e.target.value))} /></Field>
+              <Field label="Fixed allowances (RM / month)"><Input type="number" min="0" step="0.01" value={record.allowances ?? 0} onChange={(e) => update("allowances", Number(e.target.value))} /></Field>
+              <Field label="Effective from"><DateInput value={record.salaryEffectiveFrom || ""} onChange={(e) => update("salaryEffectiveFrom", e.target.value)} /></Field>
+              <Field label="Reason for change"><Input value={record.salaryNote || ""} onChange={(e) => update("salaryNote", e.target.value)} placeholder="Annual review, promotion…" /></Field>
+            </div>
+
+            {Array.isArray(record.salaryHistory) && record.salaryHistory.length > 0 && <div className="mt-4 rounded-xl bg-background p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Salary history</div>
+              <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">{record.salaryHistory.slice(0, 5).map((entry: any, index: number) => <li key={index}>
+                RM {Number(entry.basicSalary || 0).toLocaleString("en-MY", { minimumFractionDigits: 2 })}{Number(entry.allowances) > 0 ? ` + ${Number(entry.allowances).toLocaleString("en-MY", { minimumFractionDigits: 2 })} allowances` : ""}
+                {entry.effectiveFrom ? ` from ${formatDate(entry.effectiveFrom)}` : ""}{entry.note ? ` · ${entry.note}` : ""}
+              </li>)}</ul>
+            </div>}
+
+            <div className="mt-5 border-t pt-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Leave entitlement</div>
+              <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Leave blank to use the entitlement their length of service earns. A figure here is a contractual promise and overrides it upwards; it cannot take them below the statutory minimum.</p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {toLeaveRules(data.settings.leaveTypes).filter((rule: LeaveTypeRule) => rule.deductsBalance).map((rule: LeaveTypeRule) => <Field key={rule.name} label={`${rule.name} (days)`}>
+                  <Input type="number" min="0" step="0.5" value={record.leaveEntitlements?.[rule.name] ?? ""} placeholder="By service" onChange={(e) => update("leaveEntitlements", { ...(record.leaveEntitlements || {}), [rule.name]: Number(e.target.value) })} />
+                </Field>)}
+              </div>
+            </div>
+          </div>}
+
+          {/*
+            * Steps are completed from the Onboarding tab and from My HR, not
+            * here — a second set of tick boxes on the edit form would be a
+            * competing path to the same state, and the one that skipped the
+            * ownership rules. What this screen owns is the setup: which
+            * document each policy step asks the joiner to read. Without that
+            * link "I have read this" is a tick against nothing.
+            */}
+          {admin && <div className="rounded-2xl border bg-card p-4">
+            <div className="flex items-center gap-2"><BookOpenCheck className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Onboarding checklist</h3></div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Completed from Onboarding and My HR. Detail steps tick themselves once the fields are filled in.</p>
+            <div className="mt-3 space-y-2">{(record.onboarding || []).map((item: any, index: number) => <div key={item.id} className="rounded-xl bg-background p-3">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", item.done ? "border-foreground bg-foreground text-white" : "bg-card")}>{item.done && <Check className="h-3.5 w-3.5" />}</span>
+                <span className="min-w-0 flex-1">{item.label}</span>
+                <span className="rounded-full bg-black/5 px-2 py-0.5 text-[9px] font-medium text-muted-foreground">{item.owner === "employee" ? "Employee" : "HR"}</span>
+              </div>
+              {item.kind === "policy" && <Select className="mt-2" value={item.documentId || ""} onChange={(e) => update("onboarding", record.onboarding.map((row: any, rowIndex: number) => rowIndex === index ? { ...row, documentId: e.target.value } : row))}>
+                <option value="">No document linked</option>
+                {data.documents.map((document: any) => <option key={document.id} value={document.id}>{document.title}</option>)}
+              </Select>}
+              {item.kind === "profile" && item.missing?.length > 0 && <div className="mt-1 text-[10px] text-amber-700">Missing: {item.missing.join(", ")}</div>}
+            </div>)}</div>
+          </div>}
         </>}
 
-        {editor.resource === "leave" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Leave type"><Select value={record.type || ""} onChange={(e) => update("type", e.target.value)} >{data.settings.leaveTypes.map((item: string) => <option key={item}>{item}</option>)}</Select></Field><Field label="Duration"><Select value={record.halfDay ? "half" : "full"} onChange={(e) => update("halfDay", e.target.value === "half")} ><option value="full">Full day(s)</option><option value="half">Half day</option></Select></Field><Field label="Start date"><DateInput value={record.startDate || ""} onChange={(e) => update("startDate", e.target.value)} /></Field><Field label="End date"><DateInput value={record.endDate || ""} onChange={(e) => update("endDate", e.target.value)} /></Field><Field label="Handover to"><Select value={record.handoverTo || ""} onChange={(e) => update("handoverTo", e.target.value)} ><option value="">Not required</option>{employeeOptions.filter((item: any) => item.id !== record.employeeId).map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field><EvidenceUpload purpose="leave_attachment" employeeId={record.employeeId} value={record.attachmentId} onUploaded={(id: string) => update("attachmentId", id)} /></div>}
+        {editor.resource === "leave" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Leave type"><Select value={record.type || ""} onChange={(e) => update("type", e.target.value)} >{leaveTypeNames(toLeaveRules(data.settings.leaveTypes)).map((item: string) => <option key={item}>{item}</option>)}</Select></Field><LeaveTypeHint rules={toLeaveRules(data.settings.leaveTypes)} type={record.type} /><Field label="Duration"><Select value={record.halfDay ? "half" : "full"} onChange={(e) => update("halfDay", e.target.value === "half")} ><option value="full">Full day(s)</option><option value="half">Half day</option></Select></Field><Field label="Start date"><DateInput value={record.startDate || ""} onChange={(e) => update("startDate", e.target.value)} /></Field><Field label="End date"><DateInput value={record.endDate || ""} onChange={(e) => update("endDate", e.target.value)} /></Field><Field label="Handover to"><Select value={record.handoverTo || ""} onChange={(e) => update("handoverTo", e.target.value)} ><option value="">Not required</option>{employeeOptions.filter((item: any) => item.id !== record.employeeId).map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field><EvidenceUpload purpose="leave_attachment" employeeId={record.employeeId} value={record.attachmentId} onUploaded={(id: string) => update("attachmentId", id)} /></div>}
 
         {editor.resource === "attendance_corrections" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Attendance date"><DateInput value={record.date || ""} onChange={(e) => update("date", e.target.value)} /></Field><Field label="Original record"><Select value={record.attendanceId || ""} onChange={(e) => update("attendanceId", e.target.value)} ><option value="">Match by date</option>{data.attendance.filter((item: any) => item.employeeId === record.employeeId).map((item: any) => <option key={item.id} value={item.id}>{formatDate(item.date)} · {item.checkIn || "—"}–{item.checkOut || "—"}</option>)}</Select></Field><Field label="Requested check-in"><Input type="time" value={record.requestedCheckIn || ""} onChange={(e) => update("requestedCheckIn", e.target.value)} /></Field><Field label="Requested check-out"><Input type="time" value={record.requestedCheckOut || ""} onChange={(e) => update("requestedCheckOut", e.target.value)} /></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field></div>}
 
@@ -508,7 +884,75 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
             ...(suggested?.vendorName && !String(record.description || "").trim() ? { description: suggested.vendorName } : {}),
           })} /></div>}
 
-        {editor.resource === "payroll" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Payroll period"><MonthInput value={record.period || ""} onChange={(e) => update("period", e.target.value)} /></Field>{[["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Overtime", "overtime"], ["Bonus", "bonus"], ["EPF employee", "epfEmployee"], ["EPF employer", "epfEmployer"], ["SOCSO employee", "socsoEmployee"], ["SOCSO employer", "socsoEmployer"], ["EIS employee", "eisEmployee"], ["EIS employer", "eisEmployer"], ["PCB", "pcb"], ["Other deductions", "otherDeductions"]].map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}<Field label="Statutory profile"><Select value={record.statutoryProfileId || "my-default"} onChange={(e) => update("statutoryProfileId", e.target.value)} >{(data.settings.statutoryProfiles || []).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field><Field label="Verification note" wide><Textarea value={record.verificationNote || ""} onChange={(e) => update("verificationNote", e.target.value)} /></Field></div>}
+        {editor.resource === "payroll" && (() => {
+          // Auto is the default for anything new. The statutory boxes stay
+          // visible either way rather than disappearing, because the figure is
+          // the thing being checked — hiding it would replace "verify this" with
+          // "trust me".
+          const auto = String(record.statutoryMode ?? "auto") !== "manual";
+          const autoOvertime = String(record.overtimeMode ?? "manual") === "auto";
+          const breakdown = record.overtimeBreakdown;
+          const earnings = [["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Bonus", "bonus"], ["Other deductions", "otherDeductions"]] as const;
+          const statutory = [["EPF employee", "epfEmployee"], ["EPF employer", "epfEmployer"], ["SOCSO employee", "socsoEmployee"], ["SOCSO employer", "socsoEmployer"], ["EIS employee", "eisEmployee"], ["EIS employer", "eisEmployer"], ["PCB", "pcb"]] as const;
+          return <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {employeeSelect}
+              <Field label="Payroll period"><MonthInput value={record.period || ""} onChange={(e) => update("period", e.target.value)} /></Field>
+              {earnings.map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}
+            </div>
+
+            <div className="rounded-2xl border bg-card p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold">Overtime</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{autoOvertime ? "Priced from the overtime minutes attendance already recorded, at the rate for each kind of day." : "Entered by hand. Attendance is not consulted."}</p>
+                </div>
+                <Select className="sm:w-52" value={autoOvertime ? "auto" : "manual"} onChange={(e) => update("overtimeMode", e.target.value)}>
+                  <option value="auto">From attendance</option>
+                  <option value="manual">Enter manually</option>
+                </Select>
+              </div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Field label="Overtime (RM)"><Input type="number" min="0" step="0.01" disabled={autoOvertime} value={record.overtime ?? 0} onChange={(e) => update("overtime", Number(e.target.value))} /></Field>
+              </div>
+              {autoOvertime && breakdown && <div className="mt-3 rounded-xl bg-background p-3 text-[11px] leading-5 text-muted-foreground">
+                <div>Ordinary hourly rate RM {Number(breakdown.hourlyRate || 0).toFixed(2)} · {breakdown.days} day{breakdown.days === 1 ? "" : "s"} with overtime</div>
+                <div className="mt-1 flex flex-wrap gap-x-4">
+                  {([["Working day", breakdown.normal], ["Rest day", breakdown.restDay], ["Public holiday", breakdown.publicHoliday]] as const).filter(([, band]) => band?.minutes > 0).map(([label, band]) => <span key={label}>{label}: {band.hours}h × {band.multiplier} = RM {Number(band.amount).toFixed(2)}</span>)}
+                  {!breakdown.totalMinutes && <span>No approved overtime for this period.</span>}
+                </div>
+                {/* Worked but never reviewed, and therefore not in the figure above. */}
+                {breakdown.pendingMinutes > 0 && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-amber-900">{Math.round(breakdown.pendingMinutes / 60 * 10) / 10}h across {breakdown.pendingDays} day{breakdown.pendingDays === 1 ? "" : "s"} is still waiting for approval and is not included. Review it under Attendance → Overtime.</div>}
+              </div>}
+            </div>
+
+            <div className="rounded-2xl border bg-card p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold">Statutory deductions</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{auto ? "Worked out from the statutory profile for this period and the employee's date of birth, residency and reliefs. Saved figures appear here after saving." : "Entered by hand. Nothing is recalculated."}</p>
+                </div>
+                <Select className="sm:w-52" value={auto ? "auto" : "manual"} onChange={(e) => update("statutoryMode", e.target.value)}>
+                  <option value="auto">Calculate automatically</option>
+                  <option value="manual">Enter manually</option>
+                </Select>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {statutory.map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" disabled={auto} value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}
+              </div>
+
+              {Array.isArray(record.statutoryWarnings) && record.statutoryWarnings.length > 0 && <ul className="mt-4 list-disc space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-3 pl-7 text-[11px] leading-5 text-amber-900">
+                {record.statutoryWarnings.map((item: string) => <li key={item}>{item}</li>)}
+              </ul>}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Statutory profile"><Select value={record.statutoryProfileId || "my-default"} onChange={(e) => update("statutoryProfileId", e.target.value)} >{(data.settings.statutoryProfiles || []).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+              <Field label="Verification note" wide><Textarea value={record.verificationNote || ""} onChange={(e) => update("verificationNote", e.target.value)} /></Field>
+            </div>
+          </div>;
+        })()}
 
         {editor.resource === "lifecycle" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Case type"><Select value={record.type || "Probation"} onChange={(e) => update("type", e.target.value)} >{["Onboarding", "Probation", "Confirmation", "Transfer", "Promotion", "Offboarding"].map((item) => <option key={item}>{item}</option>)}</Select></Field><Field label="Status"><Select value={record.status || "Open"} onChange={(e) => update("status", e.target.value)} ><option>Open</option><option>In progress</option><option>Completed</option><option>Cancelled</option></Select></Field><Field label="Case title" wide><Input value={record.title || ""} onChange={(e) => update("title", e.target.value)} /></Field><Field label="Due date"><DateInput value={record.dueDate || ""} onChange={(e) => update("dueDate", e.target.value)} /></Field><Field label="Checklist (one task per line)" wide><Textarea value={(record.tasks || []).map((task: any) => `${task.done ? "[x]" : "[ ]"} ${task.label}`).join("\n")} onChange={(e) => update("tasks", e.target.value.split("\n").map((line: string, index: number) => ({ id: record.tasks?.[index]?.id || uid(), done: /^\s*\[x\]/i.test(line), label: line.replace(/^\s*\[[x ]\]\s*/i, "").trim() })).filter((task: any) => task.label))} /></Field><Field label="Notes" wide><Textarea value={record.notes || ""} onChange={(e) => update("notes", e.target.value)} /></Field></div>}
 

@@ -4,6 +4,16 @@ import { getDatabase } from "@/lib/db";
 import { createPinCredential, HRAuthError, publicSession, requireHRSession, roleFromMetadata, type HRSession } from "@/lib/hr-auth";
 import { mutateWorkspaceState, WorkspaceConflictError } from "@/lib/workspace-state";
 import { postPayrollAccrual, postPayrollPayment, payrollAlreadyPosted, toPayrollRecord } from "@/lib/payroll-posting";
+import { ageAtPeriod, computePayroll, profileForPeriod, SEEDED_PROFILE, toStatutoryProfile } from "@/lib/payroll-statutory";
+import {
+  canCompleteStep, defaultStaffOnboarding, normaliseOnboarding, onboardingSummary,
+  resolveOnboarding, SELF_EDITABLE_FIELDS,
+} from "@/lib/staff-onboarding";
+import { overtimeForPeriod, toOvertimeRules } from "@/lib/overtime";
+import { DEFAULT_REST_DAYS, datesBetween, workingDates } from "@/lib/work-calendar";
+import {
+  countsCalendarDays, DEFAULT_LEAVE_RULES, entitlementFor, findLeaveRule, toLeaveRules,
+} from "@/lib/leave-entitlement";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -27,14 +37,7 @@ const starterNames = [
   "Ajam (Multazam)",
 ];
 
-const defaultOnboarding = () => [
-  { id: randomUUID(), label: "Personal and contact details", done: false },
-  { id: randomUUID(), label: "Employment terms acknowledged", done: false },
-  { id: randomUUID(), label: "KretivOS and work tools access", done: false },
-  { id: randomUUID(), label: "Company policies reviewed", done: false },
-  { id: randomUUID(), label: "Role expectations and goals", done: false },
-  { id: randomUUID(), label: "First-week check-in", done: false },
-];
+const defaultOnboarding = defaultStaffOnboarding;
 
 const defaultOperations = {
   leaveRequests: [] as any[],
@@ -52,12 +55,20 @@ const defaultOperations = {
   paymentVouchers: [] as any[],
   settings: {
     departments: ["Leadership", "Marketing", "Creative", "Technology", "Finance", "Operations"],
-    leaveTypes: ["Annual Leave", "Medical Leave", "Emergency Leave", "Unpaid Leave", "Replacement Leave"],
+    leaveTypes: DEFAULT_LEAVE_RULES,
     workModes: ["Office", "Remote", "Hybrid", "Client Site"],
-    attendance: { timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540 },
+    /*
+     * `state` drives the rest days and which state holidays are offered.
+     * Kretivco is in Subang Jaya, so Selangor and a Saturday-Sunday weekend.
+     */
+    attendance: {
+      timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540,
+      state: "Selangor", restDays: DEFAULT_REST_DAYS,
+      overtime: { daysPerMonth: 26, hoursPerDay: 8, normalMultiplier: 1.5, restDayMultiplier: 2, publicHolidayMultiplier: 3 },
+    },
     leavePolicy: { annualAccrual: "annual", carryForwardDays: 5, carryForwardExpiryMonth: 3, prorateNewJoiner: true },
     publicHolidays: [] as { date: string; name: string }[],
-    statutoryProfiles: [{ id: "my-default", name: "Malaysia · verify current rates", effectiveFrom: "2026-01-01", epfEmployeeRate: 11, epfEmployerRate: 12, eisEmployeeRate: 0.2, eisEmployerRate: 0.2 }],
+    statutoryProfiles: [SEEDED_PROFILE],
     /*
      * The employer block printed at the head of every EA statement. The E
      * number is LHDN's own reference for the employer and is not the company
@@ -73,6 +84,64 @@ const defaultOperations = {
   },
 };
 
+/**
+ * The fields payroll computes from, kept in one place.
+ *
+ * Create and the admin branch of update both rebuild an employee's metadata
+ * from scratch, so a field added to one and forgotten in the other silently
+ * clears itself on the next edit — which for a date of birth means the
+ * contributions quietly stop applying the age rules.
+ */
+function payrollProfileMetadata(data: Record<string, any>) {
+  return {
+    dateOfBirth: clean(data.dateOfBirth),
+    nationality: clean(data.nationality) || "Malaysian",
+    taxResident: data.taxResident !== false,
+    maritalStatus: clean(data.maritalStatus) || "Single",
+    spouseWorking: bool(data.spouseWorking),
+    childRelief: Math.max(0, Math.floor(number(data.childRelief))),
+    epfApplicable: data.epfApplicable !== false,
+    socsoApplicable: data.socsoApplicable !== false,
+    eisApplicable: data.eisApplicable !== false,
+    employeeNumber: clean(data.employeeNumber),
+    bankName: clean(data.bankName),
+    bankAccountNumber: clean(data.bankAccountNumber),
+  };
+}
+
+/**
+ * Compensation, and the trail of how it got there.
+ *
+ * A salary field that is simply overwritten answers "what do they earn" and
+ * nothing else — not what they earned in March, not when the raise happened,
+ * not who approved it. Those are the questions actually asked, usually months
+ * later and usually in a disagreement, so each change appends rather than
+ * replaces. Only a real change is recorded; re-saving the form is not a raise.
+ */
+function compensationMetadata(data: Record<string, any>, previous: Record<string, any>, userId: string) {
+  const basicSalary = Math.max(0, number(data.basicSalary));
+  const allowances = Math.max(0, number(data.allowances));
+  const effectiveFrom = clean(data.salaryEffectiveFrom);
+  const changed = basicSalary !== number(previous.basicSalary)
+    || allowances !== number(previous.allowances)
+    || effectiveFrom !== clean(previous.salaryEffectiveFrom);
+
+  const history = array(previous.salaryHistory);
+  return {
+    basicSalary,
+    allowances,
+    salaryEffectiveFrom: effectiveFrom,
+    salaryHistory: changed
+      ? [{ basicSalary, allowances, effectiveFrom, changedAt: new Date().toISOString(), changedBy: userId, note: clean(data.salaryNote) }, ...history].slice(0, 50)
+      : history,
+    leaveEntitlements: Object.fromEntries(
+      Object.entries(object(data.leaveEntitlements))
+        .map(([name, days]) => [clean(name), Math.max(0, number(days))])
+        .filter(([name, days]) => name && Number(days) > 0),
+    ),
+  };
+}
+
 function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "") || "team.member";
 }
@@ -80,7 +149,7 @@ function slug(value: string) {
 function mapEmployee(row: any) {
   const metadata = object(row.metadata);
   const placeholderEmail = bool(metadata.emailPlaceholder);
-  return {
+  const employee = {
     id: row.id,
     name: row.display_name,
     email: placeholderEmail ? "" : row.email,
@@ -99,7 +168,6 @@ function mapEmployee(row: any) {
     carryForwardLeaveBalance: number(metadata.carryForwardLeaveBalance),
     skills: array(metadata.skills).map(clean).filter(Boolean),
     notes: clean(metadata.notes),
-    onboarding: array(metadata.onboarding).length ? metadata.onboarding : defaultOnboarding(),
     role: roleFromMetadata(metadata),
     authConfigured: Boolean(clean(object(metadata.auth).pinHash)),
     managerId: clean(metadata.managerId),
@@ -115,8 +183,85 @@ function mapEmployee(row: any) {
     incomeTaxNumber: clean(metadata.incomeTaxNumber),
     epfNumber: clean(metadata.epfNumber),
     socsoNumber: clean(metadata.socsoNumber),
+    /*
+     * What the statutory engine needs to work the deductions out rather than
+     * have them typed in. Date of birth is not decoration: EPF, SOCSO and EIS
+     * all change at 60, so without it the contributions are computed as though
+     * nobody ever ages. Marital status, a working spouse and the child count
+     * are the PCB reliefs; citizenship and residency change the rules
+     * altogether rather than the rate.
+     */
+    dateOfBirth: clean(metadata.dateOfBirth),
+    nationality: clean(metadata.nationality) || "Malaysian",
+    taxResident: metadata.taxResident !== false,
+    maritalStatus: clean(metadata.maritalStatus) || "Single",
+    spouseWorking: bool(metadata.spouseWorking),
+    childRelief: number(metadata.childRelief),
+    epfApplicable: metadata.epfApplicable !== false,
+    socsoApplicable: metadata.socsoApplicable !== false,
+    eisApplicable: metadata.eisApplicable !== false,
+    /*
+     * Payment details. Without an account number payroll cannot leave the
+     * building except by somebody retyping it into the bank, which is exactly
+     * the manual step the rest of this is removing.
+     */
+    employeeNumber: clean(metadata.employeeNumber),
+    bankName: clean(metadata.bankName),
+    bankAccountNumber: clean(metadata.bankAccountNumber),
+    /*
+     * Current pay, held on the person rather than only on each month's payroll.
+     * Payroll lines are a record of what was paid; this is what they are
+     * supposed to be paid, which is the thing a raise changes and the thing
+     * overtime is priced from before any payroll line for the month exists.
+     */
+    basicSalary: number(metadata.basicSalary),
+    allowances: number(metadata.allowances),
+    salaryEffectiveFrom: clean(metadata.salaryEffectiveFrom),
+    salaryHistory: array(metadata.salaryHistory),
+    /*
+     * Per-type entitlement overrides. `annualLeaveBalance` and
+     * `medicalLeaveBalance` predate this and are still honoured, so nobody's
+     * agreed entitlement disappears when the map is empty.
+     */
+    leaveEntitlements: object(metadata.leaveEntitlements),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+
+  /*
+   * Resolved against the employee it belongs to, on every read. A details step
+   * answers to what is actually on file rather than to a stored tick, so a
+   * checklist cannot claim an NRIC or a bank account that was never supplied —
+   * and it un-completes itself if one is later cleared, which a boolean could
+   * not.
+   */
+  const onboarding = resolveOnboarding(metadata.onboarding, employee);
+  return { ...employee, onboarding, onboardingSummary: onboardingSummary(onboarding) };
+}
+
+/**
+ * Blanks the fields that exist only so payroll can be computed and paid.
+ *
+ * A manager needs the directory to run probation reviews and approve leave;
+ * none of that needs a colleague's NRIC, date of birth, marital status or bank
+ * account. Those were readable before only because nothing sensitive enough
+ * to matter was in the payload — adding an account number changes that, so the
+ * cut is made now rather than after it is somebody's problem.
+ *
+ * Only the shape leaves; the values stay on the server. Manager edits write
+ * back a fixed set of fields, so a redacted record cannot save its own blanks
+ * over the real ones.
+ */
+function withoutPersonalFinanceData(employee: ReturnType<typeof mapEmployee>) {
+  return {
+    ...employee,
+    identificationNumber: "", incomeTaxNumber: "", epfNumber: "", socsoNumber: "",
+    dateOfBirth: "", maritalStatus: "", spouseWorking: false, childRelief: 0,
+    bankName: "", bankAccountNumber: "",
+    // What somebody earns is the most sensitive field on the record and the
+    // least necessary for approving their leave.
+    basicSalary: 0, allowances: 0, salaryEffectiveFrom: "", salaryHistory: [],
+    redacted: true,
   };
 }
 
@@ -278,7 +423,18 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
   if (session.role === "hr_admin") return { ...value, session: publicSession(session) };
   if (session.role === "finance") return {
     ...value,
-    employees: array(value.employees).map((item: any) => item.id === session.userId ? item : ({ id: item.id, name: item.name, title: item.title, department: item.department, status: item.status, workMode: item.workMode })),
+    /*
+     * Finance keeps pay and payment details for everyone — running payroll is
+     * the job — and nothing else. The personal half of the record, statutory
+     * identity aside, is not theirs to read.
+     */
+    employees: array(value.employees).map((item: any) => item.id === session.userId ? item : ({
+      id: item.id, name: item.name, title: item.title, department: item.department, status: item.status, workMode: item.workMode,
+      employeeNumber: item.employeeNumber, basicSalary: item.basicSalary, allowances: item.allowances,
+      bankName: item.bankName, bankAccountNumber: item.bankAccountNumber,
+      identificationNumber: item.identificationNumber, incomeTaxNumber: item.incomeTaxNumber,
+      epfNumber: item.epfNumber, socsoNumber: item.socsoNumber, dateOfBirth: item.dateOfBirth,
+    })),
     leaveRequests: own(array(value.leaveRequests)),
     attendance: own(array(value.attendance)),
     goals: own(array(value.goals)),
@@ -293,6 +449,7 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
   };
   if (session.role === "manager") return {
     ...value,
+    employees: array(value.employees).map((item: any) => item.id === session.userId ? item : withoutPersonalFinanceData(item)),
     payroll: own(array(value.payroll)),
     paymentVouchers: [],
     documents: array(value.documents).filter((item: any) => !item.employeeId || item.employeeId === session.userId),
@@ -339,29 +496,111 @@ async function snapshot(session: HRSession) {
   }, session);
 }
 
-function businessDays(start: string, end: string) {
-  if (!start || !end) return 0;
-  const cursor = new Date(`${start}T00:00:00`);
-  const last = new Date(`${end}T00:00:00`);
-  let count = 0;
-  while (cursor <= last) {
-    const day = cursor.getDay();
-    if (day !== 0 && day !== 6) count += 1;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return count;
+/**
+ * The working dates a leave request actually spans.
+ *
+ * Both the rest days and the public holidays now come from settings. The old
+ * version hardcoded Saturday and Sunday, which counted leave against the wrong
+ * days for anyone in Johor, Kedah, Kelantan or Terengganu — and it built dates
+ * with `new Date("YYYY-MM-DDT00:00:00")`, which is parsed in whatever zone the
+ * server happens to run in and then read back as UTC, so a request could gain
+ * or lose its first day depending on where it was deployed.
+ *
+ * A near-identical `businessDays` sat beside it with the same two bugs and no
+ * callers at all, and has gone.
+ */
+function leaveDates(state: Record<string, any>, start: string, end: string) {
+  const attendance = object(object(state.settings).attendance);
+  const restDays = array(attendance.restDays).map(number).filter((day) => day >= 0 && day <= 6);
+  const holidays = array(object(state.settings).publicHolidays).map((item: any) => clean(item.date)).filter(Boolean);
+  return workingDates(start, end, {
+    restDays: restDays.length ? restDays : DEFAULT_REST_DAYS,
+    holidays,
+  });
 }
 
-function leaveDates(start: string, end: string) {
-  const dates: string[] = [];
-  const cursor = new Date(`${start}T00:00:00`);
-  const last = new Date(`${end}T00:00:00`);
-  while (cursor <= last) {
-    const day = cursor.getDay();
-    if (day !== 0 && day !== 6) dates.push(cursor.toISOString().slice(0, 10));
-    cursor.setDate(cursor.getDate() + 1);
+/**
+ * How many days a leave request costs.
+ *
+ * Most types are counted in working days, so rest days and public holidays fall
+ * out. Maternity and paternity leave are granted as consecutive days, so a
+ * weekend inside the period is part of it — counting those in working days
+ * would hand out several extra weeks.
+ */
+function leaveDayCount(state: Record<string, any>, type: string, start: string, end: string, halfDay: boolean) {
+  if (halfDay) return 0.5;
+  const rules = toLeaveRules(object(state.settings).leaveTypes);
+  return countsCalendarDays(rules, type)
+    ? datesBetween(start, end).length
+    : leaveDates(state, start, end).length;
+}
+
+/**
+ * Checks a request against the balance, and reports what it leaves behind.
+ *
+ * Entitlement comes from length of service rather than a number typed onto the
+ * employee record when they joined. The record still wins where it is more
+ * generous, since that is a contractual promise, but it can no longer hold
+ * somebody below the statutory floor their service has earned them.
+ *
+ * This was two near-identical copies, on create and on update, which is how the
+ * update path came to be missing nothing yet and would have drifted the moment
+ * either changed.
+ */
+async function checkLeaveBalance(
+  state: Record<string, any>,
+  sql: any,
+  { employeeId, type, days, startDate, excludeId = "" }: { employeeId: string; type: string; days: number; startDate: string; excludeId?: string },
+) {
+  const rules = toLeaveRules(object(state.settings).leaveTypes);
+  const rule = findLeaveRule(rules, type);
+  // Unpaid leave draws on nothing, and maternity and paternity are granted
+  // rather than accrued, so none of them has a balance to be short of.
+  if (!rule?.deductsBalance) return null;
+
+  const employeeRows = await sql`select * from users where id = ${employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
+  if (!employeeRows.length) throw new Error("Employee was not found.");
+  const employee = mapEmployee(employeeRows[0]);
+
+  const policy = { ...defaultOperations.settings.leavePolicy, ...object(object(state.settings).leavePolicy) };
+  const year = Number(clean(startDate).slice(0, 4));
+  const requestMonth = Number(clean(startDate).slice(5, 7));
+  const override = number(object(employee.leaveEntitlements)[type]);
+  const recorded = override > 0 ? override
+    : rule.kind === "annual" ? employee.annualLeaveBalance
+      : rule.kind === "sick" ? employee.medicalLeaveBalance
+        : undefined;
+
+  const base = entitlementFor({ rules, typeName: type, startDate: employee.startDate, asOf: startDate, recordedDays: recorded });
+  let entitlement = base.days;
+
+  if (rule.kind === "annual" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
+    const joinMonth = Number(employee.startDate.slice(5, 7));
+    entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
   }
-  return dates;
+  if (rule.kind === "annual" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
+  if (rule.kind === "annual" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) {
+    entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
+  }
+
+  const committed = array(state.leaveRequests)
+    .filter((item: any) => item.id !== excludeId
+      && item.employeeId === employeeId
+      && item.type === type
+      && clean(item.startDate).startsWith(String(year))
+      && ["Pending", "Approved"].includes(item.status))
+    .reduce((sum: number, item: any) => sum + number(item.days), 0);
+
+  const available = Math.max(0, entitlement - committed);
+  if (days > available) throw new Error(`${type} balance is insufficient. Available: ${available} day(s).`);
+
+  return {
+    entitlementAtRequest: entitlement,
+    balanceAfterRequest: Math.max(0, available - days),
+    // Kept so a disputed balance can be explained without re-deriving it.
+    entitlementSource: base.source,
+    yearsOfServiceAtRequest: base.years,
+  };
 }
 
 function requireRole(session: HRSession, roles: HRSession["role"][]) {
@@ -400,6 +639,137 @@ function payrollRecord(data: Record<string, any>, current: Record<string, any> =
     netPay: Math.max(0, grossPay - totalDeductions),
     statutoryProfileId: clean(data.statutoryProfileId || current.statutoryProfileId || "my-default"),
     verificationNote: clean(data.verificationNote || current.verificationNote),
+    statutoryMode: clean(data.statutoryMode || current.statutoryMode) === "manual" ? "manual" : "auto",
+    // Unlike statutory, this defaults to manual. Every payroll line written
+    // before overtime could be read from attendance holds a figure somebody
+    // typed, and switching those to computed on the next edit would silently
+    // restate pay that has already been agreed.
+    overtimeMode: clean(data.overtimeMode || current.overtimeMode) === "auto" ? "auto" : "manual",
+  };
+}
+
+/**
+ * Prices the overtime already sitting in attendance.
+ *
+ * Clock-out has been recording overtime minutes all along and payroll has been
+ * asking somebody to type a ringgit figure, so the evidence and the payment
+ * were never connected. An hour is not worth the same on every day — the
+ * Employment Act pays more on a rest day and more again on a public holiday —
+ * so the calendar in Settings decides the multiple, which is the same calendar
+ * that decides which days leave is counted against.
+ */
+function withComputedOvertime(record: any, state: Record<string, any>) {
+  if (clean(record.overtimeMode) !== "auto") return record;
+  if (!record.employeeId || !record.period) return record;
+
+  const attendanceSettings = object(object(state.settings).attendance);
+  const restDays = array(attendanceSettings.restDays).map(number).filter((day) => day >= 0 && day <= 6);
+  const holidays = new Set(array(object(state.settings).publicHolidays).map((item: any) => clean(item.date)).filter(Boolean));
+
+  const summary = overtimeForPeriod(
+    array(state.attendance),
+    { employeeId: record.employeeId, period: record.period, monthlyWage: number(record.basicSalary) },
+    toOvertimeRules(object(attendanceSettings.overtime)),
+    { restDays: restDays.length ? restDays : DEFAULT_REST_DAYS, holidays },
+  );
+
+  return { ...record, overtime: summary.amount, overtimeBreakdown: summary };
+}
+
+/**
+ * What the year has already paid this person, for PCB's projection.
+ *
+ * Only closed and paid periods count, the same rule the EA statement uses: a
+ * draft is a working figure that can still change, and PCB credited against a
+ * month that was never remitted would under-deduct for the rest of the year.
+ */
+function payrollYearToDate(list: any[], employeeId: string, period: string, excludeId: string) {
+  const year = clean(period).slice(0, 4);
+  const prior = list.filter((item: any) =>
+    item.employeeId === employeeId
+    && item.id !== excludeId
+    && clean(item.period).startsWith(year)
+    && clean(item.period) < clean(period)
+    && ["Closed", "Paid"].includes(clean(item.status)));
+
+  const total = (key: string) => prior.reduce((sum: number, item: any) => sum + number(item[key]), 0);
+  return {
+    yearToDateGross: total("grossPay"),
+    yearToDateEpf: total("epfEmployee"),
+    yearToDateSocso: total("socsoEmployee") + total("eisEmployee"),
+    yearToDatePcb: total("pcb"),
+  };
+}
+
+/**
+ * A payroll line, computed in the order the amounts depend on each other.
+ *
+ * Overtime first, because it is part of gross and every statutory figure is
+ * taken on gross — pricing it afterwards would compute EPF and PCB against a
+ * salary that was about to change. The totals are re-derived in between so a
+ * manually-entered statutory line still adds up once overtime moves.
+ */
+async function withComputedPayroll(record: any, state: Record<string, any>, sql: any) {
+  const priced = withComputedOvertime(record, state);
+  const rebased = { ...priced, ...payrollRecord(priced, priced) };
+  return withComputedStatutory(rebased, state, sql);
+}
+
+/**
+ * Fills in the statutory half of a payroll line.
+ *
+ * Manual mode is left completely alone — somebody who has a figure from their
+ * accountant or is handling a case this engine does not cover must be able to
+ * key it in and have it stay keyed in.
+ *
+ * The employee lookup is a plain read, which matters: this runs inside a
+ * mutation that re-runs whole on a write conflict, so everything it does has to
+ * be safe to repeat.
+ */
+async function withComputedStatutory(record: any, state: Record<string, any>, sql: any) {
+  if (clean(record.statutoryMode) === "manual") return { ...record, statutoryWarnings: [] };
+  if (!record.employeeId || !record.period) return { ...record, statutoryWarnings: [] };
+
+  const stored = array(state.settings?.statutoryProfiles).map(toStatutoryProfile);
+  const profile = profileForPeriod(stored.length ? stored : [SEEDED_PROFILE], record.period) ?? SEEDED_PROFILE;
+
+  const rows = await sql`select * from users where id = ${record.employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
+  if (!rows.length) return { ...record, statutoryWarnings: ["Employee record was not found, so the deductions were left as entered."] };
+  const employee = mapEmployee(rows[0]);
+
+  const computed = computePayroll({
+    basicSalary: record.basicSalary,
+    allowances: record.allowances,
+    overtime: record.overtime,
+    bonus: record.bonus,
+    otherDeductions: record.otherDeductions,
+    period: record.period,
+    ...payrollYearToDate(array(state.payroll), record.employeeId, record.period, clean(record.id)),
+  }, profile, {
+    age: ageAtPeriod(employee.dateOfBirth, record.period),
+    citizen: employee.nationality !== "Foreign",
+    taxResident: employee.taxResident,
+    maritalStatus: employee.maritalStatus,
+    spouseWorking: employee.spouseWorking,
+    childRelief: employee.childRelief,
+    epfApplicable: employee.epfApplicable,
+    socsoApplicable: employee.socsoApplicable,
+    eisApplicable: employee.eisApplicable,
+  });
+
+  return {
+    ...record,
+    grossPay: computed.grossPay,
+    epfEmployee: computed.epfEmployee, epfEmployer: computed.epfEmployer,
+    socsoEmployee: computed.socsoEmployee, socsoEmployer: computed.socsoEmployer,
+    eisEmployee: computed.eisEmployee, eisEmployer: computed.eisEmployer,
+    pcb: computed.pcb,
+    totalDeductions: computed.totalDeductions,
+    netPay: computed.netPay,
+    statutoryMode: "auto",
+    statutoryProfileId: profile.id,
+    statutoryComputedAt: new Date().toISOString(),
+    statutoryWarnings: computed.warnings,
   };
 }
 
@@ -439,6 +809,49 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(await snapshot(session));
       }
 
+      /*
+       * Completing one onboarding step, as its own operation.
+       *
+       * It cannot go through `update`: an employee is not allowed to write the
+       * whole record, and routing an acknowledgement through a general edit
+       * would mean deciding on every save whether a checklist arriving from the
+       * browser was a legitimate change or a stale copy overwriting somebody
+       * else's tick. This takes a step id and a flag, and the server owns the
+       * rest.
+       */
+      if (operation === "onboarding") {
+        const rows = await sql`select * from users where id = ${id} and organization_id = ${ORGANIZATION_ID} limit 1`;
+        if (!rows.length) throw new Error("Employee was not found.");
+        const metadata = object(rows[0].metadata);
+        const steps = normaliseOnboarding(metadata.onboarding);
+        const step = steps.find((item) => item.id === clean(data.stepId));
+        if (!step) throw new Error("Onboarding step was not found.");
+
+        const allowed = canCompleteStep(step, {
+          isOwnRecord: id === session.userId,
+          isManager: ["hr_admin", "manager"].includes(session.role),
+        });
+        if (!allowed) {
+          throw new HRAuthError(step.kind === "profile"
+            ? "This step completes itself once the details are on file."
+            : "You cannot complete this onboarding step.", 403);
+        }
+
+        const done = data.done !== false;
+        const next = steps.map((item) => item.id === step.id ? {
+          ...item,
+          done,
+          completedAt: done ? new Date().toISOString() : undefined,
+          completedBy: done ? session.userId : undefined,
+        } : item);
+
+        await sql`update users set metadata = ${JSON.stringify({ ...metadata, onboarding: next })}::jsonb where id = ${id} and organization_id = ${ORGANIZATION_ID}`;
+        // Policy acknowledgements are the reason this is audited: the tick is
+        // the only record that somebody read what they were asked to read.
+        await audit(step.kind === "policy" ? "hr.employee.policy_acknowledged" : "hr.employee.onboarding_step", "employee", id, { stepId: step.id, label: step.label, done }, session.userId);
+        return NextResponse.json(await snapshot(session));
+      }
+
       if (operation === "create") {
         requireRole(session, ["hr_admin"]);
         const employeeId = clean(data.id) || randomUUID();
@@ -453,11 +866,13 @@ export async function POST(request: NextRequest) {
           location: clean(data.location), startDate: clean(data.startDate), phone: clean(data.phone), emergencyContact: clean(data.emergencyContact),
           identificationNumber: clean(data.identificationNumber), incomeTaxNumber: clean(data.incomeTaxNumber),
           epfNumber: clean(data.epfNumber), socsoNumber: clean(data.socsoNumber), endDate: clean(data.endDate),
+          ...payrollProfileMetadata(data),
+          ...compensationMetadata(data, {}, session.userId),
           annualLeaveBalance: number(data.annualLeaveBalance || 14), medicalLeaveBalance: number(data.medicalLeaveBalance || 14),
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
           probationEndDate: clean(data.probationEndDate), confirmationDate: clean(data.confirmationDate),
-          onboarding: array(data.onboarding).length ? data.onboarding : defaultOnboarding(), auth: { role },
+          onboarding: normaliseOnboarding(data.onboarding), auth: { role },
         };
         const rows = await sql`insert into users (id, organization_id, email, display_name, status, metadata) values (${employeeId}, ${ORGANIZATION_ID}, ${email}, ${name}, ${clean(data.status) || "active"}, ${JSON.stringify(metadata)}::jsonb) returning *`;
         await audit("hr.employee.created", "employee", employeeId, mapEmployee(rows[0]), session.userId);
@@ -472,13 +887,28 @@ export async function POST(request: NextRequest) {
         const previousMetadata = object(existing[0].metadata);
         const currentAuth = object(previousMetadata.auth);
         const requestedRole = ["hr_admin", "manager", "employee", "finance"].includes(clean(data.role)) ? clean(data.role) : roleFromMetadata(previousMetadata);
+        /*
+         * A joiner can now fill in their own record, which is the point of
+         * asking them to. The allowed set is facts about themselves — how to
+         * reach them, their NRIC and date of birth, their bank account, their
+         * reliefs. It stops short of the determinations: tax residency and
+         * whether EPF, SOCSO and EIS apply are HR's judgement, not a field the
+         * person affected by them should be able to change.
+         *
+         * A bank account is in reach of the person paid into it, which is the
+         * arrangement every payroll system lands on. `hr.employee.self_updated`
+         * records who changed what, so a redirected salary leaves a trail.
+         */
         const metadata = selfEdit ? {
           ...previousMetadata,
-          location: clean(data.location ?? current.location), phone: clean(data.phone ?? current.phone),
-          emergencyContact: clean(data.emergencyContact ?? current.emergencyContact), notes: clean(data.notes ?? current.notes),
+          ...Object.fromEntries(SELF_EDITABLE_FIELDS
+            .filter((field) => field in data)
+            .map((field) => [field, field === "spouseWorking" ? bool(data[field])
+              : field === "childRelief" ? Math.max(0, Math.floor(number(data[field])))
+                : clean(data[field])])),
         } : managerEdit ? {
           ...previousMetadata,
-          onboarding: array(data.onboarding).length ? data.onboarding : current.onboarding,
+          onboarding: normaliseOnboarding(array(data.onboarding).length ? data.onboarding : current.onboarding),
           probationEndDate: clean(data.probationEndDate ?? current.probationEndDate),
           confirmationDate: clean(data.confirmationDate ?? current.confirmationDate),
         } : {
@@ -487,11 +917,13 @@ export async function POST(request: NextRequest) {
           location: clean(data.location), startDate: clean(data.startDate), phone: clean(data.phone), emergencyContact: clean(data.emergencyContact),
           identificationNumber: clean(data.identificationNumber), incomeTaxNumber: clean(data.incomeTaxNumber),
           epfNumber: clean(data.epfNumber), socsoNumber: clean(data.socsoNumber), endDate: clean(data.endDate),
+          ...payrollProfileMetadata(data),
+          ...compensationMetadata(data, previousMetadata, session.userId),
           annualLeaveBalance: number(data.annualLeaveBalance), medicalLeaveBalance: number(data.medicalLeaveBalance),
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
           probationEndDate: clean(data.probationEndDate), confirmationDate: clean(data.confirmationDate),
-          onboarding: array(data.onboarding).length ? data.onboarding : current.onboarding,
+          onboarding: normaliseOnboarding(array(data.onboarding).length ? data.onboarding : current.onboarding),
           auth: { ...currentAuth, role: requestedRole },
         };
         const limitedEdit = selfEdit || managerEdit;
@@ -541,7 +973,7 @@ export async function POST(request: NextRequest) {
         state.settings = {
           ...object(state.settings),
           departments: uniqueList(data.departments, defaultOperations.settings.departments),
-          leaveTypes: uniqueList(data.leaveTypes, defaultOperations.settings.leaveTypes),
+          leaveTypes: toLeaveRules(array(data.leaveTypes).length ? data.leaveTypes : defaultOperations.settings.leaveTypes),
           workModes: uniqueList(data.workModes, defaultOperations.settings.workModes),
           attendance: {
             timezone: clean(attendance.timezone) || "Asia/Kuala_Lumpur",
@@ -549,6 +981,14 @@ export async function POST(request: NextRequest) {
             shiftEnd: /^\d{2}:\d{2}$/.test(clean(attendance.shiftEnd)) ? clean(attendance.shiftEnd) : "18:00",
             graceMinutes: Math.max(0, Math.min(180, number(attendance.graceMinutes))),
             overtimeAfterMinutes: Math.max(60, Math.min(1440, number(attendance.overtimeAfterMinutes || 540))),
+            state: clean(attendance.state) || "Selangor",
+            // An empty list would make every day a working day, so the default
+            // stands in rather than being saved as "no rest days at all".
+            restDays: (() => {
+              const days = Array.from(new Set(array(attendance.restDays).map(number).filter((day) => day >= 0 && day <= 6)));
+              return days.length ? days : DEFAULT_REST_DAYS;
+            })(),
+            overtime: toOvertimeRules(object(attendance.overtime)),
           },
           leavePolicy: {
             annualAccrual: ["annual", "monthly"].includes(clean(leavePolicy.annualAccrual)) ? clean(leavePolicy.annualAccrual) : "annual",
@@ -557,11 +997,16 @@ export async function POST(request: NextRequest) {
             prorateNewJoiner: bool(leavePolicy.prorateNewJoiner),
           },
           publicHolidays: array(data.publicHolidays).map((item: any) => ({ date: clean(item.date), name: clean(item.name) })).filter((item: any) => item.date && item.name).slice(0, 100),
-          statutoryProfiles: array(data.statutoryProfiles).map((item: any) => ({
-            id: clean(item.id) || randomUUID(), name: clean(item.name), effectiveFrom: clean(item.effectiveFrom),
-            epfEmployeeRate: number(item.epfEmployeeRate), epfEmployerRate: number(item.epfEmployerRate),
-            eisEmployeeRate: number(item.eisEmployeeRate), eisEmployerRate: number(item.eisEmployerRate), notes: clean(item.notes),
-          })).filter((item: any) => item.name && item.effectiveFrom).slice(0, 20),
+          /*
+           * Normalised on the way in rather than trusted. `toStatutoryProfile`
+           * coerces every rate against a default and upgrades the older flat
+           * shape, so a partial edit cannot leave a NaN somewhere a
+           * contribution is later computed from.
+           */
+          statutoryProfiles: array(data.statutoryProfiles)
+            .map((item: any) => toStatutoryProfile({ ...object(item), id: clean(item?.id) || randomUUID() }))
+            .filter((item) => item.name && item.effectiveFrom)
+            .slice(0, 20),
         };
         defer.audit("hr.settings.updated", "hr_settings", ORGANIZATION_ID, state.settings, session.userId);
         return NextResponse.json(await snapshot(session));
@@ -590,32 +1035,13 @@ export async function POST(request: NextRequest) {
         const employeeId = session.role === "employee" ? session.userId : clean(data.employeeId);
         let record: any = { ...data, employeeId, id: recordId, createdBy: session.userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
         if (resource === "leave") {
-          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-          const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));
-          record = { ...record, type: clean(data.type) || "Annual Leave", startDate: clean(data.startDate), endDate: clean(data.endDate), days: data.halfDay ? 0.5 : dates.length, halfDay: bool(data.halfDay), status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
+          const type = clean(data.type) || "Annual Leave";
+          const days = leaveDayCount(state, type, clean(data.startDate), clean(data.endDate), bool(data.halfDay));
+          record = { ...record, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
           if (!employeeId || !record.startDate || !record.endDate || record.days <= 0) throw new Error("Employee and valid leave dates are required.");
           if (record.endDate < record.startDate) throw new Error("Leave end date cannot be before the start date.");
           if (record.halfDay && record.startDate !== record.endDate) throw new Error("Half-day leave must use the same start and end date.");
-          if (["Annual Leave", "Medical Leave"].includes(record.type)) {
-            const employeeRows = await sql`select * from users where id = ${employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
-            if (!employeeRows.length) throw new Error("Employee was not found.");
-            const employee = mapEmployee(employeeRows[0]);
-            const policy = { ...defaultOperations.settings.leavePolicy, ...object(state.settings?.leavePolicy) };
-            const year = Number(record.startDate.slice(0, 4));
-            const requestMonth = Number(record.startDate.slice(5, 7));
-            let entitlement = record.type === "Annual Leave" ? employee.annualLeaveBalance : employee.medicalLeaveBalance;
-            if (record.type === "Annual Leave" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
-              const joinMonth = Number(employee.startDate.slice(5, 7));
-              entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
-            }
-            if (record.type === "Annual Leave" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
-            if (record.type === "Annual Leave" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
-            const committed = array(state.leaveRequests).filter((item: any) => item.employeeId === employeeId && item.type === record.type && clean(item.startDate).startsWith(String(year)) && ["Pending", "Approved"].includes(item.status)).reduce((sum: number, item: any) => sum + number(item.days), 0);
-            const available = Math.max(0, entitlement - committed);
-            if (record.days > available) throw new Error(`${record.type} balance is insufficient. Available: ${available} day(s).`);
-            record.entitlementAtRequest = entitlement;
-            record.balanceAfterRequest = Math.max(0, available - record.days);
-          }
+          Object.assign(record, await checkLeaveBalance(state, sql, { employeeId, type, days: record.days, startDate: record.startDate }) ?? {});
           defer.notify("New leave request", `${record.type} request requires review.`, "hr_leave", recordId);
         } else if (resource === "claims") {
           record = { ...record, claimDate: clean(data.claimDate), category: clean(data.category) || "General", amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), status: "Pending", financeStatus: "Unpaid", approverNote: "" };
@@ -625,6 +1051,7 @@ export async function POST(request: NextRequest) {
           record = { ...record, ...payrollRecord(data), status: "Draft", paidAt: null };
           if (!record.employeeId || !record.period) throw new Error("Employee and payroll period are required.");
           if (list.some((item: any) => item.employeeId === record.employeeId && item.period === record.period)) throw new Error("A payroll record already exists for this employee and period.");
+          record = await withComputedPayroll(record, state, sql);
           defer.notify("Payroll draft created", `Payroll for ${record.period} is being prepared.`, "hr_payroll", recordId, employeeId);
         } else if (resource === "lifecycle") {
           record = { ...record, type: clean(data.type) || "Onboarding", title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || "Open", notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label) };
@@ -697,14 +1124,13 @@ export async function POST(request: NextRequest) {
         if (!["payroll", "documents", "attendance", "lifecycle", "announcements", "events", "shifts", "payment_vouchers"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
         const now = new Date().toISOString();
         let updated: any;
-        if (resource === "payroll") updated = { ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now };
+        if (resource === "payroll") updated = await withComputedPayroll({ ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now }, state, sql);
         else if (resource === "leave") {
-          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-          const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));
-          const days = bool(data.halfDay) ? 0.5 : dates.length;
+          const type = clean(data.type) || existing.type;
+          const days = leaveDayCount(state, type, clean(data.startDate), clean(data.endDate), bool(data.halfDay));
           if (!clean(data.startDate) || !clean(data.endDate) || clean(data.endDate) < clean(data.startDate) || days <= 0) throw new Error("Valid leave dates are required.");
           if (bool(data.halfDay) && clean(data.startDate) !== clean(data.endDate)) throw new Error("Half-day leave must use the same start and end date.");
-          updated = { ...existing, type: clean(data.type) || existing.type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
+          updated = { ...existing, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
         } else if (resource === "claims") updated = { ...existing, claimDate: clean(data.claimDate), category: clean(data.category) || existing.category, amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), id, updatedAt: now };
         else if (resource === "attendance_corrections") updated = { ...existing, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), id, updatedAt: now };
         else if (resource === "lifecycle") updated = { ...existing, type: clean(data.type) || existing.type, title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || existing.status, notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label), id, updatedAt: now };
@@ -731,25 +1157,8 @@ export async function POST(request: NextRequest) {
           if (!updated.payee || updated.amount <= 0 || !updated.paymentDate) throw new Error("Payee, payment date and an amount greater than zero are required.");
         }
         else updated = { ...existing, ...data, id, employeeId: existing.employeeId, updatedAt: now };
-        if (resource === "leave" && ["Annual Leave", "Medical Leave"].includes(updated.type)) {
-          const employeeRows = await sql`select * from users where id = ${existing.employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
-          if (!employeeRows.length) throw new Error("Employee was not found.");
-          const employee = mapEmployee(employeeRows[0]);
-          const policy = { ...defaultOperations.settings.leavePolicy, ...object(state.settings?.leavePolicy) };
-          const year = Number(updated.startDate.slice(0, 4));
-          const requestMonth = Number(updated.startDate.slice(5, 7));
-          let entitlement = updated.type === "Annual Leave" ? employee.annualLeaveBalance : employee.medicalLeaveBalance;
-          if (updated.type === "Annual Leave" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
-            const joinMonth = Number(employee.startDate.slice(5, 7));
-            entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
-          }
-          if (updated.type === "Annual Leave" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
-          if (updated.type === "Annual Leave" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
-          const committed = array(state.leaveRequests).filter((item: any) => item.id !== id && item.employeeId === existing.employeeId && item.type === updated.type && clean(item.startDate).startsWith(String(year)) && ["Pending", "Approved"].includes(item.status)).reduce((sum: number, item: any) => sum + number(item.days), 0);
-          const available = Math.max(0, entitlement - committed);
-          if (updated.days > available) throw new Error(`${updated.type} balance is insufficient. Available: ${available} day(s).`);
-          updated.entitlementAtRequest = entitlement;
-          updated.balanceAfterRequest = Math.max(0, available - updated.days);
+        if (resource === "leave") {
+          Object.assign(updated, await checkLeaveBalance(state, sql, { employeeId: existing.employeeId, type: updated.type, days: updated.days, startDate: updated.startDate, excludeId: id }) ?? {});
         }
         state[key] = list.map((item: any) => item.id === id ? updated : item);
         defer.audit(`hr.${resource}.updated`, `hr_${resource}`, id, updated, session.userId);
@@ -774,8 +1183,7 @@ export async function POST(request: NextRequest) {
         const updated = { ...existing, status, approverId: session.userId, approverNote: clean(data.approverNote), updatedAt: new Date().toISOString() };
         state.leaveRequests = list.map((item: any) => item.id === id ? updated : item);
         if (action === "approve") {
-          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-          const generated = leaveDates(existing.startDate, existing.endDate).filter((date) => !holidays.has(date)).map((date) => ({ id: `leave-${id}-${date}`, employeeId: existing.employeeId, date, status: "Leave", checkIn: "", checkOut: "", note: `${existing.type}${existing.halfDay ? " (half day)" : ""} · generated from approved leave`, sourceId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+          const generated = leaveDates(state, existing.startDate, existing.endDate).map((date) => ({ id: `leave-${id}-${date}`, employeeId: existing.employeeId, date, status: "Leave", checkIn: "", checkOut: "", note: `${existing.type}${existing.halfDay ? " (half day)" : ""} · generated from approved leave`, sourceId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
           const generatedIds = new Set(generated.map((item) => item.id));
           state.attendance = [...generated, ...array(state.attendance).filter((item: any) => !generatedIds.has(item.id))];
         } else state.attendance = array(state.attendance).filter((item: any) => item.sourceId !== id);
@@ -792,6 +1200,37 @@ export async function POST(request: NextRequest) {
         state.claims = list.map((item: any) => item.id === id ? updated : item);
         defer.audit(`hr.claim.${action}`, "hr_claim", id, updated, session.userId);
         defer.notify(action === "mark_paid" ? "Claim paid" : `Claim ${updated.status.toLowerCase()}`, `${existing.category} claim is now ${action === "mark_paid" ? "paid" : updated.status.toLowerCase()}.`, "hr_claim", id, existing.employeeId);
+      } else if (operation === "action" && resource === "attendance") {
+        /*
+         * Approving the overtime on an attendance record.
+         *
+         * Clock-out computes minutes from the clock alone, so it cannot tell
+         * the evening somebody stayed to finish their own work from the evening
+         * they were asked to. Without this the timesheet would be an
+         * instruction to pay rather than a record of hours.
+         *
+         * Reviewing does not touch the times themselves: the photo, the
+         * location and the timestamps stay exactly as captured, and only
+         * whether those hours are payable changes. An attendance correction is
+         * still the way to change what the clock says.
+         */
+        requireRole(session, ["hr_admin", "manager"]);
+        if (!existing) throw new Error("Attendance record was not found.");
+        if (!["approve_overtime", "reject_overtime"].includes(action)) throw new Error("Unsupported attendance action.");
+        if (number(existing.overtimeMinutes) <= 0) throw new Error("This record has no overtime to review.");
+
+        const approved = action === "approve_overtime";
+        const updated = {
+          ...existing,
+          overtimeStatus: approved ? "Approved" : "Rejected",
+          overtimeReviewedBy: session.userId,
+          overtimeReviewedAt: new Date().toISOString(),
+          overtimeReviewNote: clean(data.reviewerNote),
+          updatedAt: new Date().toISOString(),
+        };
+        state.attendance = list.map((item: any) => item.id === id ? updated : item);
+        defer.audit(`hr.attendance.overtime_${approved ? "approved" : "rejected"}`, "hr_attendance", id, updated, session.userId);
+        defer.notify(`Overtime ${approved ? "approved" : "rejected"}`, `${Math.round(number(existing.overtimeMinutes) / 60 * 10) / 10}h on ${existing.date} is now ${approved ? "approved for payment" : "rejected"}.`, "hr_attendance", id, existing.employeeId);
       } else if (operation === "action" && resource === "attendance_corrections") {
         requireRole(session, ["hr_admin", "manager"]);
         if (!existing) throw new Error("Attendance correction was not found.");
