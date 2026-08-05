@@ -4,6 +4,7 @@ import { getDatabase } from "@/lib/db";
 import { createPinCredential, HRAuthError, publicSession, requireHRSession, roleFromMetadata, type HRSession } from "@/lib/hr-auth";
 import { mutateWorkspaceState, WorkspaceConflictError } from "@/lib/workspace-state";
 import { postPayrollAccrual, postPayrollPayment, payrollAlreadyPosted, toPayrollRecord } from "@/lib/payroll-posting";
+import { ageAtPeriod, computePayroll, profileForPeriod, SEEDED_PROFILE, toStatutoryProfile } from "@/lib/payroll-statutory";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +58,7 @@ const defaultOperations = {
     attendance: { timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540 },
     leavePolicy: { annualAccrual: "annual", carryForwardDays: 5, carryForwardExpiryMonth: 3, prorateNewJoiner: true },
     publicHolidays: [] as { date: string; name: string }[],
-    statutoryProfiles: [{ id: "my-default", name: "Malaysia · verify current rates", effectiveFrom: "2026-01-01", epfEmployeeRate: 11, epfEmployerRate: 12, eisEmployeeRate: 0.2, eisEmployerRate: 0.2 }],
+    statutoryProfiles: [SEEDED_PROFILE],
     /*
      * The employer block printed at the head of every EA statement. The E
      * number is LHDN's own reference for the employer and is not the company
@@ -474,6 +475,90 @@ function payrollRecord(data: Record<string, any>, current: Record<string, any> =
     netPay: Math.max(0, grossPay - totalDeductions),
     statutoryProfileId: clean(data.statutoryProfileId || current.statutoryProfileId || "my-default"),
     verificationNote: clean(data.verificationNote || current.verificationNote),
+    statutoryMode: clean(data.statutoryMode || current.statutoryMode) === "manual" ? "manual" : "auto",
+  };
+}
+
+/**
+ * What the year has already paid this person, for PCB's projection.
+ *
+ * Only closed and paid periods count, the same rule the EA statement uses: a
+ * draft is a working figure that can still change, and PCB credited against a
+ * month that was never remitted would under-deduct for the rest of the year.
+ */
+function payrollYearToDate(list: any[], employeeId: string, period: string, excludeId: string) {
+  const year = clean(period).slice(0, 4);
+  const prior = list.filter((item: any) =>
+    item.employeeId === employeeId
+    && item.id !== excludeId
+    && clean(item.period).startsWith(year)
+    && clean(item.period) < clean(period)
+    && ["Closed", "Paid"].includes(clean(item.status)));
+
+  const total = (key: string) => prior.reduce((sum: number, item: any) => sum + number(item[key]), 0);
+  return {
+    yearToDateGross: total("grossPay"),
+    yearToDateEpf: total("epfEmployee"),
+    yearToDateSocso: total("socsoEmployee") + total("eisEmployee"),
+    yearToDatePcb: total("pcb"),
+  };
+}
+
+/**
+ * Fills in the statutory half of a payroll line.
+ *
+ * Manual mode is left completely alone — somebody who has a figure from their
+ * accountant or is handling a case this engine does not cover must be able to
+ * key it in and have it stay keyed in.
+ *
+ * The employee lookup is a plain read, which matters: this runs inside a
+ * mutation that re-runs whole on a write conflict, so everything it does has to
+ * be safe to repeat.
+ */
+async function withComputedStatutory(record: any, state: Record<string, any>, sql: any) {
+  if (clean(record.statutoryMode) === "manual") return { ...record, statutoryWarnings: [] };
+  if (!record.employeeId || !record.period) return { ...record, statutoryWarnings: [] };
+
+  const stored = array(state.settings?.statutoryProfiles).map(toStatutoryProfile);
+  const profile = profileForPeriod(stored.length ? stored : [SEEDED_PROFILE], record.period) ?? SEEDED_PROFILE;
+
+  const rows = await sql`select * from users where id = ${record.employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
+  if (!rows.length) return { ...record, statutoryWarnings: ["Employee record was not found, so the deductions were left as entered."] };
+  const employee = mapEmployee(rows[0]);
+
+  const computed = computePayroll({
+    basicSalary: record.basicSalary,
+    allowances: record.allowances,
+    overtime: record.overtime,
+    bonus: record.bonus,
+    otherDeductions: record.otherDeductions,
+    period: record.period,
+    ...payrollYearToDate(array(state.payroll), record.employeeId, record.period, clean(record.id)),
+  }, profile, {
+    age: ageAtPeriod(employee.dateOfBirth, record.period),
+    citizen: employee.nationality !== "Foreign",
+    taxResident: employee.taxResident,
+    maritalStatus: employee.maritalStatus,
+    spouseWorking: employee.spouseWorking,
+    childRelief: employee.childRelief,
+    epfApplicable: employee.epfApplicable,
+    socsoApplicable: employee.socsoApplicable,
+    eisApplicable: employee.eisApplicable,
+  });
+
+  return {
+    ...record,
+    grossPay: computed.grossPay,
+    epfEmployee: computed.epfEmployee, epfEmployer: computed.epfEmployer,
+    socsoEmployee: computed.socsoEmployee, socsoEmployer: computed.socsoEmployer,
+    eisEmployee: computed.eisEmployee, eisEmployer: computed.eisEmployer,
+    pcb: computed.pcb,
+    totalDeductions: computed.totalDeductions,
+    netPay: computed.netPay,
+    statutoryMode: "auto",
+    statutoryProfileId: profile.id,
+    statutoryComputedAt: new Date().toISOString(),
+    statutoryWarnings: computed.warnings,
   };
 }
 
@@ -633,11 +718,16 @@ export async function POST(request: NextRequest) {
             prorateNewJoiner: bool(leavePolicy.prorateNewJoiner),
           },
           publicHolidays: array(data.publicHolidays).map((item: any) => ({ date: clean(item.date), name: clean(item.name) })).filter((item: any) => item.date && item.name).slice(0, 100),
-          statutoryProfiles: array(data.statutoryProfiles).map((item: any) => ({
-            id: clean(item.id) || randomUUID(), name: clean(item.name), effectiveFrom: clean(item.effectiveFrom),
-            epfEmployeeRate: number(item.epfEmployeeRate), epfEmployerRate: number(item.epfEmployerRate),
-            eisEmployeeRate: number(item.eisEmployeeRate), eisEmployerRate: number(item.eisEmployerRate), notes: clean(item.notes),
-          })).filter((item: any) => item.name && item.effectiveFrom).slice(0, 20),
+          /*
+           * Normalised on the way in rather than trusted. `toStatutoryProfile`
+           * coerces every rate against a default and upgrades the older flat
+           * shape, so a partial edit cannot leave a NaN somewhere a
+           * contribution is later computed from.
+           */
+          statutoryProfiles: array(data.statutoryProfiles)
+            .map((item: any) => toStatutoryProfile({ ...object(item), id: clean(item?.id) || randomUUID() }))
+            .filter((item) => item.name && item.effectiveFrom)
+            .slice(0, 20),
         };
         defer.audit("hr.settings.updated", "hr_settings", ORGANIZATION_ID, state.settings, session.userId);
         return NextResponse.json(await snapshot(session));
@@ -701,6 +791,7 @@ export async function POST(request: NextRequest) {
           record = { ...record, ...payrollRecord(data), status: "Draft", paidAt: null };
           if (!record.employeeId || !record.period) throw new Error("Employee and payroll period are required.");
           if (list.some((item: any) => item.employeeId === record.employeeId && item.period === record.period)) throw new Error("A payroll record already exists for this employee and period.");
+          record = await withComputedStatutory(record, state, sql);
           defer.notify("Payroll draft created", `Payroll for ${record.period} is being prepared.`, "hr_payroll", recordId, employeeId);
         } else if (resource === "lifecycle") {
           record = { ...record, type: clean(data.type) || "Onboarding", title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || "Open", notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label) };
@@ -773,7 +864,7 @@ export async function POST(request: NextRequest) {
         if (!["payroll", "documents", "attendance", "lifecycle", "announcements", "events", "shifts", "payment_vouchers"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
         const now = new Date().toISOString();
         let updated: any;
-        if (resource === "payroll") updated = { ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now };
+        if (resource === "payroll") updated = await withComputedStatutory({ ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now }, state, sql);
         else if (resource === "leave") {
           const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
           const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));

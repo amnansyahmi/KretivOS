@@ -459,6 +459,103 @@ export function ageAtPeriod(dateOfBirth: string, period: string): number | null 
   return age >= 0 && age < 130 ? age : null;
 }
 
+const rate = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
+/**
+ * Reads a stored profile, whatever shape it was saved in.
+ *
+ * The first version of this setting held four loose percentages that nothing
+ * ever calculated with — they were shown on a settings screen and copied by
+ * hand into each payroll line. Those blobs are still in the database, so they
+ * are upgraded rather than discarded: the old single employer rate becomes the
+ * above-threshold rate, since the schedule's step down is the thing it was
+ * standing in for, and everything it never knew about falls back to the seed.
+ *
+ * Doubles as validation on the way in. Every field is coerced against a
+ * default, so a hand-edited or partial profile cannot put a NaN somewhere a
+ * contribution is computed from.
+ */
+export function toStatutoryProfile(stored: unknown): StatutoryProfile {
+  const source = (stored && typeof stored === "object" ? stored : {}) as Record<string, any>;
+  const seed = SEEDED_PROFILE;
+  const epf = (source.epf ?? {}) as Record<string, any>;
+  const socso = (source.socso ?? {}) as Record<string, any>;
+  const eis = (source.eis ?? {}) as Record<string, any>;
+  const pcb = (source.pcb ?? {}) as Record<string, any>;
+
+  const bands = Array.isArray(pcb.bands) && pcb.bands.length
+    ? pcb.bands
+      .map((band: any) => ({
+        upTo: band?.upTo === null || band?.upTo === undefined || band?.upTo === "" ? null : rate(band.upTo, 0),
+        rate: rate(band?.rate, 0),
+      }))
+      .sort((a: PCBBand, b: PCBBand) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity))
+    : seed.pcb.bands;
+
+  const table = (value: unknown): ContributionBand[] | undefined => {
+    if (!Array.isArray(value) || !value.length) return undefined;
+    const rows = value
+      .map((band: any) => ({ upTo: rate(band?.upTo, 0), employee: rate(band?.employee, 0), employer: rate(band?.employer, 0) }))
+      .filter((band) => band.upTo > 0)
+      .sort((a, b) => a.upTo - b.upTo);
+    return rows.length ? rows : undefined;
+  };
+
+  return {
+    id: String(source.id ?? "").trim() || seed.id,
+    name: String(source.name ?? "").trim() || seed.name,
+    effectiveFrom: String(source.effectiveFrom ?? "").trim() || seed.effectiveFrom,
+    notes: String(source.notes ?? "").trim() || undefined,
+    epf: {
+      employeeRate: rate(epf.employeeRate ?? source.epfEmployeeRate, seed.epf.employeeRate),
+      employerRateBelow: rate(epf.employerRateBelow, seed.epf.employerRateBelow),
+      employerRateAbove: rate(epf.employerRateAbove ?? source.epfEmployerRate, seed.epf.employerRateAbove),
+      employerRateThreshold: rate(epf.employerRateThreshold, seed.epf.employerRateThreshold),
+      wageBandStep: rate(epf.wageBandStep, seed.epf.wageBandStep) || seed.epf.wageBandStep,
+      exactAbove: rate(epf.exactAbove, seed.epf.exactAbove),
+      seniorAge: rate(epf.seniorAge, seed.epf.seniorAge),
+      seniorEmployeeRate: rate(epf.seniorEmployeeRate, seed.epf.seniorEmployeeRate),
+      seniorEmployerRate: rate(epf.seniorEmployerRate, seed.epf.seniorEmployerRate),
+    },
+    socso: {
+      employeeRate: rate(socso.employeeRate, seed.socso.employeeRate),
+      employerRate: rate(socso.employerRate, seed.socso.employerRate),
+      wageCeiling: rate(socso.wageCeiling, seed.socso.wageCeiling),
+      bandStep: rate(socso.bandStep, seed.socso.bandStep) || seed.socso.bandStep,
+      seniorAge: rate(socso.seniorAge, seed.socso.seniorAge),
+      seniorEmployeeRate: rate(socso.seniorEmployeeRate, seed.socso.seniorEmployeeRate),
+      seniorEmployerRate: rate(socso.seniorEmployerRate, seed.socso.seniorEmployerRate),
+      maximumAge: socso.maximumAge === null || socso.maximumAge === undefined ? seed.socso.maximumAge : rate(socso.maximumAge, 0) || null,
+      table: table(socso.table),
+    },
+    eis: {
+      employeeRate: rate(eis.employeeRate ?? source.eisEmployeeRate, seed.eis.employeeRate),
+      employerRate: rate(eis.employerRate ?? source.eisEmployerRate, seed.eis.employerRate),
+      wageCeiling: rate(eis.wageCeiling, seed.eis.wageCeiling),
+      bandStep: rate(eis.bandStep, seed.eis.bandStep) || seed.eis.bandStep,
+      seniorAge: rate(eis.seniorAge, seed.eis.seniorAge),
+      seniorEmployeeRate: rate(eis.seniorEmployeeRate, seed.eis.seniorEmployeeRate),
+      seniorEmployerRate: rate(eis.seniorEmployerRate, seed.eis.seniorEmployerRate),
+      maximumAge: eis.maximumAge === null ? null : rate(eis.maximumAge, seed.eis.maximumAge ?? 0) || seed.eis.maximumAge,
+      table: table(eis.table),
+    },
+    pcb: {
+      bands,
+      individualRelief: rate(pcb.individualRelief, seed.pcb.individualRelief),
+      spouseRelief: rate(pcb.spouseRelief, seed.pcb.spouseRelief),
+      childRelief: rate(pcb.childRelief, seed.pcb.childRelief),
+      epfReliefCap: rate(pcb.epfReliefCap, seed.pcb.epfReliefCap),
+      socsoReliefCap: rate(pcb.socsoReliefCap, seed.pcb.socsoReliefCap),
+      rebateThreshold: rate(pcb.rebateThreshold, seed.pcb.rebateThreshold),
+      rebateAmount: rate(pcb.rebateAmount, seed.pcb.rebateAmount),
+      nonResidentRate: rate(pcb.nonResidentRate, seed.pcb.nonResidentRate),
+    },
+  };
+}
+
 /** The profile in force for a "YYYY-MM" period: the latest one starting on or before it. */
 export function profileForPeriod<T extends { effectiveFrom: string }>(profiles: T[], period: string): T | null {
   const end = `${String(period || "").slice(0, 7)}-31`;

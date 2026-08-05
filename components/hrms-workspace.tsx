@@ -36,6 +36,7 @@ import {
   HRLifecycle,
   HRSelfService,
 } from "@/components/hrms-extended-sections";
+import { SEEDED_PROFILE, toStatutoryProfile, type StatutoryProfile } from "@/lib/payroll-statutory";
 import { cn } from "@/lib/utils";
 
 type Resource = "employees" | "leave" | "attendance" | "attendance_corrections" | "goals" | "learning" | "documents" | "claims" | "payroll" | "lifecycle" | "announcements" | "events";
@@ -185,7 +186,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
       learning: { ...common, employeeId: firstEmployee, title: "", provider: "", status: "Planned", progress: 0, dueDate: today(), certification: "", notes: "" },
       documents: { ...common, title: "", category: "Policy", employeeId: "", reference: "", expiryDate: "", status: "Active", notes: "" },
       claims: { ...common, employeeId: firstEmployee, claimDate: today(), category: "General", amount: 0, description: "", receiptAssetId: "", status: "Pending" },
-      payroll: { ...common, employeeId: firstEmployee, period: today().slice(0, 7), basicSalary: 0, allowances: 0, overtime: 0, bonus: 0, epfEmployee: 0, epfEmployer: 0, socsoEmployee: 0, socsoEmployer: 0, eisEmployee: 0, eisEmployer: 0, pcb: 0, otherDeductions: 0, statutoryProfileId: "my-default", verificationNote: "", status: "Draft" },
+      payroll: { ...common, employeeId: firstEmployee, period: today().slice(0, 7), basicSalary: 0, allowances: 0, overtime: 0, bonus: 0, epfEmployee: 0, epfEmployer: 0, socsoEmployee: 0, socsoEmployer: 0, eisEmployee: 0, eisEmployer: 0, pcb: 0, otherDeductions: 0, statutoryMode: "auto", statutoryProfileId: "my-default", verificationNote: "", status: "Draft" },
       lifecycle: { ...common, employeeId: firstEmployee, type: "Probation", title: "Probation review", dueDate: today(), status: "Open", notes: "", tasks: [{ id: uid(), label: "Manager review completed", done: false }, { id: uid(), label: "Confirmation decision recorded", done: false }] },
       announcements: { ...common, title: "", body: "", category: "General", status: "Published", publishAt: today(), expiresAt: "", pinned: false },
       events: { ...common, title: "", eventType: "Team event", startDate: today(), endDate: today(), location: "", description: "", status: "Scheduled" },
@@ -416,7 +417,13 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
   const [attendance, setAttendance] = useState({ timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540 });
   const [leavePolicy, setLeavePolicy] = useState({ annualAccrual: "annual", carryForwardDays: 5, carryForwardExpiryMonth: 3, prorateNewJoiner: true });
   const [holidays, setHolidays] = useState("");
-  const [statutory, setStatutory] = useState({ id: "my-default", name: "Malaysia · verify current rates", effectiveFrom: "2026-01-01", epfEmployeeRate: 11, epfEmployerRate: 12, eisEmployeeRate: 0.2, eisEmployerRate: 0.2, notes: "" });
+  const [statutory, setStatutory] = useState<StatutoryProfile>(SEEDED_PROFILE);
+  // Bands and official tables are edited as text for the same reason public
+  // holidays are: they are transcribed from a published document, and a row of
+  // number inputs per band turns a paste into forty separate clicks.
+  const [taxBands, setTaxBands] = useState("");
+  const [socsoTable, setSocsoTable] = useState("");
+  const [eisTable, setEisTable] = useState("");
 
   useEffect(() => {
     setLists({
@@ -438,11 +445,27 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
       prorateNewJoiner: settings.leavePolicy?.prorateNewJoiner !== false,
     });
     setHolidays((settings.publicHolidays || []).map((item) => `${item.date} | ${item.name}`).join("\n"));
-    const profile = settings.statutoryProfiles?.[0];
-    if (profile) setStatutory({ ...statutory, ...profile });
+    // Normalised on the way in as well as the way out, so a profile still
+    // stored in the older flat shape opens with every field populated.
+    const profile = toStatutoryProfile(settings.statutoryProfiles?.[0] ?? null);
+    setStatutory(profile);
+    setTaxBands(profile.pcb.bands.map((band) => `${band.upTo ?? "above"} | ${band.rate}`).join("\n"));
+    setSocsoTable((profile.socso.table || []).map((band) => `${band.upTo} | ${band.employee} | ${band.employer}`).join("\n"));
+    setEisTable((profile.eis.table || []).map((band) => `${band.upTo} | ${band.employee} | ${band.employer}`).join("\n"));
   }, [settings]);
 
   const parseList = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+  /** "upTo | employee | employer" per line; a blank box means no table. */
+  const parseTable = (value: string) => value.split("\n").map((line) => {
+    const [upTo, employee, employer] = line.split("|").map((part) => Number(part.trim()));
+    return { upTo, employee, employer };
+  }).filter((band) => Number.isFinite(band.upTo) && band.upTo > 0 && Number.isFinite(band.employee) && Number.isFinite(band.employer));
+  /** "upTo | rate" per line; a final row with a non-numeric limit is the unbounded top band. */
+  const parseBands = (value: string) => value.split("\n").map((line) => {
+    const [upTo, rateValue] = line.split("|").map((part) => part.trim());
+    return { upTo: Number.isFinite(Number(upTo)) && upTo !== "" ? Number(upTo) : null, rate: Number(rateValue) || 0 };
+  }).filter((band) => band.upTo !== null || band.rate > 0);
+
   const submit = () => onSave({
     departments: parseList(lists.departments),
     leaveTypes: parseList(lists.leaveTypes),
@@ -450,14 +473,89 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
     attendance,
     leavePolicy,
     publicHolidays: holidays.split("\n").map((line) => { const [date, ...name] = line.split("|"); return { date: date.trim(), name: name.join("|").trim() }; }).filter((item) => item.date && item.name),
-    statutoryProfiles: [statutory],
+    statutoryProfiles: [{
+      ...statutory,
+      socso: { ...statutory.socso, table: parseTable(socsoTable) },
+      eis: { ...statutory.eis, table: parseTable(eisTable) },
+      pcb: { ...statutory.pcb, bands: parseBands(taxBands).length ? parseBands(taxBands) : statutory.pcb.bands },
+    }],
   });
+
+  const epfField = (label: string, key: keyof StatutoryProfile["epf"]) => <Setting label={label}><Input type="number" step="0.01" value={statutory.epf[key]} onChange={(event) => setStatutory({ ...statutory, epf: { ...statutory.epf, [key]: Number(event.target.value) } })} /></Setting>;
+  const contributionField = (scheme: "socso" | "eis", label: string, key: "employeeRate" | "employerRate" | "wageCeiling" | "seniorEmployerRate") => <Setting label={label}><Input type="number" step="0.01" value={statutory[scheme][key] ?? 0} onChange={(event) => setStatutory({ ...statutory, [scheme]: { ...statutory[scheme], [key]: Number(event.target.value) } })} /></Setting>;
+  const pcbField = (label: string, key: keyof StatutoryProfile["pcb"]) => <Setting label={label}><Input type="number" step="0.01" value={statutory.pcb[key] as number} onChange={(event) => setStatutory({ ...statutory, pcb: { ...statutory.pcb, [key]: Number(event.target.value) } })} /></Setting>;
 
   return <div className="space-y-5">
     <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-foreground text-white"><Settings2 className="h-4 w-4" /></div><div><h2 className="font-semibold">HR master lists</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">One item per line. Changes are used immediately by employee and leave forms.</p></div></div><div className="mt-5 grid gap-4 lg:grid-cols-3"><label className="text-xs font-medium text-foreground-soft">Departments<Textarea value={lists.departments} onChange={(event) => setLists({ ...lists, departments: event.target.value })} className="mt-2 min-h-44" /></label><label className="text-xs font-medium text-foreground-soft">Leave types<Textarea value={lists.leaveTypes} onChange={(event) => setLists({ ...lists, leaveTypes: event.target.value })} className="mt-2 min-h-44" /></label><label className="text-xs font-medium text-foreground-soft">Work modes<Textarea value={lists.workModes} onChange={(event) => setLists({ ...lists, workModes: event.target.value })} className="mt-2 min-h-44" /></label></div></CardContent></Card>
     <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted"><Clock3 className="h-4 w-4 text-accent" /></div><div><h2 className="font-semibold">Attendance rules</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Shift, grace period and overtime thresholds use Malaysia time by default.</p></div></div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Setting label="Timezone"><Input value={attendance.timezone} onChange={(event) => setAttendance({ ...attendance, timezone: event.target.value })} /></Setting><Setting label="Shift starts"><Input type="time" value={attendance.shiftStart} onChange={(event) => setAttendance({ ...attendance, shiftStart: event.target.value })} /></Setting><Setting label="Shift ends"><Input type="time" value={attendance.shiftEnd} onChange={(event) => setAttendance({ ...attendance, shiftEnd: event.target.value })} /></Setting><Setting label="Grace (minutes)"><Input type="number" min="0" max="180" value={attendance.graceMinutes} onChange={(event) => setAttendance({ ...attendance, graceMinutes: Number(event.target.value) })} /></Setting><Setting label="OT after (minutes)"><Input type="number" min="60" max="1440" value={attendance.overtimeAfterMinutes} onChange={(event) => setAttendance({ ...attendance, overtimeAfterMinutes: Number(event.target.value) })} /></Setting></div></CardContent></Card>
     <div className="grid gap-5 xl:grid-cols-2"><Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">Leave engine</h2><p className="mt-1 text-xs text-muted-foreground">Entitlement, proration, carry-forward and public holiday exclusions.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><Setting label="Accrual"><Select value={leavePolicy.annualAccrual} onChange={(event) => setLeavePolicy({ ...leavePolicy, annualAccrual: event.target.value })} ><option value="annual">Annual allocation</option><option value="monthly">Monthly accrual</option></Select></Setting><Setting label="Carry-forward days"><Input type="number" min="0" max="30" value={leavePolicy.carryForwardDays} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardDays: Number(event.target.value) })} /></Setting><Setting label="Expiry month"><Input type="number" min="1" max="12" value={leavePolicy.carryForwardExpiryMonth} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardExpiryMonth: Number(event.target.value) })} /></Setting><label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium"><input type="checkbox" checked={leavePolicy.prorateNewJoiner} onChange={(event) => setLeavePolicy({ ...leavePolicy, prorateNewJoiner: event.target.checked })} />Prorate new joiners</label><Setting label="Public holidays · YYYY-MM-DD | Name" wide><Textarea value={holidays} onChange={(event) => setHolidays(event.target.value)} className="min-h-32" placeholder="2026-08-31 | National Day" /></Setting></div></CardContent></Card>
-    <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">Malaysia statutory profile</h2><p className="mt-1 text-xs text-muted-foreground">Version rates by effective date. Payroll amounts remain editable and require official verification.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><Setting label="Profile name" wide><Input value={statutory.name} onChange={(event) => setStatutory({ ...statutory, name: event.target.value })} /></Setting><Setting label="Effective from"><DateInput value={statutory.effectiveFrom} onChange={(event) => setStatutory({ ...statutory, effectiveFrom: event.target.value })} /></Setting><Setting label="EPF employee %"><Input type="number" step="0.01" value={statutory.epfEmployeeRate} onChange={(event) => setStatutory({ ...statutory, epfEmployeeRate: Number(event.target.value) })} /></Setting><Setting label="EPF employer %"><Input type="number" step="0.01" value={statutory.epfEmployerRate} onChange={(event) => setStatutory({ ...statutory, epfEmployerRate: Number(event.target.value) })} /></Setting><Setting label="EIS employee %"><Input type="number" step="0.01" value={statutory.eisEmployeeRate} onChange={(event) => setStatutory({ ...statutory, eisEmployeeRate: Number(event.target.value) })} /></Setting><Setting label="EIS employer %"><Input type="number" step="0.01" value={statutory.eisEmployerRate} onChange={(event) => setStatutory({ ...statutory, eisEmployerRate: Number(event.target.value) })} /></Setting><Setting label="Verification notes" wide><Textarea value={statutory.notes} onChange={(event) => setStatutory({ ...statutory, notes: event.target.value })} className="min-h-24" /></Setting></div></CardContent></Card></div>
+    <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
+      <h2 className="font-semibold">Malaysia statutory profile</h2>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">Payroll calculates EPF, SOCSO, EIS and PCB from these. They are versioned by effective date, so re-opening an old period uses the rates that applied to it rather than today&rsquo;s. Check them against the official schedules — nothing here is authoritative.</p>
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <Setting label="Profile name" wide><Input value={statutory.name} onChange={(event) => setStatutory({ ...statutory, name: event.target.value })} /></Setting>
+        <Setting label="Effective from"><DateInput value={statutory.effectiveFrom} onChange={(event) => setStatutory({ ...statutory, effectiveFrom: event.target.value })} /></Setting>
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">EPF · Third Schedule</div>
+        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Contributions are worked out on the top of each wage band and rounded up to the ringgit, which is why RM5,001 can cost the employer less than RM5,000.</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {epfField("Employee %", "employeeRate")}
+          {epfField("Employer % up to threshold", "employerRateBelow")}
+          {epfField("Employer % above", "employerRateAbove")}
+          {epfField("Employer rate threshold (RM)", "employerRateThreshold")}
+          {epfField("Wage band step (RM)", "wageBandStep")}
+          {epfField("Exact rate above (RM)", "exactAbove")}
+          {epfField("Senior age", "seniorAge")}
+          {epfField("Senior employee %", "seniorEmployeeRate")}
+          {epfField("Senior employer %", "seniorEmployerRate")}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 border-t pt-4 xl:grid-cols-2">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">SOCSO</div>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {contributionField("socso", "Employee %", "employeeRate")}
+            {contributionField("socso", "Employer %", "employerRate")}
+            {contributionField("socso", "Wage ceiling (RM)", "wageCeiling")}
+            {contributionField("socso", "Senior employer %", "seniorEmployerRate")}
+            <Setting label="Official table · upTo | employee | employer" wide><Textarea value={socsoTable} onChange={(event) => setSocsoTable(event.target.value)} className="min-h-28" placeholder={"1000 | 4.50 | 15.75\n2000 | 9.75 | 34.15"} /></Setting>
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">EIS</div>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {contributionField("eis", "Employee %", "employeeRate")}
+            {contributionField("eis", "Employer %", "employerRate")}
+            {contributionField("eis", "Wage ceiling (RM)", "wageCeiling")}
+            <Setting label="Stops at age"><Input type="number" value={statutory.eis.maximumAge ?? 0} onChange={(event) => setStatutory({ ...statutory, eis: { ...statutory.eis, maximumAge: Number(event.target.value) || null } })} /></Setting>
+            <Setting label="Official table · upTo | employee | employer" wide><Textarea value={eisTable} onChange={(event) => setEisTable(event.target.value)} className="min-h-28" placeholder={"1000 | 0.40 | 0.40"} /></Setting>
+          </div>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] leading-5 text-muted-foreground">Paste the published schedules above and they replace the percentages entirely — the rates only approximate the banding. Leave a box empty to keep using them.</p>
+
+      <div className="mt-5 border-t pt-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">PCB · reliefs and tax bands</div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {pcbField("Individual relief (RM)", "individualRelief")}
+          {pcbField("Spouse relief (RM)", "spouseRelief")}
+          {pcbField("Child relief each (RM)", "childRelief")}
+          {pcbField("EPF relief cap (RM)", "epfReliefCap")}
+          {pcbField("SOCSO and EIS relief cap (RM)", "socsoReliefCap")}
+          {pcbField("Rebate up to (RM)", "rebateThreshold")}
+          {pcbField("Rebate amount (RM)", "rebateAmount")}
+          {pcbField("Non-resident flat %", "nonResidentRate")}
+          <Setting label="Tax bands · upTo | rate %  (last line 'above | rate')" wide><Textarea value={taxBands} onChange={(event) => setTaxBands(event.target.value)} className="min-h-40" placeholder={"5000 | 0\n20000 | 1\nabove | 30"} /></Setting>
+        </div>
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        <Setting label="Verification notes" wide><Textarea value={statutory.notes || ""} onChange={(event) => setStatutory({ ...statutory, notes: event.target.value })} className="min-h-24" /></Setting>
+      </div>
+    </CardContent></Card></div>
     <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center"><ShieldCheck className="h-5 w-5 shrink-0 text-amber-700" /><p className="flex-1 text-xs leading-5 text-amber-900">{authEnabled ? "Role permissions and private-file access are active." : "Shared HR workspace mode is active; employee login and role isolation remain disabled as requested."} Verify EPF, SOCSO, EIS and PCB against official Malaysian sources before closing payroll.</p><Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save HRMS settings"}</Button></div>
   </div>;
 }
@@ -534,7 +632,48 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
             ...(suggested?.vendorName && !String(record.description || "").trim() ? { description: suggested.vendorName } : {}),
           })} /></div>}
 
-        {editor.resource === "payroll" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Payroll period"><MonthInput value={record.period || ""} onChange={(e) => update("period", e.target.value)} /></Field>{[["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Overtime", "overtime"], ["Bonus", "bonus"], ["EPF employee", "epfEmployee"], ["EPF employer", "epfEmployer"], ["SOCSO employee", "socsoEmployee"], ["SOCSO employer", "socsoEmployer"], ["EIS employee", "eisEmployee"], ["EIS employer", "eisEmployer"], ["PCB", "pcb"], ["Other deductions", "otherDeductions"]].map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}<Field label="Statutory profile"><Select value={record.statutoryProfileId || "my-default"} onChange={(e) => update("statutoryProfileId", e.target.value)} >{(data.settings.statutoryProfiles || []).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field><Field label="Verification note" wide><Textarea value={record.verificationNote || ""} onChange={(e) => update("verificationNote", e.target.value)} /></Field></div>}
+        {editor.resource === "payroll" && (() => {
+          // Auto is the default for anything new. The statutory boxes stay
+          // visible either way rather than disappearing, because the figure is
+          // the thing being checked — hiding it would replace "verify this" with
+          // "trust me".
+          const auto = String(record.statutoryMode ?? "auto") !== "manual";
+          const earnings = [["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Overtime", "overtime"], ["Bonus", "bonus"], ["Other deductions", "otherDeductions"]] as const;
+          const statutory = [["EPF employee", "epfEmployee"], ["EPF employer", "epfEmployer"], ["SOCSO employee", "socsoEmployee"], ["SOCSO employer", "socsoEmployer"], ["EIS employee", "eisEmployee"], ["EIS employer", "eisEmployer"], ["PCB", "pcb"]] as const;
+          return <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {employeeSelect}
+              <Field label="Payroll period"><MonthInput value={record.period || ""} onChange={(e) => update("period", e.target.value)} /></Field>
+              {earnings.map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}
+            </div>
+
+            <div className="rounded-2xl border bg-card p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold">Statutory deductions</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{auto ? "Worked out from the statutory profile for this period and the employee's date of birth, residency and reliefs. Saved figures appear here after saving." : "Entered by hand. Nothing is recalculated."}</p>
+                </div>
+                <Select className="sm:w-52" value={auto ? "auto" : "manual"} onChange={(e) => update("statutoryMode", e.target.value)}>
+                  <option value="auto">Calculate automatically</option>
+                  <option value="manual">Enter manually</option>
+                </Select>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {statutory.map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" disabled={auto} value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}
+              </div>
+
+              {Array.isArray(record.statutoryWarnings) && record.statutoryWarnings.length > 0 && <ul className="mt-4 list-disc space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-3 pl-7 text-[11px] leading-5 text-amber-900">
+                {record.statutoryWarnings.map((item: string) => <li key={item}>{item}</li>)}
+              </ul>}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Statutory profile"><Select value={record.statutoryProfileId || "my-default"} onChange={(e) => update("statutoryProfileId", e.target.value)} >{(data.settings.statutoryProfiles || []).map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+              <Field label="Verification note" wide><Textarea value={record.verificationNote || ""} onChange={(e) => update("verificationNote", e.target.value)} /></Field>
+            </div>
+          </div>;
+        })()}
 
         {editor.resource === "lifecycle" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Case type"><Select value={record.type || "Probation"} onChange={(e) => update("type", e.target.value)} >{["Onboarding", "Probation", "Confirmation", "Transfer", "Promotion", "Offboarding"].map((item) => <option key={item}>{item}</option>)}</Select></Field><Field label="Status"><Select value={record.status || "Open"} onChange={(e) => update("status", e.target.value)} ><option>Open</option><option>In progress</option><option>Completed</option><option>Cancelled</option></Select></Field><Field label="Case title" wide><Input value={record.title || ""} onChange={(e) => update("title", e.target.value)} /></Field><Field label="Due date"><DateInput value={record.dueDate || ""} onChange={(e) => update("dueDate", e.target.value)} /></Field><Field label="Checklist (one task per line)" wide><Textarea value={(record.tasks || []).map((task: any) => `${task.done ? "[x]" : "[ ]"} ${task.label}`).join("\n")} onChange={(e) => update("tasks", e.target.value.split("\n").map((line: string, index: number) => ({ id: record.tasks?.[index]?.id || uid(), done: /^\s*\[x\]/i.test(line), label: line.replace(/^\s*\[[x ]\]\s*/i, "").trim() })).filter((task: any) => task.label))} /></Field><Field label="Notes" wide><Textarea value={record.notes || ""} onChange={(e) => update("notes", e.target.value)} /></Field></div>}
 

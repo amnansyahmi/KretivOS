@@ -11,6 +11,7 @@ import {
   profileForPeriod,
   socsoContribution,
   SEEDED_PROFILE,
+  toStatutoryProfile,
   type StatutoryProfile,
 } from "./payroll-statutory.ts";
 
@@ -216,6 +217,51 @@ test("age is taken at the end of the payroll month", () => {
   assert.equal(ageAtPeriod("1990-01-01", "2026-01"), 36);
   assert.equal(ageAtPeriod("", "2026-01"), null);
   assert.equal(ageAtPeriod("1990-01-01", ""), null);
+});
+
+test("a profile saved in the old flat shape still works", () => {
+  // What the settings screen used to store: four loose percentages that
+  // nothing calculated with.
+  const upgraded = toStatutoryProfile({
+    id: "my-default",
+    name: "Malaysia",
+    effectiveFrom: "2025-01-01",
+    epfEmployeeRate: 11,
+    epfEmployerRate: 12,
+    eisEmployeeRate: 0.2,
+    eisEmployerRate: 0.2,
+  });
+
+  assert.equal(upgraded.epf.employeeRate, 11);
+  assert.equal(upgraded.epf.employerRateAbove, 12, "the old single employer rate becomes the above-threshold one");
+  assert.equal(upgraded.epf.employerRateBelow, SEEDED_PROFILE.epf.employerRateBelow, "the step it never knew about comes from the seed");
+  assert.equal(upgraded.eis.employeeRate, 0.2);
+  assert.deepEqual(upgraded.pcb.bands, SEEDED_PROFILE.pcb.bands);
+  // And it computes, which the flat shape never could.
+  assert.deepEqual(epfContribution(3000, upgraded), { employee: 330, employer: 390 });
+});
+
+test("a partial or damaged profile cannot put a NaN into a contribution", () => {
+  const broken = toStatutoryProfile({ name: "Broken", epf: { employeeRate: "abc", wageBandStep: 0 }, socso: { wageCeiling: null } });
+  const result = epfContribution(3000, broken);
+  assert.ok(Number.isFinite(result.employee) && Number.isFinite(result.employer));
+  assert.equal(broken.epf.employeeRate, SEEDED_PROFILE.epf.employeeRate);
+  assert.equal(broken.epf.wageBandStep, SEEDED_PROFILE.epf.wageBandStep, "a zero step would divide by nothing");
+  assert.ok(Number.isFinite(socsoContribution(3000, broken).employer));
+});
+
+test("an empty profile falls back to the seed rather than to zero", () => {
+  const empty = toStatutoryProfile(null);
+  assert.deepEqual(epfContribution(3000, empty), epfContribution(3000, SEEDED_PROFILE));
+});
+
+test("a pasted table survives the round trip and sorts itself", () => {
+  const withTable = toStatutoryProfile({
+    ...SEEDED_PROFILE,
+    socso: { ...SEEDED_PROFILE.socso, table: [{ upTo: 2000, employee: 9.75, employer: 34.15 }, { upTo: 1000, employee: 4.5, employer: 15.75 }] },
+  });
+  assert.equal(withTable.socso.table?.[0].upTo, 1000, "rows are ordered so the first covering band wins");
+  assert.deepEqual(socsoContribution(900, withTable), { employee: 4.5, employer: 15.75 });
 });
 
 test("a period uses the rates that applied to it, not today's", () => {
