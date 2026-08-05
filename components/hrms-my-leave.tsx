@@ -19,7 +19,8 @@ import { CalendarCheck, ChevronLeft, ChevronRight, Info, Plus, X } from "lucide-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
-import { entitlementFor, toLeaveRules, type LeaveTypeRule } from "@/lib/leave-entitlement";
+import { toLeaveRules } from "@/lib/leave-entitlement";
+import { myLeaveBalances } from "@/lib/my-hr-summary";
 import { describeLeaveDuration, shortLeaveLabel } from "@/lib/leave-request";
 import { fixedHolidays, mergeHolidays, missingGazettedHolidays } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
@@ -32,39 +33,6 @@ function shiftMonth(value: string, amount: number) {
   const [year, month] = value.split("-").map(Number);
   const next = new Date(Date.UTC(year, month - 1 + amount, 1));
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-/**
- * What is left of each entitlement this year.
- *
- * Pending requests are counted against the balance alongside approved ones. A
- * balance that ignores what you have already asked for invites asking twice for
- * days that only exist once.
- */
-export function myLeaveBalances(rules: LeaveTypeRule[], employee: any, requests: any[], year: number) {
-  return rules.filter((rule) => rule.deductsBalance).map((rule) => {
-    const override = Number(employee?.leaveEntitlements?.[rule.name] || 0);
-    const recorded = override > 0 ? override
-      : rule.kind === "annual" ? Number(employee?.annualLeaveBalance || 0)
-        : rule.kind === "sick" ? Number(employee?.medicalLeaveBalance || 0)
-          : undefined;
-
-    const { days: entitlement } = entitlementFor({
-      rules, typeName: rule.name,
-      startDate: String(employee?.startDate || ""),
-      asOf: `${year}-12-31`,
-      recordedDays: recorded,
-    });
-
-    const committed = requests
-      .filter((item) => item.type === rule.name && String(item.startDate || "").startsWith(String(year)) && ["Pending", "Approved"].includes(item.status))
-      .reduce((sum, item) => sum + Number(item.days || 0), 0);
-    const taken = requests
-      .filter((item) => item.type === rule.name && String(item.startDate || "").startsWith(String(year)) && item.status === "Approved")
-      .reduce((sum, item) => sum + Number(item.days || 0), 0);
-
-    return { name: rule.name, entitlement, taken, pending: committed - taken, remaining: Math.max(0, entitlement - committed) };
-  });
 }
 
 export function HRMyLeave({ employee, requests, publicHolidays, settings, onCreate, onCancel, onEdit }: any) {

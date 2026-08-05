@@ -1,24 +1,118 @@
 "use client";
 
-import { CalendarCheck, Check, Clock3, FileText, HandCoins, Pencil, Plus, ReceiptText, ShieldCheck, Trash2, UserCheck, WalletCards, X } from "lucide-react";
+import { useMemo } from "react";
+import { CalendarCheck, Check, Clock3, FileText, HandCoins, ListChecks, Pencil, Plus, ReceiptText, ShieldCheck, Trash2, UserCheck, WalletCards, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
+import { myLeaveBalances } from "@/lib/my-hr-summary";
+import { toLeaveRules } from "@/lib/leave-entitlement";
+import { loggedBetween, outstandingActions, todayStatus, weekStartFor } from "@/lib/my-hr-summary";
+import { toHours } from "@/lib/timesheet";
+import { fixedHolidays, mergeHolidays } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
 const money = (value: unknown) => `RM ${Number(value || 0).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const date = (value?: string) => value ? new Date(`${value.length === 10 ? `${value}T00:00:00+08:00` : value}`).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short", year: "numeric" }) : "—";
+const localDate = (input = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(input);
 const initials = (name: string) => name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
-export function HRSelfService({ session, employee, leave, attendance, claims, payroll, documents, onEdit, onCreate, onNavigate, onCompleteStep }: any) {
-  const latestAttendance = [...attendance].sort((a: any, b: any) => String(b.date).localeCompare(String(a.date)))[0];
+/**
+ * My HR: what needs doing, and how to go and do it.
+ *
+ * It used to be a place that showed things — a header, four counts, the whole
+ * profile, an onboarding card — and answered neither question anybody opens it
+ * with. Now it is today's status, the things genuinely waiting on this person,
+ * and one tap to each thing they might have come to do. The record itself moved
+ * to My Details, which is where somebody looks to change their bank account
+ * rather than to find out what is outstanding.
+ *
+ * Ordered for a phone, because that is where it is opened: status first, then
+ * what is blocking, then the actions, then the numbers.
+ */
+export function HRSelfService({ session, employee, leave, attendance, claims, payroll, timesheets, documents, publicHolidays, settings, onEdit, onCreate, onNavigate, onCompleteStep }: any) {
+  const today = localDate();
+  const weekStart = weekStartFor(today);
+  const mineTimesheets = (timesheets || []).filter((entry: any) => entry.employeeId === session.userId);
+
+  const holidayToday = useMemo(() => {
+    const configured = (publicHolidays || []).filter((item: any) => item?.date && item?.name);
+    const seeded = fixedHolidays(Number(today.slice(0, 4)), String(settings?.attendance?.state || "Selangor"));
+    return mergeHolidays(configured, seeded).find((item) => item.date === today)?.name ?? "";
+  }, [publicHolidays, settings, today]);
+
+  const status = todayStatus({ date: today, attendance, leave, holidayName: holidayToday });
+  const actions = outstandingActions({ employee, leave, claims, timesheets: mineTimesheets, weekStart, today });
+  const weekMinutes = loggedBetween(mineTimesheets, weekStart, today);
+
+  const balances = useMemo(
+    () => myLeaveBalances(toLeaveRules(settings?.leaveTypes), employee, leave, Number(today.slice(0, 4))),
+    [settings, employee, leave, today],
+  );
+  const annual = balances.find((balance) => balance.name.toLowerCase().includes("annual")) ?? balances[0];
   const latestPayroll = [...payroll].sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)))[0];
-  return <div className="space-y-5">
-    <Card className="overflow-hidden border-0 bg-foreground text-white"><CardContent className="p-5 sm:p-7"><div className="flex flex-col gap-5 sm:flex-row sm:items-center"><div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-card text-lg font-semibold text-foreground">{initials(employee?.name || session.name)}</div><div className="min-w-0 flex-1"><div className="text-[10px] font-semibold uppercase tracking-[.18em] text-accent-muted">Employee self-service</div><h2 className="mt-2 text-2xl font-semibold">{employee?.name || session.name}</h2><p className="mt-1 text-sm text-white/50">{employee?.title || "Team member"} · {employee?.department || "Kretivco"}</p></div><Button className="bg-card text-foreground hover:bg-white/90" onClick={() => employee && onEdit(employee)}><Pencil className="h-4 w-4" />Update my profile</Button></div><div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4"><DarkMini label="Annual leave" value={`${employee?.annualLeaveBalance ?? 0} days`} /><DarkMini label="Medical leave" value={`${employee?.medicalLeaveBalance ?? 0} days`} /><DarkMini label="Latest clock-in" value={latestAttendance?.checkIn || "—"} /><DarkMini label="Latest payslip" value={latestPayroll?.period || "Not issued"} /></div></CardContent></Card>
+
+  return <div className="space-y-4">
+    <Card className="overflow-hidden border-0 bg-foreground text-white"><CardContent className="p-5">
+      <div className="flex items-center gap-4">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-card text-sm font-semibold text-foreground">{initials(employee?.name || session.name)}</div>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-lg font-semibold">{employee?.name || session.name}</h2>
+          <p className="mt-0.5 truncate text-xs text-white/50">{employee?.title || "Team member"}{employee?.department ? ` · ${employee.department}` : ""}</p>
+        </div>
+      </div>
+
+      {/* Today, first and largest: "have I clocked in" is checked more often
+          than everything else on this screen combined. */}
+      <div className="mt-5 rounded-2xl bg-white/8 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[.16em] text-accent-muted">{new Date(`${today}T00:00:00+08:00`).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", weekday: "long", day: "numeric", month: "long" })}</div>
+            <div className="mt-1.5 text-base font-semibold">{status.headline}</div>
+            <div className="mt-0.5 text-xs text-white/50">{status.detail}</div>
+          </div>
+          {status.action && <Button className="w-full bg-accent-soft sm:w-auto" onClick={() => onNavigate("attendance")}>
+            <Clock3 className="h-4 w-4" />{status.action === "clock_in" ? "Clock in" : "Clock out"}
+          </Button>}
+        </div>
+      </div>
+    </CardContent></Card>
+
+    {actions.length > 0 && <Card className="border-black/8 bg-white/90"><CardContent className="p-4 sm:p-5">
+      <h3 className="text-sm font-semibold">Waiting on you</h3>
+      <div className="mt-3 space-y-2">{actions.map((action) => <button
+        key={action.id}
+        onClick={() => onNavigate(action.tab)}
+        className={cn(
+          "flex w-full items-start gap-3 rounded-xl border p-3 text-left transition hover:border-accent/40",
+          action.urgency === "blocking" ? "border-amber-200 bg-amber-50" : "bg-card",
+        )}
+      >
+        <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", action.urgency === "blocking" ? "bg-amber-500" : action.urgency === "waiting" ? "bg-accent" : "bg-black/20")} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">{action.label}</span>
+          <span className="mt-0.5 block text-[11px] leading-5 text-muted-foreground">{action.hint}</span>
+        </span>
+      </button>)}</div>
+    </CardContent></Card>}
 
     {employee && <MyOnboarding employee={employee} documents={documents || []} onEdit={onEdit} onCompleteStep={onCompleteStep} />}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Quick icon={UserCheck} title="My details" note={employee?.bankAccountNumber ? "Profile and payroll details" : "Bank account not recorded"} onClick={() => onNavigate("profile")} /><Quick icon={CalendarCheck} title="Apply leave" note={`${leave.filter((item: any) => item.status === "Pending").length} pending`} onClick={() => onCreate("leave")} /><Quick icon={Clock3} title="Attendance" note={latestAttendance ? `${date(latestAttendance.date)} · ${latestAttendance.status}` : "No record yet"} onClick={() => onNavigate("attendance")} /><Quick icon={HandCoins} title="Submit claim" note={`${claims.filter((item: any) => item.status === "Pending").length} awaiting review`} onClick={() => onCreate("claims")} /><Quick icon={ReceiptText} title="My payslips" note={latestPayroll ? `${latestPayroll.status} · ${money(latestPayroll.netPay)}` : "No payroll record"} onClick={() => onNavigate("payslips")} /></div>
-    <div className="grid gap-5 xl:grid-cols-2"><Summary title="Recent leave" empty="No leave request yet." rows={leave.slice(0, 4).map((item: any) => ({ title: item.type, meta: `${date(item.startDate)} – ${date(item.endDate)}`, value: item.status }))} /><Summary title="Recent claims" empty="No claims submitted yet." rows={claims.slice(0, 4).map((item: any) => ({ title: item.category, meta: item.description, value: `${money(item.amount)} · ${item.status}` }))} /></div>
+
+    {/* Two per row on a phone: a 44px target with a readable label under it,
+        rather than four columns of truncated text. */}
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+      <Quick icon={CalendarCheck} title="Apply for leave" note={annual ? `${annual.remaining} days left` : "Request time off"} onClick={() => onCreate("leave")} />
+      <Quick icon={ListChecks} title="Log a task" note={weekMinutes ? `${toHours(weekMinutes)}h this week` : "Nothing logged yet"} onClick={() => onNavigate("timesheet")} />
+      <Quick icon={HandCoins} title="Submit a claim" note={`${claims.filter((item: any) => item.status === "Pending").length} awaiting review`} onClick={() => onCreate("claims")} />
+      <Quick icon={Clock3} title="My attendance" note={status.state === "clocked_in" ? "Clocked in" : status.state === "clocked_out" ? "Done today" : "Clock in or out"} onClick={() => onNavigate("attendance")} />
+      <Quick icon={ReceiptText} title="My payslips" note={latestPayroll ? `${latestPayroll.period} · ${money(latestPayroll.netPay)}` : "None issued yet"} onClick={() => onNavigate("payslips")} />
+      <Quick icon={UserCheck} title="My details" note={employee?.bankAccountNumber ? "Profile and bank" : "Bank account missing"} onClick={() => onNavigate("profile")} />
+    </div>
+
+    <div className="grid gap-4 xl:grid-cols-2">
+      <Summary title="Recent leave" empty="No leave request yet." rows={leave.slice(0, 4).map((item: any) => ({ title: item.type, meta: `${date(item.startDate)} – ${date(item.endDate)}`, value: item.status }))} />
+      <Summary title="Recent claims" empty="No claims submitted yet." rows={claims.slice(0, 4).map((item: any) => ({ title: item.category, meta: item.description, value: `${money(item.amount)} · ${item.status}` }))} />
+    </div>
   </div>;
 }
 
@@ -174,8 +268,7 @@ export function HRAttendanceCorrections({ records, employeeName, canReview, onCr
   return <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-center justify-between gap-3"><div><h2 className="font-semibold">Attendance corrections</h2><p className="mt-1 text-xs text-muted-foreground">Every approved correction keeps its requester, reviewer and audit reference.</p></div><Button size="sm" onClick={onCreate}><Plus className="h-4 w-4" />Request correction</Button></div><div className="mt-4 space-y-2">{records.map((item: any) => <div key={item.id} className="flex flex-col gap-3 rounded-xl border bg-card p-3 lg:flex-row lg:items-center"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold">{employeeName(item.employeeId)}</span><Badge value={item.status} /></div><p className="mt-1 text-xs text-muted-foreground">{date(item.date)} · requested {item.requestedCheckIn || "—"} – {item.requestedCheckOut || "—"}</p><p className="mt-1 text-xs">{item.reason}</p></div><div className="flex gap-2">{canReview && item.status === "Pending" && <><Button size="sm" variant="outline" onClick={() => onAction(item.id, "reject")}><X className="h-3.5 w-3.5" />Reject</Button><Button size="sm" onClick={() => onAction(item.id, "approve")}><Check className="h-3.5 w-3.5" />Approve</Button></>}{item.status === "Pending" && <Button size="icon" variant="outline" onClick={() => onEdit(item)} aria-label="Edit"><Pencil className="h-4 w-4" /></Button>}<Button size="icon" variant="outline" onClick={() => onDelete(item.id)} aria-label="Delete"><Trash2 className="h-4 w-4 text-red-500" /></Button></div></div>)}{!records.length && <div className="rounded-xl border border-dashed p-6 text-center text-xs text-muted-foreground">No correction requests.</div>}</div></CardContent></Card>;
 }
 
-function Quick({ icon: Icon, title, note, onClick }: any) { return <button onClick={onClick} className="rounded-2xl border border-black/8 bg-white/90 p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><Icon className="h-5 w-5 text-accent" /><div className="mt-4 text-sm font-semibold">{title}</div><div className="mt-1 text-[10px] text-muted-foreground">{note}</div></button>; }
-function DarkMini({ label, value }: any) { return <div className="rounded-xl bg-white/7 p-3"><div className="text-[9px] text-white/40">{label}</div><div className="mt-1 truncate text-xs font-semibold">{value}</div></div>; }
+function Quick({ icon: Icon, title, note, onClick }: any) { return <button onClick={onClick} className="flex min-h-[104px] flex-col rounded-2xl border border-black/8 bg-white/90 p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><Icon className="h-5 w-5 shrink-0 text-accent" /><div className="mt-auto pt-3 text-sm font-semibold leading-5">{title}</div><div className="mt-1 text-[10px] leading-4 text-muted-foreground">{note}</div></button>; }
 function Mini({ label, value }: any) { return <div className="rounded-xl bg-background p-3"><div className="text-[9px] text-muted-foreground">{label}</div><div className="mt-1 truncate text-xs font-semibold">{value}</div></div>; }
 function Summary({ title, rows, empty }: any) { return <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">{title}</h2><div className="mt-4 space-y-2">{rows.map((row: any, index: number) => <div key={`${row.title}-${index}`} className="flex items-center gap-3 rounded-xl bg-background p-3"><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{row.title}</div><div className="mt-1 truncate text-[10px] text-muted-foreground">{row.meta}</div></div><div className="text-[10px] font-medium">{row.value}</div></div>)}{!rows.length && <div className="rounded-xl border border-dashed p-6 text-center text-xs text-muted-foreground">{empty}</div>}</div></CardContent></Card>; }
 function Badge({ value }: { value: string }) { return <StatusBadge value={value} />; }
