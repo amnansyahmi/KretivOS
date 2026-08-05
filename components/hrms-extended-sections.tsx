@@ -10,14 +10,72 @@ const money = (value: unknown) => `RM ${Number(value || 0).toLocaleString("en-MY
 const date = (value?: string) => value ? new Date(`${value.length === 10 ? `${value}T00:00:00+08:00` : value}`).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short", year: "numeric" }) : "—";
 const initials = (name: string) => name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
-export function HRSelfService({ session, employee, leave, attendance, claims, payroll, onEdit, onCreate, onNavigate }: any) {
+export function HRSelfService({ session, employee, leave, attendance, claims, payroll, documents, onEdit, onCreate, onNavigate, onCompleteStep }: any) {
   const latestAttendance = [...attendance].sort((a: any, b: any) => String(b.date).localeCompare(String(a.date)))[0];
   const latestPayroll = [...payroll].sort((a: any, b: any) => String(b.period).localeCompare(String(a.period)))[0];
   return <div className="space-y-5">
     <Card className="overflow-hidden border-0 bg-foreground text-white"><CardContent className="p-5 sm:p-7"><div className="flex flex-col gap-5 sm:flex-row sm:items-center"><div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-card text-lg font-semibold text-foreground">{initials(employee?.name || session.name)}</div><div className="min-w-0 flex-1"><div className="text-[10px] font-semibold uppercase tracking-[.18em] text-accent-muted">Employee self-service</div><h2 className="mt-2 text-2xl font-semibold">{employee?.name || session.name}</h2><p className="mt-1 text-sm text-white/50">{employee?.title || "Team member"} · {employee?.department || "Kretivco"}</p></div><Button className="bg-card text-foreground hover:bg-white/90" onClick={() => employee && onEdit(employee)}><Pencil className="h-4 w-4" />Update my profile</Button></div><div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4"><DarkMini label="Annual leave" value={`${employee?.annualLeaveBalance ?? 0} days`} /><DarkMini label="Medical leave" value={`${employee?.medicalLeaveBalance ?? 0} days`} /><DarkMini label="Latest clock-in" value={latestAttendance?.checkIn || "—"} /><DarkMini label="Latest payslip" value={latestPayroll?.period || "Not issued"} /></div></CardContent></Card>
+
+    {employee && <MyOnboarding employee={employee} documents={documents || []} onEdit={onEdit} onCompleteStep={onCompleteStep} />}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Quick icon={CalendarCheck} title="Apply leave" note={`${leave.filter((item: any) => item.status === "Pending").length} pending`} onClick={() => onCreate("leave")} /><Quick icon={Clock3} title="Attendance" note={latestAttendance ? `${date(latestAttendance.date)} · ${latestAttendance.status}` : "No record yet"} onClick={() => onNavigate("attendance")} /><Quick icon={HandCoins} title="Submit claim" note={`${claims.filter((item: any) => item.status === "Pending").length} awaiting review`} onClick={() => onCreate("claims")} /><Quick icon={ReceiptText} title="My payslips" note={latestPayroll ? `${latestPayroll.status} · ${money(latestPayroll.netPay)}` : "No payroll record"} onClick={() => onNavigate("payslips")} /></div>
     <div className="grid gap-5 xl:grid-cols-2"><Summary title="Recent leave" empty="No leave request yet." rows={leave.slice(0, 4).map((item: any) => ({ title: item.type, meta: `${date(item.startDate)} – ${date(item.endDate)}`, value: item.status }))} /><Summary title="Recent claims" empty="No claims submitted yet." rows={claims.slice(0, 4).map((item: any) => ({ title: item.category, meta: item.description, value: `${money(item.amount)} · ${item.status}` }))} /></div>
   </div>;
+}
+
+/**
+ * The joiner's own checklist, on the screen they already land on.
+ *
+ * Split by who is being waited on. Someone chasing their first payslip needs to
+ * know that it is their bank account holding it up and not "onboarding" in the
+ * abstract, and the steps HR still owes are shown rather than hidden so the
+ * list does not read as a personal to-do that never finishes.
+ */
+function MyOnboarding({ employee, documents, onEdit, onCompleteStep }: any) {
+  const steps = employee.onboarding || [];
+  const summary = employee.onboardingSummary || { percent: 0, done: 0, total: steps.length, complete: false };
+  if (summary.complete || !steps.length) return null;
+
+  const mine = steps.filter((step: any) => step.owner === "employee" && !step.done);
+  const theirs = steps.filter((step: any) => step.owner !== "employee" && !step.done);
+  const documentFor = (id?: string) => documents.find((item: any) => item.id === id);
+
+  return <Card className="border-accent/25 bg-white/90"><CardContent className="p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="font-semibold">Finish your onboarding</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{summary.done} of {summary.total} done{mine.length ? ` · ${mine.length} waiting on you` : " · nothing waiting on you"}</p>
+      </div>
+      <span className="rounded-full bg-accent px-2.5 py-1 text-[10px] font-semibold text-white">{summary.percent}%</span>
+    </div>
+    <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/5"><div className="h-full rounded-full bg-accent" style={{ width: `${summary.percent}%` }} /></div>
+
+    <div className="mt-5 space-y-2">
+      {mine.map((step: any) => {
+        const document = documentFor(step.documentId);
+        return <div key={step.id} className="rounded-xl border bg-card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">{step.label}</div>
+              {step.hint && <p className="mt-1 text-xs leading-5 text-muted-foreground">{step.hint}</p>}
+              {step.missing?.length > 0 && <p className="mt-2 text-xs leading-5 text-amber-800">Still needed: {step.missing.join(", ")}</p>}
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {document?.assetId && <Button size="sm" variant="outline" asChild><a href={`/api/hr/files/${document.assetId}`} target="_blank" rel="noreferrer"><FileText className="h-3.5 w-3.5" />Read</a></Button>}
+              {step.kind === "profile"
+                ? <Button size="sm" onClick={() => onEdit(employee)}><Pencil className="h-3.5 w-3.5" />Fill in</Button>
+                : <Button size="sm" onClick={() => onCompleteStep(step.id)}><Check className="h-3.5 w-3.5" />{step.kind === "policy" ? "I have read this" : "Mark done"}</Button>}
+            </div>
+          </div>
+        </div>;
+      })}
+      {!mine.length && <div className="rounded-xl border border-dashed p-4 text-center text-xs text-muted-foreground">Your part is done.</div>}
+
+      {theirs.length > 0 && <div className="rounded-xl bg-background p-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Waiting on HR</div>
+        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">{theirs.map((step: any) => <li key={step.id}>{step.label}</li>)}</ul>
+      </div>}
+    </div>
+  </CardContent></Card>;
 }
 
 export function HRClaims({ claims, employeeName, canReview, canPay, onCreate, onEdit, onDelete, onAction }: any) {

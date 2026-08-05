@@ -5,6 +5,10 @@ import { createPinCredential, HRAuthError, publicSession, requireHRSession, role
 import { mutateWorkspaceState, WorkspaceConflictError } from "@/lib/workspace-state";
 import { postPayrollAccrual, postPayrollPayment, payrollAlreadyPosted, toPayrollRecord } from "@/lib/payroll-posting";
 import { ageAtPeriod, computePayroll, profileForPeriod, SEEDED_PROFILE, toStatutoryProfile } from "@/lib/payroll-statutory";
+import {
+  canCompleteStep, defaultStaffOnboarding, normaliseOnboarding, onboardingSummary,
+  resolveOnboarding, SELF_EDITABLE_FIELDS,
+} from "@/lib/staff-onboarding";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -28,14 +32,7 @@ const starterNames = [
   "Ajam (Multazam)",
 ];
 
-const defaultOnboarding = () => [
-  { id: randomUUID(), label: "Personal and contact details", done: false },
-  { id: randomUUID(), label: "Employment terms acknowledged", done: false },
-  { id: randomUUID(), label: "KretivOS and work tools access", done: false },
-  { id: randomUUID(), label: "Company policies reviewed", done: false },
-  { id: randomUUID(), label: "Role expectations and goals", done: false },
-  { id: randomUUID(), label: "First-week check-in", done: false },
-];
+const defaultOnboarding = defaultStaffOnboarding;
 
 const defaultOperations = {
   leaveRequests: [] as any[],
@@ -106,7 +103,7 @@ function slug(value: string) {
 function mapEmployee(row: any) {
   const metadata = object(row.metadata);
   const placeholderEmail = bool(metadata.emailPlaceholder);
-  return {
+  const employee = {
     id: row.id,
     name: row.display_name,
     email: placeholderEmail ? "" : row.email,
@@ -125,7 +122,6 @@ function mapEmployee(row: any) {
     carryForwardLeaveBalance: number(metadata.carryForwardLeaveBalance),
     skills: array(metadata.skills).map(clean).filter(Boolean),
     notes: clean(metadata.notes),
-    onboarding: array(metadata.onboarding).length ? metadata.onboarding : defaultOnboarding(),
     role: roleFromMetadata(metadata),
     authConfigured: Boolean(clean(object(metadata.auth).pinHash)),
     managerId: clean(metadata.managerId),
@@ -169,6 +165,16 @@ function mapEmployee(row: any) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+
+  /*
+   * Resolved against the employee it belongs to, on every read. A details step
+   * answers to what is actually on file rather than to a stored tick, so a
+   * checklist cannot claim an NRIC or a bank account that was never supplied —
+   * and it un-completes itself if one is later cleared, which a boolean could
+   * not.
+   */
+  const onboarding = resolveOnboarding(metadata.onboarding, employee);
+  return { ...employee, onboarding, onboardingSummary: onboardingSummary(onboarding) };
 }
 
 /**
@@ -598,6 +604,49 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(await snapshot(session));
       }
 
+      /*
+       * Completing one onboarding step, as its own operation.
+       *
+       * It cannot go through `update`: an employee is not allowed to write the
+       * whole record, and routing an acknowledgement through a general edit
+       * would mean deciding on every save whether a checklist arriving from the
+       * browser was a legitimate change or a stale copy overwriting somebody
+       * else's tick. This takes a step id and a flag, and the server owns the
+       * rest.
+       */
+      if (operation === "onboarding") {
+        const rows = await sql`select * from users where id = ${id} and organization_id = ${ORGANIZATION_ID} limit 1`;
+        if (!rows.length) throw new Error("Employee was not found.");
+        const metadata = object(rows[0].metadata);
+        const steps = normaliseOnboarding(metadata.onboarding);
+        const step = steps.find((item) => item.id === clean(data.stepId));
+        if (!step) throw new Error("Onboarding step was not found.");
+
+        const allowed = canCompleteStep(step, {
+          isOwnRecord: id === session.userId,
+          isManager: ["hr_admin", "manager"].includes(session.role),
+        });
+        if (!allowed) {
+          throw new HRAuthError(step.kind === "profile"
+            ? "This step completes itself once the details are on file."
+            : "You cannot complete this onboarding step.", 403);
+        }
+
+        const done = data.done !== false;
+        const next = steps.map((item) => item.id === step.id ? {
+          ...item,
+          done,
+          completedAt: done ? new Date().toISOString() : undefined,
+          completedBy: done ? session.userId : undefined,
+        } : item);
+
+        await sql`update users set metadata = ${JSON.stringify({ ...metadata, onboarding: next })}::jsonb where id = ${id} and organization_id = ${ORGANIZATION_ID}`;
+        // Policy acknowledgements are the reason this is audited: the tick is
+        // the only record that somebody read what they were asked to read.
+        await audit(step.kind === "policy" ? "hr.employee.policy_acknowledged" : "hr.employee.onboarding_step", "employee", id, { stepId: step.id, label: step.label, done }, session.userId);
+        return NextResponse.json(await snapshot(session));
+      }
+
       if (operation === "create") {
         requireRole(session, ["hr_admin"]);
         const employeeId = clean(data.id) || randomUUID();
@@ -617,7 +666,7 @@ export async function POST(request: NextRequest) {
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
           probationEndDate: clean(data.probationEndDate), confirmationDate: clean(data.confirmationDate),
-          onboarding: array(data.onboarding).length ? data.onboarding : defaultOnboarding(), auth: { role },
+          onboarding: normaliseOnboarding(data.onboarding), auth: { role },
         };
         const rows = await sql`insert into users (id, organization_id, email, display_name, status, metadata) values (${employeeId}, ${ORGANIZATION_ID}, ${email}, ${name}, ${clean(data.status) || "active"}, ${JSON.stringify(metadata)}::jsonb) returning *`;
         await audit("hr.employee.created", "employee", employeeId, mapEmployee(rows[0]), session.userId);
@@ -632,13 +681,28 @@ export async function POST(request: NextRequest) {
         const previousMetadata = object(existing[0].metadata);
         const currentAuth = object(previousMetadata.auth);
         const requestedRole = ["hr_admin", "manager", "employee", "finance"].includes(clean(data.role)) ? clean(data.role) : roleFromMetadata(previousMetadata);
+        /*
+         * A joiner can now fill in their own record, which is the point of
+         * asking them to. The allowed set is facts about themselves — how to
+         * reach them, their NRIC and date of birth, their bank account, their
+         * reliefs. It stops short of the determinations: tax residency and
+         * whether EPF, SOCSO and EIS apply are HR's judgement, not a field the
+         * person affected by them should be able to change.
+         *
+         * A bank account is in reach of the person paid into it, which is the
+         * arrangement every payroll system lands on. `hr.employee.self_updated`
+         * records who changed what, so a redirected salary leaves a trail.
+         */
         const metadata = selfEdit ? {
           ...previousMetadata,
-          location: clean(data.location ?? current.location), phone: clean(data.phone ?? current.phone),
-          emergencyContact: clean(data.emergencyContact ?? current.emergencyContact), notes: clean(data.notes ?? current.notes),
+          ...Object.fromEntries(SELF_EDITABLE_FIELDS
+            .filter((field) => field in data)
+            .map((field) => [field, field === "spouseWorking" ? bool(data[field])
+              : field === "childRelief" ? Math.max(0, Math.floor(number(data[field])))
+                : clean(data[field])])),
         } : managerEdit ? {
           ...previousMetadata,
-          onboarding: array(data.onboarding).length ? data.onboarding : current.onboarding,
+          onboarding: normaliseOnboarding(array(data.onboarding).length ? data.onboarding : current.onboarding),
           probationEndDate: clean(data.probationEndDate ?? current.probationEndDate),
           confirmationDate: clean(data.confirmationDate ?? current.confirmationDate),
         } : {
@@ -652,7 +716,7 @@ export async function POST(request: NextRequest) {
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
           probationEndDate: clean(data.probationEndDate), confirmationDate: clean(data.confirmationDate),
-          onboarding: array(data.onboarding).length ? data.onboarding : current.onboarding,
+          onboarding: normaliseOnboarding(array(data.onboarding).length ? data.onboarding : current.onboarding),
           auth: { ...currentAuth, role: requestedRole },
         };
         const limitedEdit = selfEdit || managerEdit;

@@ -261,12 +261,19 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     await managedMutation({ operation: "delete", resource, id });
   }
 
-  async function toggleOnboarding(employee: any, itemId: string) {
-    const onboarding = (employee.onboarding || []).map((item: any) => item.id === itemId ? { ...item, done: !item.done } : item);
+  /**
+   * One step, by id.
+   *
+   * It used to send the whole employee back with a flipped boolean, which meant
+   * an employee could not tick anything — the write needed permission over the
+   * entire record — and two people ticking at once silently overwrote each
+   * other. The server now owns the step and decides who may close it.
+   */
+  async function completeStep(employeeId: string, stepId: string, done = true) {
     setSaving(true); setError("");
     try {
-      setData(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation: "update", resource: "employees", id: employee.id, data: { ...employee, onboarding } }) }));
-      setNotice("Onboarding checklist updated.");
+      setData(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation: "onboarding", resource: "employees", id: employeeId, data: { stepId, done } }) }));
+      setNotice("Onboarding updated.");
     } catch (value) { setError(value instanceof Error ? value.message : "Unable to update onboarding."); }
     finally { setSaving(false); }
   }
@@ -312,7 +319,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
           <>
             {!(["self", "overview", "payslips", "settings"] as Tab[]).includes(tab) && <div className="kretivos-search-control mb-4 flex h-11 items-center gap-2 rounded-xl border bg-card px-3"><Search className="h-5 w-5 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={`Search ${tabs.find((item) => item.id === tab)?.label.toLowerCase()}...`} /></div>}
 
-            {tab === "self" && <HRSelfService session={session} employee={data.employees.find((item) => item.id === session.userId)} leave={data.leaveRequests.filter((item) => item.employeeId === session.userId)} attendance={data.attendance.filter((item) => item.employeeId === session.userId)} claims={data.claims.filter((item) => item.employeeId === session.userId)} payroll={data.payroll.filter((item) => item.employeeId === session.userId)} onEdit={(employee: any) => openEdit("employees", employee)} onCreate={(resource: Resource) => openCreate(resource, session.userId)} onNavigate={changeTab} />}
+            {tab === "self" && <HRSelfService session={session} employee={data.employees.find((item) => item.id === session.userId)} leave={data.leaveRequests.filter((item) => item.employeeId === session.userId)} attendance={data.attendance.filter((item) => item.employeeId === session.userId)} claims={data.claims.filter((item) => item.employeeId === session.userId)} payroll={data.payroll.filter((item) => item.employeeId === session.userId)} documents={data.documents} onEdit={(employee: any) => openEdit("employees", employee)} onCreate={(resource: Resource) => openCreate(resource, session.userId)} onNavigate={changeTab} onCompleteStep={(stepId: string) => completeStep(session.userId, stepId)} />}
 
             {tab === "overview" && <Overview data={data} stats={stats} employeeName={employeeName} setTab={changeTab} />}
 
@@ -352,9 +359,38 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
             {tab === "onboarding" && <div className="grid gap-4 xl:grid-cols-2">
               {data.employees.filter((employee) => matches(employee.name, employee.title, employee.department)).map((employee) => {
                 const checklist = employee.onboarding || [];
-                const done = checklist.filter((item: any) => item.done).length;
-                const progress = checklist.length ? Math.round(done / checklist.length * 100) : 0;
-                return <Card key={employee.id} className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground text-xs font-semibold text-white">{initials(employee.name)}</div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold">{employee.name}</h2><p className="mt-1 text-xs text-muted-foreground">{employee.title || "Role not set"} · Started {formatDate(employee.startDate)}</p></div><Status value={progress === 100 ? "Completed" : `${progress}% ready`} /></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-black/5"><div className="h-full rounded-full bg-accent" style={{ width: `${progress}%` }} /></div></div></div><div className="mt-5 space-y-2">{checklist.map((item: any) => <button key={item.id} disabled={saving} onClick={() => toggleOnboarding(employee, item.id)} className="flex w-full items-center gap-3 rounded-xl border bg-card p-3 text-left text-sm transition hover:border-accent/40 disabled:opacity-60" aria-label="Mark all read"><span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", item.done ? "border-foreground bg-foreground text-white" : "bg-card")}>{item.done && <Check className="h-3.5 w-3.5" />}</span><span className={cn(item.done && "text-muted-foreground line-through")}>{item.label}</span></button>)}</div><Button variant="outline" className="mt-4 w-full" onClick={() => openEdit("employees", employee)}><Pencil className="h-4 w-4" />Edit profile and checklist</Button></CardContent></Card>;
+                const summary = employee.onboardingSummary || { percent: 0, done: 0, total: checklist.length, waitingOnEmployee: 0, waitingOnHR: 0 };
+                return <Card key={employee.id} className="border-black/8 bg-white/90"><CardContent className="p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-foreground text-xs font-semibold text-white">{initials(employee.name)}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div><h2 className="font-semibold">{employee.name}</h2><p className="mt-1 text-xs text-muted-foreground">{employee.title || "Role not set"} · Started {formatDate(employee.startDate)}</p></div>
+                        <Status value={summary.percent === 100 ? "Completed" : `${summary.percent}% ready`} />
+                      </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/5"><div className="h-full rounded-full bg-accent" style={{ width: `${summary.percent}%` }} /></div>
+                      {/* Which side is holding it up, so chasing is aimed at the right person. */}
+                      {summary.percent < 100 && <p className="mt-2 text-[11px] text-muted-foreground">{[summary.waitingOnEmployee ? `${summary.waitingOnEmployee} waiting on ${employee.name.split(" ")[0]}` : "", summary.waitingOnHR ? `${summary.waitingOnHR} waiting on HR` : ""].filter(Boolean).join(" · ")}</p>}
+                    </div>
+                  </div>
+                  <div className="mt-5 space-y-2">{checklist.map((item: any) => {
+                    // A details step is answered by the record, so it is shown
+                    // rather than offered as a button somebody could press.
+                    const derived = item.kind === "profile";
+                    const body = <>
+                      <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", item.done ? "border-foreground bg-foreground text-white" : "bg-card")}>{item.done && <Check className="h-3.5 w-3.5" />}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className={cn("block", item.done && "text-muted-foreground line-through")}>{item.label}</span>
+                        {derived && item.missing?.length > 0 && <span className="mt-0.5 block text-[10px] text-amber-700">Missing: {item.missing.join(", ")}</span>}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-black/5 px-2 py-0.5 text-[9px] font-medium text-muted-foreground">{item.owner === "employee" ? "Employee" : "HR"}</span>
+                    </>;
+                    return derived
+                      ? <div key={item.id} className="flex w-full items-center gap-3 rounded-xl border border-dashed bg-card p-3 text-left text-sm">{body}</div>
+                      : <button key={item.id} disabled={saving} onClick={() => completeStep(employee.id, item.id, !item.done)} className="flex w-full items-center gap-3 rounded-xl border bg-card p-3 text-left text-sm transition hover:border-accent/40 disabled:opacity-60">{body}</button>;
+                  })}</div>
+                  <Button variant="outline" className="mt-4 w-full" onClick={() => openEdit("employees", employee)}><Pencil className="h-4 w-4" />Edit profile and checklist</Button>
+                </CardContent></Card>;
               })}
               {!data.employees.length && <Empty icon={BookOpenCheck} title="No employee onboarding" note="Add the first employee to start an onboarding checklist." action={() => { changeTab("people"); openCreate("employees"); }} />}
             </div>}
@@ -592,9 +628,15 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
             <Field label="Notes" wide><Textarea value={record.notes || ""} onChange={(e) => update("notes", e.target.value)} /></Field>
           </div>
 
-          {admin && <div className="rounded-2xl border bg-card p-4">
+          {/*
+            * Shown to the person it is about as well as to HR, because
+            * onboarding asks them to fill it in. Tax residency and the
+            * applicability flags stay HR-only below: those are determinations
+            * about someone, not facts they hold.
+            */}
+          {(admin || record.id === session.userId) && <div className="rounded-2xl border bg-card p-4">
             <div className="flex items-center gap-2"><WalletCards className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Payroll and statutory</h3></div>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">What payroll works the deductions out from. Date of birth is required for the age rules on EPF, SOCSO and EIS; marital status and children set the PCB reliefs.</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{admin ? "What payroll works the deductions out from. Date of birth is required for the age rules on EPF, SOCSO and EIS; marital status and children set the PCB reliefs." : "Payroll needs these to pay you and to work out your EPF, SOCSO and PCB correctly. If you have no income tax or EPF number yet, leave those blank."}</p>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <Field label="Employee number"><Input value={record.employeeNumber || ""} onChange={(e) => update("employeeNumber", e.target.value)} /></Field>
               <Field label="Date of birth"><DateInput value={record.dateOfBirth || ""} onChange={(e) => update("dateOfBirth", e.target.value)} /></Field>
@@ -603,18 +645,41 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
               <Field label="EPF number"><Input value={record.epfNumber || ""} onChange={(e) => update("epfNumber", e.target.value)} /></Field>
               <Field label="SOCSO number"><Input value={record.socsoNumber || ""} onChange={(e) => update("socsoNumber", e.target.value)} /></Field>
               <Field label="Nationality"><Select value={record.nationality || "Malaysian"} onChange={(e) => update("nationality", e.target.value)}>{["Malaysian", "Permanent Resident", "Foreign"].map((item) => <option key={item}>{item}</option>)}</Select></Field>
-              <Field label="Tax residency"><Select value={record.taxResident === false ? "non-resident" : "resident"} onChange={(e) => update("taxResident", e.target.value === "resident")}><option value="resident">Resident</option><option value="non-resident">Non-resident</option></Select></Field>
+              {admin && <Field label="Tax residency"><Select value={record.taxResident === false ? "non-resident" : "resident"} onChange={(e) => update("taxResident", e.target.value === "resident")}><option value="resident">Resident</option><option value="non-resident">Non-resident</option></Select></Field>}
               <Field label="Marital status"><Select value={record.maritalStatus || "Single"} onChange={(e) => update("maritalStatus", e.target.value)}><option>Single</option><option>Married</option></Select></Field>
               <Field label="Children claimed for relief"><Input type="number" min="0" step="1" value={record.childRelief ?? 0} onChange={(e) => update("childRelief", Number(e.target.value))} /></Field>
               {String(record.maritalStatus) === "Married" && <label className="flex items-center gap-3 rounded-xl border bg-background p-3 text-xs font-medium sm:col-span-2"><input type="checkbox" className="h-4 w-4" checked={Boolean(record.spouseWorking)} onChange={(e) => update("spouseWorking", e.target.checked)} />Spouse has their own income (no spouse relief is claimed)</label>}
               <Field label="Bank"><Input value={record.bankName || ""} onChange={(e) => update("bankName", e.target.value)} placeholder="Maybank" /></Field>
               <Field label="Bank account number"><Input value={record.bankAccountNumber || ""} onChange={(e) => update("bankAccountNumber", e.target.value)} /></Field>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
+            {admin && <div className="mt-4 flex flex-wrap gap-2">
               {([["epfApplicable", "EPF"], ["socsoApplicable", "SOCSO"], ["eisApplicable", "EIS"]] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-xs font-medium"><input type="checkbox" className="h-4 w-4" checked={record[key] !== false} onChange={(e) => update(key, e.target.checked)} />{label} applies</label>)}
-            </div>
+            </div>}
           </div>}
-          {admin && <div className="rounded-2xl border bg-card p-4"><div className="flex items-center gap-2"><BookOpenCheck className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Onboarding checklist</h3></div><div className="mt-3 space-y-2">{(record.onboarding || []).map((item: any, index: number) => <label key={item.id} className="flex items-center gap-3 rounded-xl bg-background p-3 text-sm"><input type="checkbox" checked={item.done} onChange={(e) => update("onboarding", record.onboarding.map((row: any, rowIndex: number) => rowIndex === index ? { ...row, done: e.target.checked } : row))} className="h-4 w-4" /><span>{item.label}</span></label>)}</div></div>}
+          {/*
+            * Steps are completed from the Onboarding tab and from My HR, not
+            * here — a second set of tick boxes on the edit form would be a
+            * competing path to the same state, and the one that skipped the
+            * ownership rules. What this screen owns is the setup: which
+            * document each policy step asks the joiner to read. Without that
+            * link "I have read this" is a tick against nothing.
+            */}
+          {admin && <div className="rounded-2xl border bg-card p-4">
+            <div className="flex items-center gap-2"><BookOpenCheck className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Onboarding checklist</h3></div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Completed from Onboarding and My HR. Detail steps tick themselves once the fields are filled in.</p>
+            <div className="mt-3 space-y-2">{(record.onboarding || []).map((item: any, index: number) => <div key={item.id} className="rounded-xl bg-background p-3">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", item.done ? "border-foreground bg-foreground text-white" : "bg-card")}>{item.done && <Check className="h-3.5 w-3.5" />}</span>
+                <span className="min-w-0 flex-1">{item.label}</span>
+                <span className="rounded-full bg-black/5 px-2 py-0.5 text-[9px] font-medium text-muted-foreground">{item.owner === "employee" ? "Employee" : "HR"}</span>
+              </div>
+              {item.kind === "policy" && <Select className="mt-2" value={item.documentId || ""} onChange={(e) => update("onboarding", record.onboarding.map((row: any, rowIndex: number) => rowIndex === index ? { ...row, documentId: e.target.value } : row))}>
+                <option value="">No document linked</option>
+                {data.documents.map((document: any) => <option key={document.id} value={document.id}>{document.title}</option>)}
+              </Select>}
+              {item.kind === "profile" && item.missing?.length > 0 && <div className="mt-1 text-[10px] text-amber-700">Missing: {item.missing.join(", ")}</div>}
+            </div>)}</div>
+          </div>}
         </>}
 
         {editor.resource === "leave" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Leave type"><Select value={record.type || ""} onChange={(e) => update("type", e.target.value)} >{data.settings.leaveTypes.map((item: string) => <option key={item}>{item}</option>)}</Select></Field><Field label="Duration"><Select value={record.halfDay ? "half" : "full"} onChange={(e) => update("halfDay", e.target.value === "half")} ><option value="full">Full day(s)</option><option value="half">Half day</option></Select></Field><Field label="Start date"><DateInput value={record.startDate || ""} onChange={(e) => update("startDate", e.target.value)} /></Field><Field label="End date"><DateInput value={record.endDate || ""} onChange={(e) => update("endDate", e.target.value)} /></Field><Field label="Handover to"><Select value={record.handoverTo || ""} onChange={(e) => update("handoverTo", e.target.value)} ><option value="">Not required</option>{employeeOptions.filter((item: any) => item.id !== record.employeeId).map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field><EvidenceUpload purpose="leave_attachment" employeeId={record.employeeId} value={record.attachmentId} onUploaded={(id: string) => update("attachmentId", id)} /></div>}
