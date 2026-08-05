@@ -1083,6 +1083,37 @@ export async function POST(request: NextRequest) {
         state.claims = list.map((item: any) => item.id === id ? updated : item);
         defer.audit(`hr.claim.${action}`, "hr_claim", id, updated, session.userId);
         defer.notify(action === "mark_paid" ? "Claim paid" : `Claim ${updated.status.toLowerCase()}`, `${existing.category} claim is now ${action === "mark_paid" ? "paid" : updated.status.toLowerCase()}.`, "hr_claim", id, existing.employeeId);
+      } else if (operation === "action" && resource === "attendance") {
+        /*
+         * Approving the overtime on an attendance record.
+         *
+         * Clock-out computes minutes from the clock alone, so it cannot tell
+         * the evening somebody stayed to finish their own work from the evening
+         * they were asked to. Without this the timesheet would be an
+         * instruction to pay rather than a record of hours.
+         *
+         * Reviewing does not touch the times themselves: the photo, the
+         * location and the timestamps stay exactly as captured, and only
+         * whether those hours are payable changes. An attendance correction is
+         * still the way to change what the clock says.
+         */
+        requireRole(session, ["hr_admin", "manager"]);
+        if (!existing) throw new Error("Attendance record was not found.");
+        if (!["approve_overtime", "reject_overtime"].includes(action)) throw new Error("Unsupported attendance action.");
+        if (number(existing.overtimeMinutes) <= 0) throw new Error("This record has no overtime to review.");
+
+        const approved = action === "approve_overtime";
+        const updated = {
+          ...existing,
+          overtimeStatus: approved ? "Approved" : "Rejected",
+          overtimeReviewedBy: session.userId,
+          overtimeReviewedAt: new Date().toISOString(),
+          overtimeReviewNote: clean(data.reviewerNote),
+          updatedAt: new Date().toISOString(),
+        };
+        state.attendance = list.map((item: any) => item.id === id ? updated : item);
+        defer.audit(`hr.attendance.overtime_${approved ? "approved" : "rejected"}`, "hr_attendance", id, updated, session.userId);
+        defer.notify(`Overtime ${approved ? "approved" : "rejected"}`, `${Math.round(number(existing.overtimeMinutes) / 60 * 10) / 10}h on ${existing.date} is now ${approved ? "approved for payment" : "rejected"}.`, "hr_attendance", id, existing.employeeId);
       } else if (operation === "action" && resource === "attendance_corrections") {
         requireRole(session, ["hr_admin", "manager"]);
         if (!existing) throw new Error("Attendance correction was not found.");

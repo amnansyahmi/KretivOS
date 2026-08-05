@@ -48,8 +48,32 @@ test("the multiples rise with the kind of day", () => {
   assert.equal(multiplierFor("public_holiday"), 3);
 });
 
+test("overtime is not payable until it has been approved", () => {
+  const unreviewed = [{ employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 120 }];
+  const result = overtimeForPeriod(unreviewed, { employeeId: "emp-1", period: "2026-08", monthlyWage: WAGE }, rules, {});
+
+  assert.equal(result.amount, 0, "the clock alone does not authorise a payment");
+  assert.equal(result.pendingMinutes, 120, "but the hours are reported, not swallowed");
+  assert.equal(result.pendingDays, 1);
+});
+
+test("a rejected evening is neither paid nor reported as waiting", () => {
+  const rejected = [{ employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 120, overtimeStatus: "Rejected" }];
+  const result = overtimeForPeriod(rejected, { employeeId: "emp-1", period: "2026-08", monthlyWage: WAGE }, rules, {});
+
+  assert.equal(result.amount, 0);
+  assert.equal(result.pendingMinutes, 0, "it was reviewed; there is nothing outstanding");
+});
+
+test("records from before overtime was reviewable count as pending, not approved", () => {
+  // Treating them as approved would pay out an unreviewed backlog on the first
+  // run after this shipped.
+  const legacy = [{ employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 480 }];
+  assert.equal(overtimeForPeriod(legacy, { employeeId: "emp-1", period: "2026-08", monthlyWage: WAGE }, rules, {}).amount, 0);
+});
+
 test("two hours on a working day is paid at one and a half", () => {
-  const attendance = [{ employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 120 }];
+  const attendance = [{ employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 120, overtimeStatus: "Approved" }];
   const result = overtimeForPeriod(attendance, { employeeId: "emp-1", period: "2026-08", monthlyWage: WAGE }, rules, {
     restDays: restDaysForState("Selangor"),
     holidays: new Set(),
@@ -64,7 +88,7 @@ test("two hours on a working day is paid at one and a half", () => {
 test("the same two hours cost more on a rest day and more again on a holiday", () => {
   const calendar = { restDays: restDaysForState("Selangor"), holidays: new Set(["2026-08-31"]) };
   const at = (date: string) => overtimeForPeriod(
-    [{ employeeId: "emp-1", date, overtimeMinutes: 120 }],
+    [{ employeeId: "emp-1", date, overtimeMinutes: 120, overtimeStatus: "Approved" }],
     { employeeId: "emp-1", period: date.slice(0, 7), monthlyWage: WAGE },
     rules,
     calendar,
@@ -77,10 +101,10 @@ test("the same two hours cost more on a rest day and more again on a holiday", (
 
 test("a month of mixed overtime is banded and totalled", () => {
   const attendance = [
-    { employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 60 },
-    { employeeId: "emp-1", date: "2026-08-06", overtimeMinutes: 90 },
-    { employeeId: "emp-1", date: "2026-08-08", overtimeMinutes: 120 },
-    { employeeId: "emp-1", date: "2026-08-31", overtimeMinutes: 60 },
+    { employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 60, overtimeStatus: "Approved" },
+    { employeeId: "emp-1", date: "2026-08-06", overtimeMinutes: 90, overtimeStatus: "Approved" },
+    { employeeId: "emp-1", date: "2026-08-08", overtimeMinutes: 120, overtimeStatus: "Approved" },
+    { employeeId: "emp-1", date: "2026-08-31", overtimeMinutes: 60, overtimeStatus: "Approved" },
   ];
   const result = overtimeForPeriod(attendance, { employeeId: "emp-1", period: "2026-08", monthlyWage: WAGE }, rules, {
     restDays: restDaysForState("Selangor"),
@@ -96,9 +120,9 @@ test("a month of mixed overtime is banded and totalled", () => {
 
 test("only this employee and this period count", () => {
   const attendance = [
-    { employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 60 },
-    { employeeId: "emp-2", date: "2026-08-05", overtimeMinutes: 600 },
-    { employeeId: "emp-1", date: "2026-07-05", overtimeMinutes: 600 },
+    { employeeId: "emp-1", date: "2026-08-05", overtimeMinutes: 60, overtimeStatus: "Approved" },
+    { employeeId: "emp-2", date: "2026-08-05", overtimeMinutes: 600, overtimeStatus: "Approved" },
+    { employeeId: "emp-1", date: "2026-07-05", overtimeMinutes: 600, overtimeStatus: "Approved" },
   ];
   const result = overtimeForPeriod(attendance, { employeeId: "emp-1", period: "2026-08", monthlyWage: WAGE }, rules, {});
   assert.equal(result.totalMinutes, 60);
@@ -108,7 +132,7 @@ test("only this employee and this period count", () => {
 test("a leave day contributes nothing even if it carries minutes", () => {
   // Approving leave generates an attendance row; a stray duration on one must
   // not read as hours worked.
-  const attendance = [{ employeeId: "emp-1", date: "2026-08-05", status: "Leave", overtimeMinutes: 480 }];
+  const attendance = [{ employeeId: "emp-1", date: "2026-08-05", status: "Leave", overtimeMinutes: 480, overtimeStatus: "Approved" }];
   const result = overtimeForPeriod(attendance, { employeeId: "emp-1", period: "2026-08", monthlyWage: WAGE }, rules, {});
   assert.equal(result.totalMinutes, 0);
   assert.equal(result.amount, 0);

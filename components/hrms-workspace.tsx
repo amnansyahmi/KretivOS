@@ -243,7 +243,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     finally { setSaving(false); }
   }
 
-  async function recordAction(resource: "claims" | "attendance_corrections" | "payroll", id: string, action: string) {
+  async function recordAction(resource: "claims" | "attendance_corrections" | "payroll" | "attendance", id: string, action: string) {
     const note = ["reject", "approve"].includes(action) ? window.prompt("Optional review note:") || "" : "";
     setSaving(true); setError("");
     try {
@@ -413,7 +413,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
               </div>
             )}
 
-            {tab === "attendance" && <HRMSAttendanceWorkbench employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} leaveRequests={data.leaveRequests} shifts={data.shifts} settings={data.settings.attendance} role={session.role} query={query}
+            {tab === "attendance" && <HRMSAttendanceWorkbench employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} leaveRequests={data.leaveRequests} shifts={data.shifts} payroll={data.payroll} publicHolidays={data.settings.publicHolidays || []} settings={data.settings.attendance} role={session.role} query={query} onReviewOvertime={(id: string, action: string) => recordAction("attendance", id, action)}
               todayContent={<><div className="flex justify-end">{["hr_admin", "manager"].includes(session.role) && <Button asChild variant="outline" className="bg-card"><Link href="/hr/attendance-review"><ShieldCheck className="h-4 w-4" />Review attendance evidence</Link></Button>}</div><HRPhotoAttendance employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} query={query} onRefresh={load} onNotice={setNotice} onError={setError} /></>}
               correctionsContent={<HRAttendanceCorrections records={data.attendanceCorrections.filter((item) => matches(employeeName(item.employeeId), item.date, item.status, item.reason))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} onCreate={() => openCreate("attendance_corrections")} onEdit={(item: any) => openEdit("attendance_corrections", item)} onDelete={(id: string) => deleteRecord("attendance_corrections", id)} onAction={(id: string, action: string) => recordAction("attendance_corrections", id, action)} />}
               onCreateShift={(item: any) => managedMutation({ operation: "create", resource: "shifts", data: item })} onUpdateShift={(item: any) => managedMutation({ operation: "update", resource: "shifts", id: item.id, data: item })} onDeleteShift={(id: string) => deleteManaged("shifts", id)} />}
@@ -807,8 +807,10 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
                 <div>Ordinary hourly rate RM {Number(breakdown.hourlyRate || 0).toFixed(2)} · {breakdown.days} day{breakdown.days === 1 ? "" : "s"} with overtime</div>
                 <div className="mt-1 flex flex-wrap gap-x-4">
                   {([["Working day", breakdown.normal], ["Rest day", breakdown.restDay], ["Public holiday", breakdown.publicHoliday]] as const).filter(([, band]) => band?.minutes > 0).map(([label, band]) => <span key={label}>{label}: {band.hours}h × {band.multiplier} = RM {Number(band.amount).toFixed(2)}</span>)}
-                  {!breakdown.totalMinutes && <span>No overtime recorded for this period.</span>}
+                  {!breakdown.totalMinutes && <span>No approved overtime for this period.</span>}
                 </div>
+                {/* Worked but never reviewed, and therefore not in the figure above. */}
+                {breakdown.pendingMinutes > 0 && <div className="mt-2 rounded-lg bg-amber-50 p-2 text-amber-900">{Math.round(breakdown.pendingMinutes / 60 * 10) / 10}h across {breakdown.pendingDays} day{breakdown.pendingDays === 1 ? "" : "s"} is still waiting for approval and is not included. Review it under Attendance → Overtime.</div>}
               </div>}
             </div>
 

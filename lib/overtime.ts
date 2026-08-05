@@ -56,7 +56,33 @@ export type AttendanceRecord = {
   date?: string;
   status?: string;
   overtimeMinutes?: number;
+  /** Absent on every record written before overtime was reviewable. */
+  overtimeStatus?: string;
 };
+
+/**
+ * Overtime is only payable once somebody has approved it.
+ *
+ * Clock-out computes minutes from the clock alone, so it counts the evening
+ * somebody stayed late to finish their own work exactly the same as the evening
+ * they were asked to. Paying the raw figure would make the timesheet an
+ * instruction to pay rather than a record of hours, which is a thing no
+ * employer agrees to.
+ *
+ * Anything not yet reviewed is Pending, including the records that predate this
+ * — treating an unreviewed hour as approved would pay out a backlog nobody ever
+ * looked at, on the first payroll run after the feature shipped.
+ */
+export const OVERTIME_PAYABLE = "Approved";
+
+export function overtimeStatusOf(record: AttendanceRecord): "Pending" | "Approved" | "Rejected" {
+  const status = String(record.overtimeStatus ?? "").trim();
+  return status === "Approved" || status === "Rejected" ? status : "Pending";
+}
+
+export function isOvertimePayable(record: AttendanceRecord) {
+  return overtimeStatusOf(record) === OVERTIME_PAYABLE;
+}
 
 const num = (value: unknown) => {
   const parsed = Number(value);
@@ -100,6 +126,9 @@ export type OvertimeSummary = {
   amount: number;
   /** How many attendance records contributed, so a suspicious total can be traced. */
   days: number;
+  /** Worked, but never reviewed — and therefore not in the amount above. */
+  pendingMinutes: number;
+  pendingDays: number;
 };
 
 const emptyBand = (multiplier: number): OvertimeBand => ({ minutes: 0, hours: 0, multiplier, amount: 0 });
@@ -107,9 +136,14 @@ const emptyBand = (multiplier: number): OvertimeBand => ({ minutes: 0, hours: 0,
 /**
  * What one employee is owed for overtime in one payroll period.
  *
- * Only records carrying overtime minutes count, and leave days are skipped —
- * an approved leave day generates an attendance row, and a stray duration on
- * one must not read as hours worked.
+ * Only approved records count. Leave days are skipped too — an approved leave
+ * day generates an attendance row, and a stray duration on one must not read as
+ * hours worked.
+ *
+ * `pendingMinutes` is reported rather than quietly dropped: hours that were
+ * worked but never reviewed are the ones most likely to be an oversight, and a
+ * payroll line that silently omits them looks identical to one where there was
+ * no overtime at all.
  */
 export function overtimeForPeriod(
   attendance: AttendanceRecord[],
@@ -124,11 +158,14 @@ export function overtimeForPeriod(
     public_holiday: emptyBand(rules.publicHolidayMultiplier),
   };
 
-  const mine = attendance.filter((record) =>
+  const worked = attendance.filter((record) =>
     record.employeeId === employeeId
     && String(record.date ?? "").startsWith(String(period ?? ""))
     && record.status !== "Leave"
     && num(record.overtimeMinutes) > 0);
+
+  const mine = worked.filter(isOvertimePayable);
+  const pending = worked.filter((record) => overtimeStatusOf(record) === "Pending");
 
   for (const record of mine) {
     const kind = classifyDay(String(record.date), calendar);
@@ -153,6 +190,8 @@ export function overtimeForPeriod(
     totalMinutes: total,
     amount: money(amount),
     days: mine.length,
+    pendingMinutes: pending.reduce((sum, record) => sum + Math.max(0, Math.round(num(record.overtimeMinutes))), 0),
+    pendingDays: pending.length,
   };
 }
 
