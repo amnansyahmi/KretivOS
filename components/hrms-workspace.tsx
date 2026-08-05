@@ -22,9 +22,7 @@ import { HRMSNotificationCenter } from "@/components/hrms-notification-center";
 import { HRMSPayrollWorkbench } from "@/components/hrms-payroll-workbench";
 import { HRTeamHub } from "@/components/hrms-team-hub";
 import {
-  getHRMSSectionNavigation,
   getPermittedHRMSNavigation,
-  isHRMSSection,
   useHRViewAs,
   HRMS_NAV_ITEMS,
   HRMSShell,
@@ -80,8 +78,7 @@ const emptySnapshot: Snapshot = {
   settings: { departments: [], leaveTypes: [], workModes: [] }, version: 0, syncedAt: "",
 };
 
-/** Only the entries with a section behind them; external links are menu-only. */
-const tabs = HRMS_NAV_ITEMS.filter(isHRMSSection);
+const tabs = HRMS_NAV_ITEMS;
 
 function validTab(value?: string): Tab {
   return tabs.some((item) => item.id === value) ? value as Tab : "self";
@@ -113,10 +110,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
   const confirm = useConfirm();
   const router = useRouter();
   const { viewAs } = useHRViewAs(session);
-  // The menu is rendered from the first; which tab may be opened is decided by
-  // the second, so an external hand-off can never be resolved as a section.
-  const permittedNavigation = getPermittedHRMSNavigation(session, viewAs);
-  const permittedTabs = getHRMSSectionNavigation(session, viewAs);
+  const permittedTabs = getPermittedHRMSNavigation(session, viewAs);
   const [data, setData] = useState<Snapshot>(emptySnapshot);
   // "My HR" is the landing screen for everyone. It used to open on the
   // operations dashboard whenever sign-in was off, which put the admin view in
@@ -297,7 +291,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
       activeId={tab}
       title={currentTab.label}
       description={currentTab.description}
-      navigation={permittedNavigation}
+      navigation={permittedTabs}
       session={session}
       onNavigate={changeTab}
       actions={<>
