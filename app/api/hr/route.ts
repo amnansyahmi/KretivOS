@@ -7,6 +7,7 @@ import { postPayrollAccrual, postPayrollPayment, payrollAlreadyPosted, toPayroll
 import { ageAtPeriod, computePayroll, profileForPeriod, SEEDED_PROFILE, toStatutoryProfile } from "@/lib/payroll-statutory";
 import { isIssuedPayslip } from "@/lib/payslip-print";
 import { normaliseEntry, overlapsWith, validateEntry } from "@/lib/timesheet";
+import { toHalfDaySession } from "@/lib/leave-request";
 import {
   canCompleteStep, defaultStaffOnboarding, normaliseOnboarding, onboardingSummary,
   resolveOnboarding, SELF_EDITABLE_FIELDS,
@@ -1049,7 +1050,7 @@ export async function POST(request: NextRequest) {
         if (resource === "leave") {
           const type = clean(data.type) || "Annual Leave";
           const days = leaveDayCount(state, type, clean(data.startDate), clean(data.endDate), bool(data.halfDay));
-          record = { ...record, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
+          record = { ...record, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), halfDaySession: bool(data.halfDay) ? toHalfDaySession(data.halfDaySession) : "", status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
           if (!employeeId || !record.startDate || !record.endDate || record.days <= 0) throw new Error("Employee and valid leave dates are required.");
           if (record.endDate < record.startDate) throw new Error("Leave end date cannot be before the start date.");
           if (record.halfDay && record.startDate !== record.endDate) throw new Error("Half-day leave must use the same start and end date.");
@@ -1157,7 +1158,7 @@ export async function POST(request: NextRequest) {
           const days = leaveDayCount(state, type, clean(data.startDate), clean(data.endDate), bool(data.halfDay));
           if (!clean(data.startDate) || !clean(data.endDate) || clean(data.endDate) < clean(data.startDate) || days <= 0) throw new Error("Valid leave dates are required.");
           if (bool(data.halfDay) && clean(data.startDate) !== clean(data.endDate)) throw new Error("Half-day leave must use the same start and end date.");
-          updated = { ...existing, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
+          updated = { ...existing, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), halfDaySession: bool(data.halfDay) ? toHalfDaySession(data.halfDaySession) : "", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
         } else if (resource === "claims") updated = { ...existing, claimDate: clean(data.claimDate), category: clean(data.category) || existing.category, amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), id, updatedAt: now };
         else if (resource === "attendance_corrections") updated = { ...existing, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), id, updatedAt: now };
         else if (resource === "lifecycle") updated = { ...existing, type: clean(data.type) || existing.type, title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || existing.status, notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label), id, updatedAt: now };
@@ -1219,7 +1220,7 @@ export async function POST(request: NextRequest) {
         const updated = { ...existing, status, approverId: session.userId, approverNote: clean(data.approverNote), updatedAt: new Date().toISOString() };
         state.leaveRequests = list.map((item: any) => item.id === id ? updated : item);
         if (action === "approve") {
-          const generated = leaveDates(state, existing.startDate, existing.endDate).map((date) => ({ id: `leave-${id}-${date}`, employeeId: existing.employeeId, date, status: "Leave", checkIn: "", checkOut: "", note: `${existing.type}${existing.halfDay ? " (half day)" : ""} · generated from approved leave`, sourceId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+          const generated = leaveDates(state, existing.startDate, existing.endDate).map((date) => ({ id: `leave-${id}-${date}`, employeeId: existing.employeeId, date, status: "Leave", checkIn: "", checkOut: "", note: `${existing.type}${existing.halfDay ? ` (half day · ${toHalfDaySession(existing.halfDaySession) === "second" ? "afternoon" : "morning"})` : ""} · generated from approved leave`, sourceId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
           const generatedIds = new Set(generated.map((item) => item.id));
           state.attendance = [...generated, ...array(state.attendance).filter((item: any) => !generatedIds.has(item.id))];
         } else state.attendance = array(state.attendance).filter((item: any) => item.sourceId !== id);

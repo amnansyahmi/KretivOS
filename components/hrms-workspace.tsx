@@ -34,6 +34,7 @@ import {
   HRAttendanceCorrections,
   HRClaims,
   HRLifecycle,
+  HRMyDetails,
   HRSelfService,
 } from "@/components/hrms-extended-sections";
 import { DEFAULT_OVERTIME_RULES, toOvertimeRules } from "@/lib/overtime";
@@ -41,6 +42,7 @@ import { HRMSTimesheet } from "@/components/hrms-timesheet";
 import { HRMyLeave } from "@/components/hrms-my-leave";
 import { prepareUpload } from "@/lib/compress-image";
 import { scopeSnapshotForView } from "@/lib/hr-view-scope";
+import { HALF_DAY_SESSIONS, leaveProblemFor, validateLeaveRequest } from "@/lib/leave-request";
 import { checkUpload, describeSize } from "@/lib/upload-limits";
 import { DEFAULT_LEAVE_RULES, leaveTypeNames, toLeaveRules, type LeaveTypeRule } from "@/lib/leave-entitlement";
 import { SEEDED_PROFILE, toStatutoryProfile, type StatutoryProfile } from "@/lib/payroll-statutory";
@@ -233,6 +235,12 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
     if (editor.resource === "employees" && !String(editor.record.name || "").trim()) { setError("Employee name is required."); return; }
     if (["documents", "announcements", "events"].includes(editor.resource) && !String(editor.record.title || "").trim()) { setError("Title is required."); return; }
     if (!['employees', 'documents', 'announcements', 'events'].includes(editor.resource) && !editor.record.employeeId) { setError("Select a team member."); return; }
+    if (editor.resource === "leave") {
+      // The same check the form shows inline, so a save cannot slip past a
+      // field the person never scrolled back to.
+      const problems = validateLeaveRequest(editor.record);
+      if (problems.length) { setError(problems[0].message); return; }
+    }
     setSaving(true); setError("");
     try {
       let next = await requestJson("/api/hr", {
@@ -357,6 +365,12 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
         {loading && !data.employees.length ? <div className="rounded-2xl border bg-card p-12 text-center text-sm text-muted-foreground">Loading HR workspace…</div> : (
           <>
             {!(["self", "overview", "payslips", "settings"] as Tab[]).includes(tab) && <div className="kretivos-search-control mb-4 flex h-11 items-center gap-2 rounded-xl border bg-card px-3"><Search className="h-5 w-5 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder={`Search ${tabs.find((item) => item.id === tab)?.label.toLowerCase()}...`} /></div>}
+
+            {tab === "profile" && <HRMyDetails
+              employee={data.employees.find((item) => item.id === session.userId)}
+              role={role}
+              onEdit={(employee: any) => openEdit("employees", employee)}
+            />}
 
             {tab === "self" && <HRSelfService session={session} employee={data.employees.find((item) => item.id === session.userId)} leave={data.leaveRequests.filter((item) => item.employeeId === session.userId)} attendance={data.attendance.filter((item) => item.employeeId === session.userId)} claims={data.claims.filter((item) => item.employeeId === session.userId)} payroll={data.payroll.filter((item) => item.employeeId === session.userId)} documents={data.documents} onEdit={(employee: any) => openEdit("employees", employee)} onCreate={(resource: Resource) => openCreate(resource, session.userId)} onNavigate={changeTab} onCompleteStep={(stepId: string) => completeStep(session.userId, stepId)} />}
 
@@ -921,7 +935,47 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
           </div>}
         </>}
 
-        {editor.resource === "leave" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Leave type"><Select value={record.type || ""} onChange={(e) => update("type", e.target.value)} >{leaveTypeNames(toLeaveRules(data.settings.leaveTypes)).map((item: string) => <option key={item}>{item}</option>)}</Select></Field><LeaveTypeHint rules={toLeaveRules(data.settings.leaveTypes)} type={record.type} /><Field label="Duration"><Select value={record.halfDay ? "half" : "full"} onChange={(e) => update("halfDay", e.target.value === "half")} ><option value="full">Full day(s)</option><option value="half">Half day</option></Select></Field><Field label="Start date"><DateInput value={record.startDate || ""} onChange={(e) => update("startDate", e.target.value)} /></Field><Field label="End date"><DateInput value={record.endDate || ""} onChange={(e) => update("endDate", e.target.value)} /></Field><Field label="Handover to"><Select value={record.handoverTo || ""} onChange={(e) => update("handoverTo", e.target.value)} ><option value="">Not required</option>{employeeOptions.filter((item: any) => item.id !== record.employeeId).map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field><EvidenceUpload purpose="leave_attachment" employeeId={record.employeeId} value={record.attachmentId} onUploaded={(id: string) => update("attachmentId", id)} /></div>}
+        {editor.resource === "leave" && (() => {
+          /*
+           * Checked here as well as on the server, so a request with the dates
+           * the wrong way round is corrected where it was typed rather than
+           * submitted, refused, and typed again.
+           */
+          const problems = validateLeaveRequest(record);
+          const halfDay = Boolean(record.halfDay);
+          return <div className="grid gap-4 sm:grid-cols-2">
+            {employeeSelect}
+            <Field label="Leave type" problem={leaveProblemFor(problems, "type")}><Select value={record.type || ""} onChange={(e) => update("type", e.target.value)} >{leaveTypeNames(toLeaveRules(data.settings.leaveTypes)).map((item: string) => <option key={item}>{item}</option>)}</Select></Field>
+            <LeaveTypeHint rules={toLeaveRules(data.settings.leaveTypes)} type={record.type} />
+            <Field label="Duration">
+              <Select value={halfDay ? "half" : "full"} onChange={(e) => {
+                const next = e.target.value === "half";
+                // A half day is one date, so switching to it pulls the end back
+                // rather than leaving an invalid range on screen.
+                updateMany(next
+                  ? { halfDay: true, endDate: record.startDate || record.endDate, halfDaySession: record.halfDaySession || "first" }
+                  : { halfDay: false, halfDaySession: "" });
+              }}>
+                <option value="full">Full day(s)</option>
+                <option value="half">Half day</option>
+              </Select>
+            </Field>
+            {halfDay && <Field label="Which half">
+              <Select value={record.halfDaySession || "first"} onChange={(e) => update("halfDaySession", e.target.value)}>
+                {HALF_DAY_SESSIONS.map((session) => <option key={session.id} value={session.id}>{session.label}</option>)}
+              </Select>
+            </Field>}
+            <Field label="Start date" problem={leaveProblemFor(problems, "startDate")}>
+              <DateInput value={record.startDate || ""} onChange={(e) => updateMany(halfDay ? { startDate: e.target.value, endDate: e.target.value } : { startDate: e.target.value })} />
+            </Field>
+            <Field label={halfDay ? "End date (same day)" : "End date"} problem={leaveProblemFor(problems, "endDate")}>
+              <DateInput value={record.endDate || ""} disabled={halfDay} min={record.startDate || undefined} onChange={(e) => update("endDate", e.target.value)} />
+            </Field>
+            <Field label="Handover to"><Select value={record.handoverTo || ""} onChange={(e) => update("handoverTo", e.target.value)} ><option value="">Not required</option>{employeeOptions.filter((item: any) => item.id !== record.employeeId).map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field>
+            <Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field>
+            <EvidenceUpload purpose="leave_attachment" employeeId={record.employeeId} value={record.attachmentId} onUploaded={(id: string) => update("attachmentId", id)} />
+          </div>;
+        })()}
 
         {editor.resource === "attendance_corrections" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Attendance date"><DateInput value={record.date || ""} onChange={(e) => update("date", e.target.value)} /></Field><Field label="Original record"><Select value={record.attendanceId || ""} onChange={(e) => update("attendanceId", e.target.value)} ><option value="">Match by date</option>{data.attendance.filter((item: any) => item.employeeId === record.employeeId).map((item: any) => <option key={item.id} value={item.id}>{formatDate(item.date)} · {item.checkIn || "—"}–{item.checkOut || "—"}</option>)}</Select></Field><Field label="Requested check-in"><Input type="time" value={record.requestedCheckIn || ""} onChange={(e) => update("requestedCheckIn", e.target.value)} /></Field><Field label="Requested check-out"><Input type="time" value={record.requestedCheckOut || ""} onChange={(e) => update("requestedCheckOut", e.target.value)} /></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field></div>}
 
@@ -1058,11 +1112,11 @@ function EvidenceUpload({ purpose, employeeId, value, onUploaded }: { purpose: s
 }
 
 function resourceLabel(resource: Resource) { return ({ employees: "team member", leave: "leave request", attendance: "attendance record", attendance_corrections: "attendance correction", goals: "goal", learning: "learning record", documents: "HR document", claims: "expense claim", payroll: "payroll record", lifecycle: "lifecycle case", announcements: "announcement", events: "team event" } as Record<Resource, string>)[resource]; }
-function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
+function Field({ label, wide, problem, children }: { label: string; wide?: boolean; problem?: string; children: React.ReactNode }) {
   const control = isValidElement<{ value?: unknown; onChange?: (event: any) => void }>(children) ? children : null;
   const value = typeof control?.props.value === "string" ? control.props.value : "";
   const canImprove = control !== null && isTextField(control.type) && typeof control.props.onChange === "function";
-  return <div className={cn("block text-xs font-medium text-foreground-soft", wide && "sm:col-span-2")}><div className="flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS HRMS record. Keep dates, people, leave details, goals, policy references and employment facts unchanged." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div><div className="mt-2">{children}</div></div>;
+  return <div className={cn("block text-xs font-medium text-foreground-soft", wide && "sm:col-span-2")}><div className="flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{canImprove && <AIWritingButton value={value} field={label} context="KretivOS HRMS record. Keep dates, people, leave details, goals, policy references and employment facts unchanged." onApply={(next) => control.props.onChange?.({ target: { value: next }, currentTarget: { value: next } })} />}</div><div className="mt-2">{children}</div>{problem && <p className="mt-1.5 text-[11px] font-normal leading-4 text-red-600">{problem}</p>}</div>;
 }
 function Stat({ label, value, note }: any) { return <Card className="border-black/8 bg-white/90"><CardContent className="p-4"><div className="text-xs text-muted-foreground">{label}</div><div className="mt-2 text-2xl font-semibold">{value}</div><div className="mt-1 text-[10px] text-muted-foreground">{note}</div></CardContent></Card>; }
 function Mini({ label, value }: any) { return <div className="rounded-xl bg-background p-3"><div className="text-[10px] text-muted-foreground">{label}</div><div className="mt-1 truncate text-xs font-medium">{value || "—"}</div></div>; }
