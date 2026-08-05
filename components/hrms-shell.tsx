@@ -15,6 +15,7 @@ import {
   GraduationCap,
   HandCoins,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   MessagesSquare,
   Menu,
@@ -32,7 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export type HRMSRole = "hr_admin" | "manager" | "employee" | "finance";
-export type HRMSTab = "self" | "overview" | "team" | "people" | "attendance" | "leave" | "onboarding" | "lifecycle" | "goals" | "learning" | "claims" | "payslips" | "documents" | "settings";
+export type HRMSTab = "self" | "overview" | "team" | "people" | "attendance" | "timesheet" | "leave" | "onboarding" | "lifecycle" | "goals" | "learning" | "claims" | "payslips" | "documents" | "settings";
 export type HRMSSession = {
   userId: string;
   name: string;
@@ -59,6 +60,7 @@ export const HRMS_NAV_ITEMS: HRMSNavigationItem[] = [
   { id: "team", label: "Team Hub", description: "News, calendar and organisation", group: "Workspace", icon: MessagesSquare, href: "/hr?section=team" },
   { id: "people", label: "People", description: "Directory and employee profiles", group: "Workforce", icon: Users, href: "/hr?section=people" },
   { id: "attendance", label: "Attendance", description: "Clock-in and work records", group: "Workforce", icon: Clock3, href: "/hr?section=attendance" },
+  { id: "timesheet", label: "Timesheet", description: "Daily task log", group: "Workforce", icon: ListChecks, href: "/hr?section=timesheet" },
   { id: "leave", label: "Leave", description: "Balances, requests and approvals", group: "Workforce", icon: CalendarCheck, href: "/hr?section=leave" },
   { id: "onboarding", label: "Onboarding", description: "New joiner readiness", group: "Workforce", icon: ClipboardList, href: "/hr?section=onboarding" },
   { id: "lifecycle", label: "Lifecycle", description: "Probation, confirmation and exit", group: "Workforce", icon: BookOpenCheck, href: "/hr?section=lifecycle" },
@@ -73,18 +75,24 @@ export const HRMS_NAV_ITEMS: HRMSNavigationItem[] = [
 const PERMITTED_TABS: Record<HRMSRole, HRMSTab[]> = {
   hr_admin: HRMS_NAV_ITEMS.map((item) => item.id),
   manager: ["self", "overview", "team", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
-  finance: ["self", "overview", "team", "people", "claims", "payslips", "documents"],
-  employee: ["self", "team", "attendance", "leave", "goals", "learning", "claims", "payslips", "documents"],
+  finance: ["self", "overview", "team", "people", "timesheet", "claims", "payslips", "documents"],
+  employee: ["self", "team", "attendance", "timesheet", "leave", "claims", "payslips", "documents"],
 };
 
 export const HR_VIEW_AS_KEY = "kretivos-hr-view-as";
 export const HR_VIEW_AS_EVENT = "kretivos-hr-view-as-change";
 
-/** The order they appear in the switcher: least access first, so the default reads as the floor. */
+/**
+ * The two views worth building against, least access first.
+ *
+ * Manager and Finance still exist as roles — the API enforces them and records
+ * may already carry them — but they are not offered here. Four lenses over one
+ * workspace meant four half-checked variants of every screen; two means the
+ * distinction that actually matters, between the person who runs HR and the
+ * person who works here, gets made properly.
+ */
 export const HR_VIEW_AS_ROLES: { id: HRMSRole; label: string }[] = [
   { id: "employee", label: "Employee" },
-  { id: "manager", label: "Manager" },
-  { id: "finance", label: "Finance" },
   { id: "hr_admin", label: "HR Admin" },
 ];
 

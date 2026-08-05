@@ -6,6 +6,7 @@ import { mutateWorkspaceState, WorkspaceConflictError } from "@/lib/workspace-st
 import { postPayrollAccrual, postPayrollPayment, payrollAlreadyPosted, toPayrollRecord } from "@/lib/payroll-posting";
 import { ageAtPeriod, computePayroll, profileForPeriod, SEEDED_PROFILE, toStatutoryProfile } from "@/lib/payroll-statutory";
 import { isIssuedPayslip } from "@/lib/payslip-print";
+import { normaliseEntry, overlapsWith, validateEntry } from "@/lib/timesheet";
 import {
   canCompleteStep, defaultStaffOnboarding, normaliseOnboarding, onboardingSummary,
   resolveOnboarding, SELF_EDITABLE_FIELDS,
@@ -53,6 +54,7 @@ const defaultOperations = {
   announcements: [] as any[],
   events: [] as any[],
   shifts: [] as any[],
+  timesheets: [] as any[],
   paymentVouchers: [] as any[],
   settings: {
     departments: ["Leadership", "Marketing", "Creative", "Technology", "Finance", "Operations"],
@@ -440,6 +442,7 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
     attendance: own(array(value.attendance)),
     goals: own(array(value.goals)),
     learning: own(array(value.learning)),
+    timesheets: own(array(value.timesheets)),
     documents: array(value.documents).filter((item: any) => !item.employeeId || item.employeeId === session.userId),
     lifecycle: own(array(value.lifecycle)),
     attendanceCorrections: own(array(value.attendanceCorrections)),
@@ -464,6 +467,7 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
     attendanceCorrections: own(array(value.attendanceCorrections)),
     goals: own(array(value.goals)),
     learning: own(array(value.learning)),
+    timesheets: own(array(value.timesheets)),
     documents: array(value.documents).filter((item: any) => !item.employeeId || item.employeeId === session.userId),
     claims: own(array(value.claims)),
     /*
@@ -945,7 +949,7 @@ export async function POST(request: NextRequest) {
         if (id === session.userId) throw new HRAuthError("You cannot delete your active administrator account.", 400);
         await sql`delete from users where id = ${id} and organization_id = ${ORGANIZATION_ID}`;
         await mutateWorkspaceState(operationsStore, () => ({ ...defaultOperations }), (next) => {
-          for (const key of ["leaveRequests", "attendance", "attendanceCorrections", "goals", "learning", "claims", "payroll", "lifecycle", "shifts"]) next[key] = array(next[key]).filter((item: any) => item.employeeId !== id);
+          for (const key of ["leaveRequests", "attendance", "attendanceCorrections", "goals", "learning", "claims", "payroll", "lifecycle", "shifts", "timesheets"]) next[key] = array(next[key]).filter((item: any) => item.employeeId !== id);
           next.paymentVouchers = array(next.paymentVouchers).map((item: any) => item.employeeId === id ? { ...item, employeeId: "" } : item);
           next.documents = array(next.documents).map((item: any) => item.employeeId === id ? { ...item, employeeId: "" } : item);
         });
@@ -1023,7 +1027,7 @@ export async function POST(request: NextRequest) {
       const keyMap: Record<string, string> = {
         leave: "leaveRequests", attendance: "attendance", attendance_corrections: "attendanceCorrections",
         goals: "goals", learning: "learning", documents: "documents", claims: "claims", payroll: "payroll", lifecycle: "lifecycle",
-        announcements: "announcements", events: "events", shifts: "shifts", payment_vouchers: "paymentVouchers",
+        announcements: "announcements", events: "events", shifts: "shifts", timesheets: "timesheets", payment_vouchers: "paymentVouchers",
       };
       const key = keyMap[resource];
       if (!key) throw new Error("Unsupported HR resource.");
@@ -1110,6 +1114,20 @@ export async function POST(request: NextRequest) {
           if (!employeeId || !record.startDate || !record.endDate || record.endDate < record.startDate) throw new Error("Employee and a valid shift date range are required.");
           if (record.status === "Scheduled" && record.endTime <= record.startTime) throw new Error("Shift end time must be after its start time.");
           defer.notify("Shift schedule updated", `${record.label} · ${record.startDate} to ${record.endDate}`, "hr_shift", recordId, employeeId);
+        } else if (resource === "timesheets") {
+          /*
+           * Everybody logs their own time, so there is no role check here —
+           * `employeeId` is already forced to the session for an employee
+           * above, and logging somebody else's day is a manager's job.
+           */
+          record = normaliseEntry({ ...record, ...data, employeeId, id: recordId });
+          const problems = validateEntry(record);
+          if (problems.length) throw new Error(problems[0].message);
+          // Reported, not refused: somebody who really was on a call while a
+          // render ran should be able to say so and see that the day will read
+          // as longer than it was.
+          const clashes = overlapsWith(record, array(state.timesheets));
+          record.overlapWarning = clashes.length ? `Overlaps ${clashes.length} entry on the same day.` : "";
         } else if (resource === "payment_vouchers") {
           const year = (clean(data.paymentDate) || new Date().toISOString()).slice(0, 4);
           const sequence = list.filter((item: any) => clean(item.reference).startsWith(`PV-${year}-`)).reduce((max: number, item: any) => Math.max(max, number(clean(item.reference).split("-").pop())), 0) + 1;
@@ -1121,6 +1139,7 @@ export async function POST(request: NextRequest) {
       } else if (operation === "update") {
         if (!existing) throw new Error("HR record was not found.");
         const ownerEditable = owns(existing, session) && ["leave", "claims", "attendance_corrections"].includes(resource) && ["Pending", "Rejected"].includes(existing.status);
+        const ownTimesheet = owns(existing, session) && resource === "timesheets";
         const progressEditable = owns(existing, session) && ["goals", "learning"].includes(resource);
         if (resource === "payroll" && !payrollUsers) throw new HRAuthError("Only HR Admin or Finance can update payroll.", 403);
         if (resource === "documents") requireRole(session, ["hr_admin"]);
@@ -1129,7 +1148,7 @@ export async function POST(request: NextRequest) {
         if (["announcements", "events"].includes(resource) && !managers) throw new HRAuthError("Only HR Admin or Manager can update the Team Hub.", 403);
         if (resource === "shifts" && !managers) throw new HRAuthError("Only HR Admin or Manager can update shifts.", 403);
         if (resource === "payment_vouchers" && !payrollUsers) throw new HRAuthError("Only HR Admin or Finance can update payment vouchers.", 403);
-        if (!["payroll", "documents", "attendance", "lifecycle", "announcements", "events", "shifts", "payment_vouchers"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
+        if (!["payroll", "documents", "attendance", "lifecycle", "announcements", "events", "shifts", "payment_vouchers"].includes(resource) && !managers && !ownerEditable && !progressEditable && !ownTimesheet) throw new HRAuthError("You cannot update this HR record.", 403);
         const now = new Date().toISOString();
         let updated: any;
         if (resource === "payroll") updated = await withComputedPayroll({ ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now }, state, sql);
@@ -1164,6 +1183,14 @@ export async function POST(request: NextRequest) {
           updated = { ...existing, employeeId: clean(data.employeeId), payee: clean(data.payee), amount: Math.max(0, number(data.amount)), details: clean(data.details), paymentDate: clean(data.paymentDate), linkedType: ["General", "Claim", "Payroll"].includes(clean(data.linkedType)) ? clean(data.linkedType) : "General", linkedId: clean(data.linkedId), id, updatedAt: now };
           if (!updated.payee || updated.amount <= 0 || !updated.paymentDate) throw new Error("Payee, payment date and an amount greater than zero are required.");
         }
+        else if (resource === "timesheets") {
+          updated = normaliseEntry({ ...existing, ...data, id, employeeId: existing.employeeId });
+          const problems = validateEntry(updated);
+          if (problems.length) throw new Error(problems[0].message);
+          const clashes = overlapsWith(updated, array(state.timesheets));
+          updated.overlapWarning = clashes.length ? `Overlaps ${clashes.length} entry on the same day.` : "";
+          updated.updatedAt = now;
+        }
         else updated = { ...existing, ...data, id, employeeId: existing.employeeId, updatedAt: now };
         if (resource === "leave") {
           Object.assign(updated, await checkLeaveBalance(state, sql, { employeeId: existing.employeeId, type: updated.type, days: updated.days, startDate: updated.startDate, excludeId: id }) ?? {});
@@ -1173,10 +1200,11 @@ export async function POST(request: NextRequest) {
       } else if (operation === "delete") {
         if (!existing) throw new Error("HR record was not found.");
         const ownerDraft = owns(existing, session) && ["leave", "claims", "attendance_corrections"].includes(resource) && ["Pending", "Rejected"].includes(existing.status);
+        const ownTimesheetEntry = owns(existing, session) && resource === "timesheets";
         const managerOwnedResource = session.role === "manager" && ["goals", "learning", "lifecycle", "announcements", "events", "shifts"].includes(resource);
         const financeDraft = session.role === "finance" && resource === "payment_vouchers" && existing.status === "Draft";
         if (resource === "payment_vouchers" && existing.status !== "Draft") throw new Error("Only draft payment vouchers can be deleted.");
-        if (session.role !== "hr_admin" && !ownerDraft && !managerOwnedResource && !financeDraft) throw new HRAuthError("You cannot delete this HR record.", 403);
+        if (session.role !== "hr_admin" && !ownerDraft && !managerOwnedResource && !financeDraft && !ownTimesheetEntry) throw new HRAuthError("You cannot delete this HR record.", 403);
         state[key] = list.filter((item: any) => item.id !== id);
         defer.audit(`hr.${resource}.deleted`, `hr_${resource}`, id, undefined, session.userId);
       } else if (operation === "action" && resource === "leave") {

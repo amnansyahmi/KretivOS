@@ -18,8 +18,72 @@ export function HRSelfService({ session, employee, leave, attendance, claims, pa
 
     {employee && <MyOnboarding employee={employee} documents={documents || []} onEdit={onEdit} onCompleteStep={onCompleteStep} />}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Quick icon={CalendarCheck} title="Apply leave" note={`${leave.filter((item: any) => item.status === "Pending").length} pending`} onClick={() => onCreate("leave")} /><Quick icon={Clock3} title="Attendance" note={latestAttendance ? `${date(latestAttendance.date)} · ${latestAttendance.status}` : "No record yet"} onClick={() => onNavigate("attendance")} /><Quick icon={HandCoins} title="Submit claim" note={`${claims.filter((item: any) => item.status === "Pending").length} awaiting review`} onClick={() => onCreate("claims")} /><Quick icon={ReceiptText} title="My payslips" note={latestPayroll ? `${latestPayroll.status} · ${money(latestPayroll.netPay)}` : "No payroll record"} onClick={() => onNavigate("payslips")} /></div>
+    {employee && <MyProfile employee={employee} onEdit={onEdit} />}
+
     <div className="grid gap-5 xl:grid-cols-2"><Summary title="Recent leave" empty="No leave request yet." rows={leave.slice(0, 4).map((item: any) => ({ title: item.type, meta: `${date(item.startDate)} – ${date(item.endDate)}`, value: item.status }))} /><Summary title="Recent claims" empty="No claims submitted yet." rows={claims.slice(0, 4).map((item: any) => ({ title: item.category, meta: item.description, value: `${money(item.amount)} · ${item.status}` }))} /></div>
   </div>;
+}
+
+/**
+ * The employee's own record, shown rather than hidden behind a button.
+ *
+ * "Update my profile" opened a form; nothing on the screen said what was
+ * currently on file. So the commonest question — is my bank account the right
+ * one, did they ever get my NRIC — could only be answered by opening an editor
+ * and reading it out of the inputs.
+ *
+ * What is missing is called out rather than left blank, because the blanks here
+ * are the ones that hold up a payslip.
+ */
+function MyProfile({ employee, onEdit }: any) {
+  const groups = [
+    {
+      title: "About me", editable: true, rows: [
+        ["Full name", employee.name], ["Job title", employee.title], ["Department", employee.department],
+        ["Work email", employee.email || employee.internalEmail], ["Phone", employee.phone],
+        ["Emergency contact", employee.emergencyContact], ["Location", employee.location],
+      ],
+    },
+    {
+      title: "Payroll and statutory", editable: true, rows: [
+        ["Date of birth", employee.dateOfBirth ? date(employee.dateOfBirth) : ""],
+        ["NRIC or passport", employee.identificationNumber],
+        ["Income tax number", employee.incomeTaxNumber], ["EPF number", employee.epfNumber],
+        ["SOCSO number", employee.socsoNumber], ["Marital status", employee.maritalStatus],
+        ["Bank", employee.bankName], ["Bank account", employee.bankAccountNumber],
+      ],
+    },
+    {
+      // Set by HR. Shown so the figures a payslip is built from are not a
+      // mystery, and marked so nobody hunts for an edit button that is not there.
+      title: "Set by HR", editable: false, rows: [
+        ["Employee number", employee.employeeNumber], ["Started", employee.startDate ? date(employee.startDate) : ""],
+        ["Employment type", employee.employmentType], ["Work mode", employee.workMode],
+        ["Status", employee.status], ["Confirmed on", employee.confirmationDate ? date(employee.confirmationDate) : ""],
+      ],
+    },
+  ];
+
+  return <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="font-semibold">My profile</h2>
+        <p className="mt-1 text-xs text-muted-foreground">What the company has on file for you. Payroll works from these, so keep the statutory and bank details current.</p>
+      </div>
+      <Button variant="outline" size="sm" onClick={() => onEdit(employee)}><Pencil className="h-3.5 w-3.5" />Edit my details</Button>
+    </div>
+
+    <div className="mt-5 grid gap-5 lg:grid-cols-3">{groups.map((group) => <div key={group.title}>
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">{group.title}</span>
+        {!group.editable && <span className="rounded-full bg-black/5 px-2 py-0.5 text-[9px] font-medium text-muted-foreground">HR sets this</span>}
+      </div>
+      <dl className="mt-3 space-y-2">{group.rows.map(([label, value]) => <div key={label} className="flex items-baseline justify-between gap-3 border-b border-black/5 pb-2 last:border-0">
+        <dt className="text-[11px] text-muted-foreground">{label}</dt>
+        <dd className={cn("text-right text-xs font-medium", !value && "text-amber-700")}>{value || "Not recorded"}</dd>
+      </div>)}</dl>
+    </div>)}</div>
+  </CardContent></Card>;
 }
 
 /**

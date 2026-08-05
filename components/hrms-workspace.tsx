@@ -37,13 +37,16 @@ import {
   HRSelfService,
 } from "@/components/hrms-extended-sections";
 import { DEFAULT_OVERTIME_RULES, toOvertimeRules } from "@/lib/overtime";
+import { HRMSTimesheet } from "@/components/hrms-timesheet";
+import { HRMyLeave } from "@/components/hrms-my-leave";
+import { scopeSnapshotForView } from "@/lib/hr-view-scope";
 import { DEFAULT_LEAVE_RULES, leaveTypeNames, toLeaveRules, type LeaveTypeRule } from "@/lib/leave-entitlement";
 import { SEEDED_PROFILE, toStatutoryProfile, type StatutoryProfile } from "@/lib/payroll-statutory";
 import { DEFAULT_REST_DAYS, fixedHolidays, mergeHolidays, missingGazettedHolidays, restDaysForState } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
-type Resource = "employees" | "leave" | "attendance" | "attendance_corrections" | "goals" | "learning" | "documents" | "claims" | "payroll" | "lifecycle" | "announcements" | "events";
-type Editor = { resource: Resource; record: any; isNew: boolean } | null;
+type Resource = "employees" | "leave" | "attendance" | "attendance_corrections" | "goals" | "learning" | "documents" | "claims" | "payroll" | "lifecycle" | "announcements" | "events" | "timesheets";
+type Editor = { resource: Resource; record: any; isNew: boolean; role?: Role } | null;
 
 type Snapshot = {
   employees: any[];
@@ -60,6 +63,7 @@ type Snapshot = {
   announcements: any[];
   events: any[];
   shifts: any[];
+  timesheets: any[];
   paymentVouchers: any[];
   settings: {
     departments: string[];
@@ -83,7 +87,7 @@ type Snapshot = {
 };
 
 const emptySnapshot: Snapshot = {
-  employees: [], directory: [], leaveRequests: [], attendance: [], attendanceCorrections: [], goals: [], learning: [], documents: [], claims: [], payroll: [], lifecycle: [], announcements: [], events: [], shifts: [], paymentVouchers: [],
+  employees: [], directory: [], leaveRequests: [], attendance: [], attendanceCorrections: [], goals: [], learning: [], documents: [], claims: [], payroll: [], lifecycle: [], announcements: [], events: [], shifts: [], timesheets: [], paymentVouchers: [],
   settings: { departments: [], leaveTypes: [], workModes: [] }, version: 0, syncedAt: "",
 };
 
@@ -120,7 +124,22 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
   const router = useRouter();
   const { viewAs } = useHRViewAs(session);
   const permittedTabs = getPermittedHRMSNavigation(session, viewAs);
-  const [data, setData] = useState<Snapshot>(emptySnapshot);
+  const [raw, setRaw] = useState<Snapshot>(emptySnapshot);
+  /*
+   * With sign-in off the API returns the whole organisation whatever the
+   * switcher says, so the lens is applied here. It is a preview of the employee
+   * view, not a permission — the data has already been sent — but it means
+   * "Viewing as Employee" shows what an employee would actually see rather than
+   * an admin workspace with fewer menus. With auth on the server has already
+   * narrowed and this is a no-op.
+   */
+  const data = useMemo(
+    () => session.authEnabled === false ? scopeSnapshotForView(raw, viewAs, session.userId) as Snapshot : raw,
+    [raw, viewAs, session.authEnabled, session.userId],
+  );
+  const setData = setRaw;
+  /** The role every screen below should behave as. */
+  const role: Role = session.authEnabled === false ? viewAs : session.role;
   // "My HR" is the landing screen for everyone. It used to open on the
   // operations dashboard whenever sign-in was off, which put the admin view in
   // front of whoever happened to open the app.
@@ -198,12 +217,13 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
       lifecycle: { ...common, employeeId: firstEmployee, type: "Probation", title: "Probation review", dueDate: today(), status: "Open", notes: "", tasks: [{ id: uid(), label: "Manager review completed", done: false }, { id: uid(), label: "Confirmation decision recorded", done: false }] },
       announcements: { ...common, title: "", body: "", category: "General", status: "Published", publishAt: today(), expiresAt: "", pinned: false },
       events: { ...common, title: "", eventType: "Team event", startDate: today(), endDate: today(), location: "", description: "", status: "Scheduled" },
+      timesheets: { ...common, employeeId: employeeIdOverride || session.userId, date: today(), task: "", startTime: "09:00", endTime: "10:00", project: "", notes: "", billable: false },
     };
-    setEditor({ resource, record: defaults[resource], isNew: true });
+    setEditor({ resource, record: defaults[resource], isNew: true, role });
   }
 
   function openEdit(resource: Resource, record: any) {
-    setEditor({ resource, record: JSON.parse(JSON.stringify(record)), isNew: false });
+    setEditor({ resource, record: JSON.parse(JSON.stringify(record)), isNew: false, role });
   }
 
   async function saveEditor() {
@@ -222,6 +242,15 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
       }
       setData(next); setEditor(null); setNotice(editor.isNew ? "Record created." : "Record updated.");
     } catch (value) { setError(value instanceof Error ? value.message : "Unable to save record."); }
+    finally { setSaving(false); }
+  }
+
+  async function saveTimesheet(entry: any) {
+    setSaving(true); setError("");
+    try {
+      setData(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation: entry.id && data.timesheets.some((item) => item.id === entry.id) ? "update" : "create", resource: "timesheets", id: entry.id, data: entry }) }));
+      setNotice("Timesheet updated.");
+    } catch (value) { setError(value instanceof Error ? value.message : "Unable to save the task."); throw value; }
     finally { setSaving(false); }
   }
 
@@ -296,12 +325,12 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
   }
 
   const actionResource: Partial<Record<Tab, Resource | undefined>> = {
-    people: session.role === "hr_admin" ? "employees" : undefined,
-    leave: "leave", goals: ["hr_admin", "manager"].includes(session.role) ? "goals" : undefined,
-    learning: ["hr_admin", "manager"].includes(session.role) ? "learning" : undefined,
-    claims: "claims", payslips: ["hr_admin", "finance"].includes(session.role) ? "payroll" : undefined,
-    lifecycle: ["hr_admin", "manager"].includes(session.role) ? "lifecycle" : undefined,
-    documents: session.role === "hr_admin" ? "documents" : undefined,
+    people: role === "hr_admin" ? "employees" : undefined,
+    leave: "leave", goals: ["hr_admin", "manager"].includes(role) ? "goals" : undefined,
+    learning: ["hr_admin", "manager"].includes(role) ? "learning" : undefined,
+    claims: "claims", payslips: ["hr_admin", "finance"].includes(role) ? "payroll" : undefined,
+    lifecycle: ["hr_admin", "manager"].includes(role) ? "lifecycle" : undefined,
+    documents: role === "hr_admin" ? "documents" : undefined,
   };
   const currentTab = tabs.find((item) => item.id === tab) || tabs[0];
 
@@ -317,7 +346,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
         <Button variant="outline" size="icon" className="hidden bg-card sm:inline-flex" onClick={load} disabled={loading} aria-label="Refresh HRMS"><RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} /></Button>
         <HRMSNotificationCenter />
         {actionResource[tab] && <Button size="icon" className="sm:w-auto sm:px-4" onClick={() => openCreate(actionResource[tab]!)} aria-label={`Add ${currentTab.label} record`}><Plus className="h-4 w-4" /><span className="hidden sm:inline">Add record</span></Button>}
-        {tab === "overview" && session.role === "hr_admin" && <Button size="icon" className="sm:w-auto sm:px-4" onClick={() => { changeTab("people"); openCreate("employees"); }} aria-label="Add person"><UserPlus className="h-4 w-4" /><span className="hidden sm:inline">Add person</span></Button>}
+        {tab === "overview" && role === "hr_admin" && <Button size="icon" className="sm:w-auto sm:px-4" onClick={() => { changeTab("people"); openCreate("employees"); }} aria-label="Add person"><UserPlus className="h-4 w-4" /><span className="hidden sm:inline">Add person</span></Button>}
       </>}
     >
         {notice && <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
@@ -339,7 +368,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
               lifecycle={data.lifecycle.map((item) => ({ ...item, employeeName: employeeName(item.employeeId) }))}
               directory={data.directory.length ? data.directory : data.employees}
               query={query}
-              canManage={["hr_admin", "manager"].includes(session.role)}
+              canManage={["hr_admin", "manager"].includes(role)}
               onCreateAnnouncement={() => openCreate("announcements")}
               onCreateEvent={() => openCreate("events")}
               onEditAnnouncement={(item: any) => openEdit("announcements", item)}
@@ -358,7 +387,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
                     <h2 className="mt-4 text-lg font-semibold">{employee.name}</h2><p className="mt-1 text-xs text-muted-foreground">{employee.title || "Role not set"} · {employee.department}</p>
                     <div className="mt-4 grid grid-cols-2 gap-2"><Mini label="Work mode" value={employee.workMode} /><Mini label="Employment" value={employee.employmentType} /><Mini label="Annual leave" value={`${employee.annualLeaveBalance} days`} /><Mini label="Medical leave" value={`${employee.medicalLeaveBalance} days`} /></div>
                     <div className="mt-4 rounded-xl bg-background p-3"><div className="flex justify-between text-[11px]"><span className="font-medium">Onboarding</span><span className="text-muted-foreground">{completed}/{total}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-black/5"><div className="h-full rounded-full bg-accent" style={{ width: `${total ? completed / total * 100 : 0}%` }} /></div></div>
-                    {(session.role === "hr_admin" || employee.id === session.userId) && <div className="mt-4 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => openEdit("employees", employee)}><Pencil className="h-4 w-4" />Edit</Button>{session.role === "hr_admin" && <Button variant="outline" size="icon" onClick={() => deleteRecord("employees", employee.id)} aria-label="Delete employee"><Trash2 className="h-4 w-4 text-red-500" /></Button>}</div>}
+                    {(role === "hr_admin" || employee.id === session.userId) && <div className="mt-4 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => openEdit("employees", employee)}><Pencil className="h-4 w-4" />Edit</Button>{role === "hr_admin" && <Button variant="outline" size="icon" onClick={() => deleteRecord("employees", employee.id)} aria-label="Delete employee"><Trash2 className="h-4 w-4 text-red-500" /></Button>}</div>}
                   </CardContent></Card>;
                 })}
               </div>
@@ -403,25 +432,46 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
               {!data.employees.length && <Empty icon={BookOpenCheck} title="No employee onboarding" note="Add the first employee to start an onboarding checklist." action={() => { changeTab("people"); openCreate("employees"); }} />}
             </div>}
 
-            {tab === "leave" && (
+            {tab === "leave" && role === "employee" && <HRMyLeave
+              employee={data.employees.find((item) => item.id === session.userId)}
+              requests={data.leaveRequests.filter((item) => item.employeeId === session.userId)}
+              publicHolidays={data.settings.publicHolidays || []}
+              settings={data.settings}
+              onCreate={() => openCreate("leave", session.userId)}
+              onEdit={(item: any) => openEdit("leave", item)}
+              onCancel={(id: string) => leaveAction(id, "cancel")}
+            />}
+
+            {tab === "timesheet" && <HRMSTimesheet
+              entries={data.timesheets}
+              employees={data.employees}
+              session={session}
+              canSeeEveryone={["hr_admin", "manager"].includes(role)}
+              employeeName={employeeName}
+              query={query}
+              onSave={(entry: any) => saveTimesheet(entry)}
+              onDelete={(id: string) => deleteRecord("timesheets", id)}
+            />}
+
+            {tab === "leave" && role !== "employee" && (
               <div className="space-y-3">
                 {data.leaveRequests.filter((item) => matches(employeeName(item.employeeId), item.type, item.status, item.reason)).map((item) => <Card key={item.id} className="border-black/8 bg-white/90"><CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted"><CalendarCheck className="h-5 w-5 text-accent" /></div>
                   <div className="min-w-0 flex-1"><div className="font-semibold">{employeeName(item.employeeId)}</div><div className="mt-1 text-xs text-muted-foreground">{item.type} · {formatDate(item.startDate)} – {formatDate(item.endDate)} · {item.days} working day{item.days === 1 ? "" : "s"}{typeof item.balanceAfterRequest === "number" ? ` · ${item.balanceAfterRequest} days remaining` : ""}</div><p className="mt-2 text-xs leading-5 text-muted-foreground">{item.reason || "No reason provided."}</p>{item.attachmentId && <a href={`/api/hr/files/${item.attachmentId}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent"><FileText className="h-3.5 w-3.5" />View attachment</a>}</div>
                   <Status value={item.status} />
-                  <div className="flex flex-wrap gap-2">{item.status === "Pending" && ["hr_admin", "manager"].includes(session.role) && <><Button size="sm" variant="outline" onClick={() => leaveAction(item.id, "reject")}>Reject</Button><Button size="sm" onClick={() => leaveAction(item.id, "approve")}><Check className="h-3.5 w-3.5" />Approve</Button></>}{item.status === "Pending" && item.employeeId === session.userId && <Button size="sm" variant="outline" onClick={() => leaveAction(item.id, "cancel")}>Cancel</Button>}{(["Pending", "Rejected"].includes(item.status) && item.employeeId === session.userId) || ["hr_admin", "manager"].includes(session.role) ? <Button variant="outline" size="icon" onClick={() => openEdit("leave", item)} aria-label="Edit leave"><Pencil className="h-4 w-4" /></Button> : null}{(session.role === "hr_admin" || (item.employeeId === session.userId && ["Pending", "Rejected"].includes(item.status))) && <Button variant="outline" size="icon" onClick={() => deleteRecord("leave", item.id)} aria-label="Delete leave"><Trash2 className="h-4 w-4 text-red-500" /></Button>}</div>
+                  <div className="flex flex-wrap gap-2">{item.status === "Pending" && ["hr_admin", "manager"].includes(role) && <><Button size="sm" variant="outline" onClick={() => leaveAction(item.id, "reject")}>Reject</Button><Button size="sm" onClick={() => leaveAction(item.id, "approve")}><Check className="h-3.5 w-3.5" />Approve</Button></>}{item.status === "Pending" && item.employeeId === session.userId && <Button size="sm" variant="outline" onClick={() => leaveAction(item.id, "cancel")}>Cancel</Button>}{(["Pending", "Rejected"].includes(item.status) && item.employeeId === session.userId) || ["hr_admin", "manager"].includes(role) ? <Button variant="outline" size="icon" onClick={() => openEdit("leave", item)} aria-label="Edit leave"><Pencil className="h-4 w-4" /></Button> : null}{(role === "hr_admin" || (item.employeeId === session.userId && ["Pending", "Rejected"].includes(item.status))) && <Button variant="outline" size="icon" onClick={() => deleteRecord("leave", item.id)} aria-label="Delete leave"><Trash2 className="h-4 w-4 text-red-500" /></Button>}</div>
                 </CardContent></Card>)}
                 {!data.leaveRequests.length && <Empty icon={CalendarCheck} title="No leave requests" note="Create the first leave request for a team member." action={() => openCreate("leave")} />}
               </div>
             )}
 
-            {tab === "attendance" && <HRMSAttendanceWorkbench employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} leaveRequests={data.leaveRequests} shifts={data.shifts} payroll={data.payroll} publicHolidays={data.settings.publicHolidays || []} settings={data.settings.attendance} role={session.role} query={query} onReviewOvertime={(id: string, action: string) => recordAction("attendance", id, action)}
-              todayContent={<><div className="flex justify-end">{["hr_admin", "manager"].includes(session.role) && <Button asChild variant="outline" className="bg-card"><Link href="/hr/attendance-review"><ShieldCheck className="h-4 w-4" />Review attendance evidence</Link></Button>}</div><HRPhotoAttendance employees={session.role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} query={query} onRefresh={load} onNotice={setNotice} onError={setError} /></>}
-              correctionsContent={<HRAttendanceCorrections records={data.attendanceCorrections.filter((item) => matches(employeeName(item.employeeId), item.date, item.status, item.reason))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} onCreate={() => openCreate("attendance_corrections")} onEdit={(item: any) => openEdit("attendance_corrections", item)} onDelete={(id: string) => deleteRecord("attendance_corrections", id)} onAction={(id: string, action: string) => recordAction("attendance_corrections", id, action)} />}
+            {tab === "attendance" && <HRMSAttendanceWorkbench employees={role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} leaveRequests={data.leaveRequests} shifts={data.shifts} payroll={data.payroll} publicHolidays={data.settings.publicHolidays || []} settings={data.settings.attendance} role={role} query={query} onReviewOvertime={(id: string, action: string) => recordAction("attendance", id, action)}
+              todayContent={<><div className="flex justify-end">{["hr_admin", "manager"].includes(role) && <Button asChild variant="outline" className="bg-card"><Link href="/hr/attendance-review"><ShieldCheck className="h-4 w-4" />Review attendance evidence</Link></Button>}</div><HRPhotoAttendance employees={role === "employee" ? data.employees.filter((item) => item.id === session.userId) : data.employees} attendance={data.attendance} query={query} onRefresh={load} onNotice={setNotice} onError={setError} /></>}
+              correctionsContent={<HRAttendanceCorrections records={data.attendanceCorrections.filter((item) => matches(employeeName(item.employeeId), item.date, item.status, item.reason))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(role)} onCreate={() => openCreate("attendance_corrections")} onEdit={(item: any) => openEdit("attendance_corrections", item)} onDelete={(id: string) => deleteRecord("attendance_corrections", id)} onAction={(id: string, action: string) => recordAction("attendance_corrections", id, action)} />}
               onCreateShift={(item: any) => managedMutation({ operation: "create", resource: "shifts", data: item })} onUpdateShift={(item: any) => managedMutation({ operation: "update", resource: "shifts", id: item.id, data: item })} onDeleteShift={(id: string) => deleteManaged("shifts", id)} />}
-            {tab === "payslips" && <HRMSPayrollWorkbench records={data.payroll} vouchers={data.paymentVouchers} employees={data.employees} employer={data.settings.employer} employeeName={employeeName} canManage={["hr_admin", "finance"].includes(session.role)} onCreatePayroll={() => openCreate("payroll")} onEditPayroll={(item: any) => openEdit("payroll", item)} onPayrollAction={(id: string, action: string) => recordAction("payroll", id, action)} onCreateVoucher={(item: any) => managedMutation({ operation: "create", resource: "payment_vouchers", data: item })} onUpdateVoucher={(item: any) => managedMutation({ operation: "update", resource: "payment_vouchers", id: item.id, data: item })} onDeleteVoucher={(id: string) => deleteManaged("payment_vouchers", id)} onVoucherAction={(id: string, action: string) => managedMutation({ operation: "action", resource: "payment_vouchers", id, action })} />}
+            {tab === "payslips" && <HRMSPayrollWorkbench records={data.payroll} vouchers={data.paymentVouchers} employees={data.employees} employer={data.settings.employer} employeeName={employeeName} canManage={["hr_admin", "finance"].includes(role)} onCreatePayroll={() => openCreate("payroll")} onEditPayroll={(item: any) => openEdit("payroll", item)} onPayrollAction={(id: string, action: string) => recordAction("payroll", id, action)} onCreateVoucher={(item: any) => managedMutation({ operation: "create", resource: "payment_vouchers", data: item })} onUpdateVoucher={(item: any) => managedMutation({ operation: "update", resource: "payment_vouchers", id: item.id, data: item })} onDeleteVoucher={(id: string) => deleteManaged("payment_vouchers", id)} onVoucherAction={(id: string, action: string) => managedMutation({ operation: "action", resource: "payment_vouchers", id, action })} />}
 
-            {tab === "claims" && <HRClaims claims={data.claims.filter((item) => matches(employeeName(item.employeeId), item.category, item.description, item.status, item.financeStatus))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(session.role)} canPay={["hr_admin", "finance"].includes(session.role)} onCreate={() => openCreate("claims")} onEdit={(item: any) => openEdit("claims", item)} onDelete={(id: string) => deleteRecord("claims", id)} onAction={(id: string, action: string) => recordAction("claims", id, action)} />}
+            {tab === "claims" && <HRClaims claims={data.claims.filter((item) => matches(employeeName(item.employeeId), item.category, item.description, item.status, item.financeStatus))} employeeName={employeeName} canReview={["hr_admin", "manager"].includes(role)} canPay={["hr_admin", "finance"].includes(role)} onCreate={() => openCreate("claims")} onEdit={(item: any) => openEdit("claims", item)} onDelete={(id: string) => deleteRecord("claims", id)} onAction={(id: string, action: string) => recordAction("claims", id, action)} />}
 
             {tab === "lifecycle" && <HRLifecycle records={data.lifecycle.filter((item) => matches(employeeName(item.employeeId), item.type, item.title, item.status))} employeeName={employeeName} onCreate={() => openCreate("lifecycle")} onEdit={(item: any) => openEdit("lifecycle", item)} onDelete={(id: string) => deleteRecord("lifecycle", id)} />}
 
@@ -429,12 +479,12 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
 
             {tab === "learning" && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.learning.filter((item) => matches(employeeName(item.employeeId), item.title, item.provider, item.status)).map((item) => <Card key={item.id} className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted"><GraduationCap className="h-5 w-5 text-accent" /></div><Status value={item.status} /></div><h2 className="mt-4 font-semibold">{item.title}</h2><p className="mt-1 text-xs text-muted-foreground">{item.provider || "Provider not set"}</p><div className="mt-4 text-xs">{employeeName(item.employeeId)} · {item.progress}%</div><div className="mt-2 h-2 overflow-hidden rounded-full bg-black/5"><div className="h-full rounded-full bg-foreground" style={{ width: `${item.progress}%` }} /></div><div className="mt-4 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => openEdit("learning", item)}><Pencil className="h-4 w-4" />Edit</Button><Button variant="outline" size="icon" onClick={() => deleteRecord("learning", item.id)} aria-label="Delete learning"><Trash2 className="h-4 w-4 text-red-500" /></Button></div></CardContent></Card>)}</div>}
 
-            {tab === "documents" && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.documents.filter((item) => matches(item.title, item.category, item.reference, item.status, item.notes, employeeName(item.employeeId))).map((item) => <Card key={item.id} className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted"><FileText className="h-5 w-5 text-accent" /></div><Status value={item.status} /></div><h2 className="mt-4 font-semibold">{item.title}</h2><p className="mt-1 text-xs text-muted-foreground">{item.category || "HR document"} · {item.employeeId ? employeeName(item.employeeId) : "Company-wide"}</p><div className="mt-4 grid grid-cols-2 gap-2"><Mini label="Reference" value={item.reference} /><Mini label="Expiry" value={formatDate(item.expiryDate)} /></div><p className="mt-4 min-h-10 text-xs leading-5 text-muted-foreground">{item.notes || "No notes."}</p>{item.assetId && <Button asChild variant="outline" className="mt-3 w-full"><a href={`/api/hr/files/${item.assetId}`} target="_blank" rel="noreferrer"><FileText className="h-4 w-4" />Open private document</a></Button>}{session.role === "hr_admin" && <div className="mt-4 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => openEdit("documents", item)}><Pencil className="h-4 w-4" />Edit</Button><Button variant="outline" size="icon" onClick={() => deleteRecord("documents", item.id)} aria-label="Delete document"><Trash2 className="h-4 w-4 text-red-500" /></Button></div>}</CardContent></Card>)}{!data.documents.length && session.role === "hr_admin" && <Empty icon={FileText} title="No HR documents" note="Create a policy or employee document register entry." action={() => openCreate("documents")} />}</div>}
+            {tab === "documents" && <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.documents.filter((item) => matches(item.title, item.category, item.reference, item.status, item.notes, employeeName(item.employeeId))).map((item) => <Card key={item.id} className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start justify-between gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted"><FileText className="h-5 w-5 text-accent" /></div><Status value={item.status} /></div><h2 className="mt-4 font-semibold">{item.title}</h2><p className="mt-1 text-xs text-muted-foreground">{item.category || "HR document"} · {item.employeeId ? employeeName(item.employeeId) : "Company-wide"}</p><div className="mt-4 grid grid-cols-2 gap-2"><Mini label="Reference" value={item.reference} /><Mini label="Expiry" value={formatDate(item.expiryDate)} /></div><p className="mt-4 min-h-10 text-xs leading-5 text-muted-foreground">{item.notes || "No notes."}</p>{item.assetId && <Button asChild variant="outline" className="mt-3 w-full"><a href={`/api/hr/files/${item.assetId}`} target="_blank" rel="noreferrer"><FileText className="h-4 w-4" />Open private document</a></Button>}{role === "hr_admin" && <div className="mt-4 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => openEdit("documents", item)}><Pencil className="h-4 w-4" />Edit</Button><Button variant="outline" size="icon" onClick={() => deleteRecord("documents", item.id)} aria-label="Delete document"><Trash2 className="h-4 w-4 text-red-500" /></Button></div>}</CardContent></Card>)}{!data.documents.length && role === "hr_admin" && <Empty icon={FileText} title="No HR documents" note="Create a policy or employee document register entry." action={() => openCreate("documents")} />}</div>}
 
             {tab === "settings" && <HRMSSettings settings={data.settings} saving={saving} authEnabled={session.authEnabled !== false} onSave={saveSettings} />}
           </>
         )}
-      {editor && <EditorDialog editor={editor} setEditor={setEditor} data={data} session={session} saving={saving} onSave={saveEditor} />}
+      {editor && <EditorDialog editor={{ ...editor, role }} setEditor={setEditor} data={data} session={session} saving={saving} onSave={saveEditor} />}
     </HRMSShell>
   );
 }
@@ -737,7 +787,7 @@ function HolidaySeeder({ state, value, onChange }: { state: string; value: strin
 
 function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any) {
   const record = editor.record;
-  const admin = session.role === "hr_admin";
+  const admin = editor.role === "hr_admin";
   const update = (key: string, value: any) => setEditor({ ...editor, record: { ...record, [key]: value } });
   // Several fields at once: calling update() in sequence would each spread the
   // same stale record and only the last would survive.
@@ -756,7 +806,7 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
     }
     update("employeeId", employeeId);
   }
-  const employeeSelect = <Field label="Team member" wide><Select value={record.employeeId} disabled={session.role === "employee"} onChange={(e) => selectEmployee(e.target.value)} >{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field>;
+  const employeeSelect = <Field label="Team member" wide><Select value={record.employeeId} disabled={editor.role === "employee"} onChange={(e) => selectEmployee(e.target.value)} >{employeeOptions.map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field>;
 
   return <div className="fixed inset-0 z-[150] flex items-end justify-center bg-black/45 sm:items-center sm:p-4">
     <Card className="max-h-[94dvh] w-full max-w-3xl overflow-y-auto rounded-b-none bg-background shadow-2xl sm:rounded-2xl">
