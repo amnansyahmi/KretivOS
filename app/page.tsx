@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, ArrowLeft, ArrowRight, BarChart3, Bot, Building2, Check,
-  ChevronRight, CircleDollarSign, Clapperboard, ClipboardCheck, Cloud, Code2,
+  Activity, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Bot, Building2, Check,
+  ChevronRight, CircleDollarSign, Clapperboard, ClipboardCheck, ClipboardList, Cloud, Code2,
   Calculator, Database, FileText, Film, GitBranch,
   HandCoins, LayoutDashboard, Library, Megaphone, Menu, MessageSquareText,
   MonitorSmartphone, Palette, PanelLeftClose, PanelLeftOpen,
@@ -30,13 +30,15 @@ type View =
   | "Command Centre" | "Approvals" | "Marketing Studio"
   | "Prompt Lab" | "Technology" | "Settings";
 
-type NavItem = { name: string; icon: any; view?: View; href?: string };
+/** `external` marks an href that leaves KretivOS for another application. */
+type NavItem = { name: string; icon: any; view?: View; href?: string; external?: boolean };
 type NavGroup = { label: string; items: NavItem[] };
 
 const navGroups: NavGroup[] = [
   { label: "Company", items: [
     { name: "Command Centre", icon: LayoutDashboard, view: "Command Centre" },
     { name: "Sales", icon: Building2, href: "/sales?tab=overview" },
+    { name: "Jobs Dashboard", icon: ClipboardList, href: "https://kretivco-jobs-dashboard.vercel.app", external: true },
     { name: "HR & Team", icon: UsersRound, href: "/hr" },
     { name: "Approval Inbox", icon: ClipboardCheck, href: "/approvals" },
   ]},
@@ -224,8 +226,14 @@ export default function Home() {
             );
             const body = <>
               <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span className="truncate">{item.name}</span>}
+              {!collapsed && <span className="flex-1 truncate">{item.name}</span>}
+              {/* Says before the click that this one leaves KretivOS. */}
+              {!collapsed && item.external && <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-white/35" />}
             </>;
+
+            // Another application entirely: a plain anchor, opened in its own
+            // tab so the workspace behind it is still there to come back to.
+            if (item.external) return <a key={item.name} href={item.href} target="_blank" rel="noopener noreferrer" title={collapsed ? item.name : undefined} onClick={() => setMobile(false)} className={className}>{body}</a>;
 
             // Database-backed workspaces are real routes, so they navigate as links.
             return item.href
