@@ -36,7 +36,9 @@ import {
   HRLifecycle,
   HRSelfService,
 } from "@/components/hrms-extended-sections";
+import { DEFAULT_OVERTIME_RULES, toOvertimeRules } from "@/lib/overtime";
 import { SEEDED_PROFILE, toStatutoryProfile, type StatutoryProfile } from "@/lib/payroll-statutory";
+import { DEFAULT_REST_DAYS, fixedHolidays, mergeHolidays, missingGazettedHolidays, restDaysForState } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
 type Resource = "employees" | "leave" | "attendance" | "attendance_corrections" | "goals" | "learning" | "documents" | "claims" | "payroll" | "lifecycle" | "announcements" | "events";
@@ -62,7 +64,11 @@ type Snapshot = {
     departments: string[];
     leaveTypes: string[];
     workModes: string[];
-    attendance?: { timezone?: string; shiftStart?: string; shiftEnd?: string; graceMinutes?: number; overtimeAfterMinutes?: number };
+    attendance?: {
+      timezone?: string; shiftStart?: string; shiftEnd?: string; graceMinutes?: number; overtimeAfterMinutes?: number;
+      /** Drives leave day counting and which multiple overtime is paid at. */
+      state?: string; restDays?: number[]; overtime?: Partial<typeof DEFAULT_OVERTIME_RULES>;
+    };
     leavePolicy?: { annualAccrual?: string; carryForwardDays?: number; carryForwardExpiryMonth?: number; prorateNewJoiner?: boolean };
     publicHolidays?: { date: string; name: string }[];
     statutoryProfiles?: any[];
@@ -450,7 +456,10 @@ function Overview({ data, stats, employeeName, setTab }: any) {
 
 function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Snapshot["settings"]; saving: boolean; authEnabled: boolean; onSave: (settings: Snapshot["settings"]) => void }) {
   const [lists, setLists] = useState({ departments: "", leaveTypes: "", workModes: "" });
-  const [attendance, setAttendance] = useState({ timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540 });
+  const [attendance, setAttendance] = useState({
+    timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540,
+    state: "Selangor", restDays: DEFAULT_REST_DAYS, overtime: DEFAULT_OVERTIME_RULES,
+  });
   const [leavePolicy, setLeavePolicy] = useState({ annualAccrual: "annual", carryForwardDays: 5, carryForwardExpiryMonth: 3, prorateNewJoiner: true });
   const [holidays, setHolidays] = useState("");
   const [statutory, setStatutory] = useState<StatutoryProfile>(SEEDED_PROFILE);
@@ -473,6 +482,9 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
       shiftEnd: settings.attendance?.shiftEnd || "18:00",
       graceMinutes: Number(settings.attendance?.graceMinutes ?? 15),
       overtimeAfterMinutes: Number(settings.attendance?.overtimeAfterMinutes ?? 540),
+      state: settings.attendance?.state || "Selangor",
+      restDays: settings.attendance?.restDays?.length ? settings.attendance.restDays : DEFAULT_REST_DAYS,
+      overtime: toOvertimeRules(settings.attendance?.overtime),
     });
     setLeavePolicy({
       annualAccrual: settings.leavePolicy?.annualAccrual || "annual",
@@ -523,8 +535,36 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
 
   return <div className="space-y-5">
     <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-foreground text-white"><Settings2 className="h-4 w-4" /></div><div><h2 className="font-semibold">HR master lists</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">One item per line. Changes are used immediately by employee and leave forms.</p></div></div><div className="mt-5 grid gap-4 lg:grid-cols-3"><label className="text-xs font-medium text-foreground-soft">Departments<Textarea value={lists.departments} onChange={(event) => setLists({ ...lists, departments: event.target.value })} className="mt-2 min-h-44" /></label><label className="text-xs font-medium text-foreground-soft">Leave types<Textarea value={lists.leaveTypes} onChange={(event) => setLists({ ...lists, leaveTypes: event.target.value })} className="mt-2 min-h-44" /></label><label className="text-xs font-medium text-foreground-soft">Work modes<Textarea value={lists.workModes} onChange={(event) => setLists({ ...lists, workModes: event.target.value })} className="mt-2 min-h-44" /></label></div></CardContent></Card>
-    <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted"><Clock3 className="h-4 w-4 text-accent" /></div><div><h2 className="font-semibold">Attendance rules</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Shift, grace period and overtime thresholds use Malaysia time by default.</p></div></div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Setting label="Timezone"><Input value={attendance.timezone} onChange={(event) => setAttendance({ ...attendance, timezone: event.target.value })} /></Setting><Setting label="Shift starts"><Input type="time" value={attendance.shiftStart} onChange={(event) => setAttendance({ ...attendance, shiftStart: event.target.value })} /></Setting><Setting label="Shift ends"><Input type="time" value={attendance.shiftEnd} onChange={(event) => setAttendance({ ...attendance, shiftEnd: event.target.value })} /></Setting><Setting label="Grace (minutes)"><Input type="number" min="0" max="180" value={attendance.graceMinutes} onChange={(event) => setAttendance({ ...attendance, graceMinutes: Number(event.target.value) })} /></Setting><Setting label="OT after (minutes)"><Input type="number" min="60" max="1440" value={attendance.overtimeAfterMinutes} onChange={(event) => setAttendance({ ...attendance, overtimeAfterMinutes: Number(event.target.value) })} /></Setting></div></CardContent></Card>
-    <div className="grid gap-5 xl:grid-cols-2"><Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">Leave engine</h2><p className="mt-1 text-xs text-muted-foreground">Entitlement, proration, carry-forward and public holiday exclusions.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><Setting label="Accrual"><Select value={leavePolicy.annualAccrual} onChange={(event) => setLeavePolicy({ ...leavePolicy, annualAccrual: event.target.value })} ><option value="annual">Annual allocation</option><option value="monthly">Monthly accrual</option></Select></Setting><Setting label="Carry-forward days"><Input type="number" min="0" max="30" value={leavePolicy.carryForwardDays} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardDays: Number(event.target.value) })} /></Setting><Setting label="Expiry month"><Input type="number" min="1" max="12" value={leavePolicy.carryForwardExpiryMonth} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardExpiryMonth: Number(event.target.value) })} /></Setting><label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium"><input type="checkbox" checked={leavePolicy.prorateNewJoiner} onChange={(event) => setLeavePolicy({ ...leavePolicy, prorateNewJoiner: event.target.checked })} />Prorate new joiners</label><Setting label="Public holidays · YYYY-MM-DD | Name" wide><Textarea value={holidays} onChange={(event) => setHolidays(event.target.value)} className="min-h-32" placeholder="2026-08-31 | National Day" /></Setting></div></CardContent></Card>
+    <Card className="border-black/8 bg-white/90"><CardContent className="p-5"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted"><Clock3 className="h-4 w-4 text-accent" /></div><div><h2 className="font-semibold">Attendance rules</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Shift, grace period and overtime thresholds use Malaysia time by default.</p></div></div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Setting label="Timezone"><Input value={attendance.timezone} onChange={(event) => setAttendance({ ...attendance, timezone: event.target.value })} /></Setting><Setting label="Shift starts"><Input type="time" value={attendance.shiftStart} onChange={(event) => setAttendance({ ...attendance, shiftStart: event.target.value })} /></Setting><Setting label="Shift ends"><Input type="time" value={attendance.shiftEnd} onChange={(event) => setAttendance({ ...attendance, shiftEnd: event.target.value })} /></Setting><Setting label="Grace (minutes)"><Input type="number" min="0" max="180" value={attendance.graceMinutes} onChange={(event) => setAttendance({ ...attendance, graceMinutes: Number(event.target.value) })} /></Setting><Setting label="OT after (minutes)"><Input type="number" min="60" max="1440" value={attendance.overtimeAfterMinutes} onChange={(event) => setAttendance({ ...attendance, overtimeAfterMinutes: Number(event.target.value) })} /></Setting></div>
+
+      <div className="mt-5 border-t pt-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Working week</div>
+        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Rest days decide how many days a leave request costs, and whether an hour of overtime is paid at the rest-day rate. Johor, Kedah, Kelantan and Terengganu rest on Friday and Saturday.</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Setting label="State">
+            <Select value={attendance.state} onChange={(event) => setAttendance({ ...attendance, state: event.target.value, restDays: restDaysForState(event.target.value) })}>
+              {["Johor", "Kedah", "Kelantan", "Melaka", "Negeri Sembilan", "Pahang", "Perak", "Perlis", "Pulau Pinang", "Sabah", "Sarawak", "Selangor", "Terengganu", "Wilayah Persekutuan"].map((item) => <option key={item}>{item}</option>)}
+            </Select>
+          </Setting>
+          <Setting label="Rest days">
+            <div className="flex flex-wrap gap-2">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, day) => <label key={label} className={cn("cursor-pointer rounded-xl border px-3 py-2 text-xs font-medium", attendance.restDays.includes(day) && "bg-foreground text-white")}>
+              <input type="checkbox" className="sr-only" checked={attendance.restDays.includes(day)} onChange={() => setAttendance({ ...attendance, restDays: attendance.restDays.includes(day) ? attendance.restDays.filter((item: number) => item !== day) : [...attendance.restDays, day].sort() })} />{label}
+            </label>)}</div>
+          </Setting>
+        </div>
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Overtime rates</div>
+        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Payroll prices the overtime minutes attendance already records. The ordinary rate of pay is the monthly wage over the days below; the multiples are the statutory minimums and can be raised, not lowered.</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {([["Days per month", "daysPerMonth"], ["Hours per day", "hoursPerDay"], ["Working day ×", "normalMultiplier"], ["Rest day ×", "restDayMultiplier"], ["Public holiday ×", "publicHolidayMultiplier"]] as const).map(([label, key]) => <Setting key={key} label={label}>
+            <Input type="number" min="0" step="0.1" value={attendance.overtime[key]} onChange={(event) => setAttendance({ ...attendance, overtime: { ...attendance.overtime, [key]: Number(event.target.value) } })} />
+          </Setting>)}
+        </div>
+      </div>
+    </CardContent></Card>
+    <div className="grid gap-5 xl:grid-cols-2"><Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">Leave engine</h2><p className="mt-1 text-xs text-muted-foreground">Entitlement, proration, carry-forward and public holiday exclusions.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><Setting label="Accrual"><Select value={leavePolicy.annualAccrual} onChange={(event) => setLeavePolicy({ ...leavePolicy, annualAccrual: event.target.value })} ><option value="annual">Annual allocation</option><option value="monthly">Monthly accrual</option></Select></Setting><Setting label="Carry-forward days"><Input type="number" min="0" max="30" value={leavePolicy.carryForwardDays} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardDays: Number(event.target.value) })} /></Setting><Setting label="Expiry month"><Input type="number" min="1" max="12" value={leavePolicy.carryForwardExpiryMonth} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardExpiryMonth: Number(event.target.value) })} /></Setting><label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium"><input type="checkbox" checked={leavePolicy.prorateNewJoiner} onChange={(event) => setLeavePolicy({ ...leavePolicy, prorateNewJoiner: event.target.checked })} />Prorate new joiners</label><Setting label="Public holidays · YYYY-MM-DD | Name" wide><Textarea value={holidays} onChange={(event) => setHolidays(event.target.value)} className="min-h-32" placeholder="2026-08-31 | National Day" /></Setting></div><HolidaySeeder state={attendance.state} value={holidays} onChange={setHolidays} /></CardContent></Card>
     <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
       <h2 className="font-semibold">Malaysia statutory profile</h2>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">Payroll calculates EPF, SOCSO, EIS and PCB from these. They are versioned by effective date, so re-opening an old period uses the rates that applied to it rather than today&rsquo;s. Check them against the official schedules — nothing here is authoritative.</p>
@@ -597,6 +637,41 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
 }
 
 function Setting({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) { return <Label className={cn("text-foreground-soft", wide && "sm:col-span-2")}>{label}<div className="mt-2">{children}</div></Label>; }
+
+/**
+ * Seeds the holidays that can be seeded, and names the ones that cannot.
+ *
+ * Most Malaysian public holidays follow the Hijri or a lunar calendar and are
+ * gazetted each year, so they are impossible to know in advance. Listing them
+ * by name is the useful half of that: an empty holiday list quietly counted
+ * leave straight through Hari Raya and left the team calendar blank, and the
+ * failure was invisible until the day nobody came in.
+ */
+function HolidaySeeder({ state, value, onChange }: { state: string; value: string; onChange: (next: string) => void }) {
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const entered = useMemo(() => value.split("\n").map((line) => {
+    const [date, ...name] = line.split("|");
+    return { date: date.trim(), name: name.join("|").trim() };
+  }).filter((item) => item.date && item.name), [value]);
+  const missing = missingGazettedHolidays(entered, year);
+
+  function seed() {
+    const merged = mergeHolidays(entered, fixedHolidays(year, state));
+    onChange(merged.map((item) => `${item.date} | ${item.name}`).join("\n"));
+  }
+
+  return <div className="mt-4 rounded-xl border border-dashed bg-card p-4">
+    <div className="flex flex-wrap items-end gap-3">
+      <Label className="text-foreground-soft">Seed year<div className="mt-2"><Input type="number" min="2000" max="2100" value={year} onChange={(event) => setYear(Number(event.target.value) || year)} className="w-28" /></div></Label>
+      <Button type="button" variant="outline" onClick={seed}><CalendarCheck className="h-4 w-4" />Add {year} fixed holidays</Button>
+    </div>
+    <p className="mt-3 text-[11px] leading-5 text-muted-foreground">Adds the federal and {state} holidays that fall on the same date every year. Anything already entered for a date is left alone.</p>
+    {missing.length > 0 && <div className="mt-3 rounded-lg bg-amber-50 p-3">
+      <b className="text-[11px] text-amber-900">{missing.length} holiday{missing.length === 1 ? "" : "s"} for {year} must be added from the gazette</b>
+      <p className="mt-1 text-[11px] leading-5 text-amber-900/80">These follow the Hijri and lunar calendars, so their dates are set each year and cannot be seeded: {missing.join(", ")}.</p>
+    </div>}
+  </div>;
+}
 
 function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any) {
   const record = editor.record;
@@ -703,13 +778,38 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
           // the thing being checked — hiding it would replace "verify this" with
           // "trust me".
           const auto = String(record.statutoryMode ?? "auto") !== "manual";
-          const earnings = [["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Overtime", "overtime"], ["Bonus", "bonus"], ["Other deductions", "otherDeductions"]] as const;
+          const autoOvertime = String(record.overtimeMode ?? "manual") === "auto";
+          const breakdown = record.overtimeBreakdown;
+          const earnings = [["Basic salary", "basicSalary"], ["Allowances", "allowances"], ["Bonus", "bonus"], ["Other deductions", "otherDeductions"]] as const;
           const statutory = [["EPF employee", "epfEmployee"], ["EPF employer", "epfEmployer"], ["SOCSO employee", "socsoEmployee"], ["SOCSO employer", "socsoEmployer"], ["EIS employee", "eisEmployee"], ["EIS employer", "eisEmployer"], ["PCB", "pcb"]] as const;
           return <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               {employeeSelect}
               <Field label="Payroll period"><MonthInput value={record.period || ""} onChange={(e) => update("period", e.target.value)} /></Field>
               {earnings.map(([label, key]) => <Field key={key} label={`${label} (RM)`}><Input type="number" min="0" step="0.01" value={record[key] ?? 0} onChange={(e) => update(key, Number(e.target.value))} /></Field>)}
+            </div>
+
+            <div className="rounded-2xl border bg-card p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold">Overtime</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{autoOvertime ? "Priced from the overtime minutes attendance already recorded, at the rate for each kind of day." : "Entered by hand. Attendance is not consulted."}</p>
+                </div>
+                <Select className="sm:w-52" value={autoOvertime ? "auto" : "manual"} onChange={(e) => update("overtimeMode", e.target.value)}>
+                  <option value="auto">From attendance</option>
+                  <option value="manual">Enter manually</option>
+                </Select>
+              </div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Field label="Overtime (RM)"><Input type="number" min="0" step="0.01" disabled={autoOvertime} value={record.overtime ?? 0} onChange={(e) => update("overtime", Number(e.target.value))} /></Field>
+              </div>
+              {autoOvertime && breakdown && <div className="mt-3 rounded-xl bg-background p-3 text-[11px] leading-5 text-muted-foreground">
+                <div>Ordinary hourly rate RM {Number(breakdown.hourlyRate || 0).toFixed(2)} · {breakdown.days} day{breakdown.days === 1 ? "" : "s"} with overtime</div>
+                <div className="mt-1 flex flex-wrap gap-x-4">
+                  {([["Working day", breakdown.normal], ["Rest day", breakdown.restDay], ["Public holiday", breakdown.publicHoliday]] as const).filter(([, band]) => band?.minutes > 0).map(([label, band]) => <span key={label}>{label}: {band.hours}h × {band.multiplier} = RM {Number(band.amount).toFixed(2)}</span>)}
+                  {!breakdown.totalMinutes && <span>No overtime recorded for this period.</span>}
+                </div>
+              </div>}
             </div>
 
             <div className="rounded-2xl border bg-card p-4">

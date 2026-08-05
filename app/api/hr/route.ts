@@ -9,6 +9,8 @@ import {
   canCompleteStep, defaultStaffOnboarding, normaliseOnboarding, onboardingSummary,
   resolveOnboarding, SELF_EDITABLE_FIELDS,
 } from "@/lib/staff-onboarding";
+import { overtimeForPeriod, toOvertimeRules } from "@/lib/overtime";
+import { DEFAULT_REST_DAYS, workingDates } from "@/lib/work-calendar";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -52,7 +54,15 @@ const defaultOperations = {
     departments: ["Leadership", "Marketing", "Creative", "Technology", "Finance", "Operations"],
     leaveTypes: ["Annual Leave", "Medical Leave", "Emergency Leave", "Unpaid Leave", "Replacement Leave"],
     workModes: ["Office", "Remote", "Hybrid", "Client Site"],
-    attendance: { timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540 },
+    /*
+     * `state` drives the rest days and which state holidays are offered.
+     * Kretivco is in Subang Jaya, so Selangor and a Saturday-Sunday weekend.
+     */
+    attendance: {
+      timezone: "Asia/Kuala_Lumpur", shiftStart: "09:00", shiftEnd: "18:00", graceMinutes: 15, overtimeAfterMinutes: 540,
+      state: "Selangor", restDays: DEFAULT_REST_DAYS,
+      overtime: { daysPerMonth: 26, hoursPerDay: 8, normalMultiplier: 1.5, restDayMultiplier: 2, publicHolidayMultiplier: 3 },
+    },
     leavePolicy: { annualAccrual: "annual", carryForwardDays: 5, carryForwardExpiryMonth: 3, prorateNewJoiner: true },
     publicHolidays: [] as { date: string; name: string }[],
     statutoryProfiles: [SEEDED_PROFILE],
@@ -420,29 +430,27 @@ async function snapshot(session: HRSession) {
   }, session);
 }
 
-function businessDays(start: string, end: string) {
-  if (!start || !end) return 0;
-  const cursor = new Date(`${start}T00:00:00`);
-  const last = new Date(`${end}T00:00:00`);
-  let count = 0;
-  while (cursor <= last) {
-    const day = cursor.getDay();
-    if (day !== 0 && day !== 6) count += 1;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return count;
-}
-
-function leaveDates(start: string, end: string) {
-  const dates: string[] = [];
-  const cursor = new Date(`${start}T00:00:00`);
-  const last = new Date(`${end}T00:00:00`);
-  while (cursor <= last) {
-    const day = cursor.getDay();
-    if (day !== 0 && day !== 6) dates.push(cursor.toISOString().slice(0, 10));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return dates;
+/**
+ * The working dates a leave request actually spans.
+ *
+ * Both the rest days and the public holidays now come from settings. The old
+ * version hardcoded Saturday and Sunday, which counted leave against the wrong
+ * days for anyone in Johor, Kedah, Kelantan or Terengganu — and it built dates
+ * with `new Date("YYYY-MM-DDT00:00:00")`, which is parsed in whatever zone the
+ * server happens to run in and then read back as UTC, so a request could gain
+ * or lose its first day depending on where it was deployed.
+ *
+ * A near-identical `businessDays` sat beside it with the same two bugs and no
+ * callers at all, and has gone.
+ */
+function leaveDates(state: Record<string, any>, start: string, end: string) {
+  const attendance = object(object(state.settings).attendance);
+  const restDays = array(attendance.restDays).map(number).filter((day) => day >= 0 && day <= 6);
+  const holidays = array(object(state.settings).publicHolidays).map((item: any) => clean(item.date)).filter(Boolean);
+  return workingDates(start, end, {
+    restDays: restDays.length ? restDays : DEFAULT_REST_DAYS,
+    holidays,
+  });
 }
 
 function requireRole(session: HRSession, roles: HRSession["role"][]) {
@@ -482,7 +490,40 @@ function payrollRecord(data: Record<string, any>, current: Record<string, any> =
     statutoryProfileId: clean(data.statutoryProfileId || current.statutoryProfileId || "my-default"),
     verificationNote: clean(data.verificationNote || current.verificationNote),
     statutoryMode: clean(data.statutoryMode || current.statutoryMode) === "manual" ? "manual" : "auto",
+    // Unlike statutory, this defaults to manual. Every payroll line written
+    // before overtime could be read from attendance holds a figure somebody
+    // typed, and switching those to computed on the next edit would silently
+    // restate pay that has already been agreed.
+    overtimeMode: clean(data.overtimeMode || current.overtimeMode) === "auto" ? "auto" : "manual",
   };
+}
+
+/**
+ * Prices the overtime already sitting in attendance.
+ *
+ * Clock-out has been recording overtime minutes all along and payroll has been
+ * asking somebody to type a ringgit figure, so the evidence and the payment
+ * were never connected. An hour is not worth the same on every day — the
+ * Employment Act pays more on a rest day and more again on a public holiday —
+ * so the calendar in Settings decides the multiple, which is the same calendar
+ * that decides which days leave is counted against.
+ */
+function withComputedOvertime(record: any, state: Record<string, any>) {
+  if (clean(record.overtimeMode) !== "auto") return record;
+  if (!record.employeeId || !record.period) return record;
+
+  const attendanceSettings = object(object(state.settings).attendance);
+  const restDays = array(attendanceSettings.restDays).map(number).filter((day) => day >= 0 && day <= 6);
+  const holidays = new Set(array(object(state.settings).publicHolidays).map((item: any) => clean(item.date)).filter(Boolean));
+
+  const summary = overtimeForPeriod(
+    array(state.attendance),
+    { employeeId: record.employeeId, period: record.period, monthlyWage: number(record.basicSalary) },
+    toOvertimeRules(object(attendanceSettings.overtime)),
+    { restDays: restDays.length ? restDays : DEFAULT_REST_DAYS, holidays },
+  );
+
+  return { ...record, overtime: summary.amount, overtimeBreakdown: summary };
 }
 
 /**
@@ -508,6 +549,20 @@ function payrollYearToDate(list: any[], employeeId: string, period: string, excl
     yearToDateSocso: total("socsoEmployee") + total("eisEmployee"),
     yearToDatePcb: total("pcb"),
   };
+}
+
+/**
+ * A payroll line, computed in the order the amounts depend on each other.
+ *
+ * Overtime first, because it is part of gross and every statutory figure is
+ * taken on gross — pricing it afterwards would compute EPF and PCB against a
+ * salary that was about to change. The totals are re-derived in between so a
+ * manually-entered statutory line still adds up once overtime moves.
+ */
+async function withComputedPayroll(record: any, state: Record<string, any>, sql: any) {
+  const priced = withComputedOvertime(record, state);
+  const rebased = { ...priced, ...payrollRecord(priced, priced) };
+  return withComputedStatutory(rebased, state, sql);
 }
 
 /**
@@ -774,6 +829,14 @@ export async function POST(request: NextRequest) {
             shiftEnd: /^\d{2}:\d{2}$/.test(clean(attendance.shiftEnd)) ? clean(attendance.shiftEnd) : "18:00",
             graceMinutes: Math.max(0, Math.min(180, number(attendance.graceMinutes))),
             overtimeAfterMinutes: Math.max(60, Math.min(1440, number(attendance.overtimeAfterMinutes || 540))),
+            state: clean(attendance.state) || "Selangor",
+            // An empty list would make every day a working day, so the default
+            // stands in rather than being saved as "no rest days at all".
+            restDays: (() => {
+              const days = Array.from(new Set(array(attendance.restDays).map(number).filter((day) => day >= 0 && day <= 6)));
+              return days.length ? days : DEFAULT_REST_DAYS;
+            })(),
+            overtime: toOvertimeRules(object(attendance.overtime)),
           },
           leavePolicy: {
             annualAccrual: ["annual", "monthly"].includes(clean(leavePolicy.annualAccrual)) ? clean(leavePolicy.annualAccrual) : "annual",
@@ -820,8 +883,7 @@ export async function POST(request: NextRequest) {
         const employeeId = session.role === "employee" ? session.userId : clean(data.employeeId);
         let record: any = { ...data, employeeId, id: recordId, createdBy: session.userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
         if (resource === "leave") {
-          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-          const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));
+          const dates = leaveDates(state, clean(data.startDate), clean(data.endDate));
           record = { ...record, type: clean(data.type) || "Annual Leave", startDate: clean(data.startDate), endDate: clean(data.endDate), days: data.halfDay ? 0.5 : dates.length, halfDay: bool(data.halfDay), status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
           if (!employeeId || !record.startDate || !record.endDate || record.days <= 0) throw new Error("Employee and valid leave dates are required.");
           if (record.endDate < record.startDate) throw new Error("Leave end date cannot be before the start date.");
@@ -855,7 +917,7 @@ export async function POST(request: NextRequest) {
           record = { ...record, ...payrollRecord(data), status: "Draft", paidAt: null };
           if (!record.employeeId || !record.period) throw new Error("Employee and payroll period are required.");
           if (list.some((item: any) => item.employeeId === record.employeeId && item.period === record.period)) throw new Error("A payroll record already exists for this employee and period.");
-          record = await withComputedStatutory(record, state, sql);
+          record = await withComputedPayroll(record, state, sql);
           defer.notify("Payroll draft created", `Payroll for ${record.period} is being prepared.`, "hr_payroll", recordId, employeeId);
         } else if (resource === "lifecycle") {
           record = { ...record, type: clean(data.type) || "Onboarding", title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || "Open", notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label) };
@@ -928,10 +990,9 @@ export async function POST(request: NextRequest) {
         if (!["payroll", "documents", "attendance", "lifecycle", "announcements", "events", "shifts", "payment_vouchers"].includes(resource) && !managers && !ownerEditable && !progressEditable) throw new HRAuthError("You cannot update this HR record.", 403);
         const now = new Date().toISOString();
         let updated: any;
-        if (resource === "payroll") updated = await withComputedStatutory({ ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now }, state, sql);
+        if (resource === "payroll") updated = await withComputedPayroll({ ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now }, state, sql);
         else if (resource === "leave") {
-          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-          const dates = leaveDates(clean(data.startDate), clean(data.endDate)).filter((date) => !holidays.has(date));
+          const dates = leaveDates(state, clean(data.startDate), clean(data.endDate));
           const days = bool(data.halfDay) ? 0.5 : dates.length;
           if (!clean(data.startDate) || !clean(data.endDate) || clean(data.endDate) < clean(data.startDate) || days <= 0) throw new Error("Valid leave dates are required.");
           if (bool(data.halfDay) && clean(data.startDate) !== clean(data.endDate)) throw new Error("Half-day leave must use the same start and end date.");
@@ -1005,8 +1066,7 @@ export async function POST(request: NextRequest) {
         const updated = { ...existing, status, approverId: session.userId, approverNote: clean(data.approverNote), updatedAt: new Date().toISOString() };
         state.leaveRequests = list.map((item: any) => item.id === id ? updated : item);
         if (action === "approve") {
-          const holidays = new Set(array(state.settings?.publicHolidays).map((item: any) => clean(item.date)));
-          const generated = leaveDates(existing.startDate, existing.endDate).filter((date) => !holidays.has(date)).map((date) => ({ id: `leave-${id}-${date}`, employeeId: existing.employeeId, date, status: "Leave", checkIn: "", checkOut: "", note: `${existing.type}${existing.halfDay ? " (half day)" : ""} · generated from approved leave`, sourceId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+          const generated = leaveDates(state, existing.startDate, existing.endDate).map((date) => ({ id: `leave-${id}-${date}`, employeeId: existing.employeeId, date, status: "Leave", checkIn: "", checkOut: "", note: `${existing.type}${existing.halfDay ? " (half day)" : ""} · generated from approved leave`, sourceId: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
           const generatedIds = new Set(generated.map((item) => item.id));
           state.attendance = [...generated, ...array(state.attendance).filter((item: any) => !generatedIds.has(item.id))];
         } else state.attendance = array(state.attendance).filter((item: any) => item.sourceId !== id);
