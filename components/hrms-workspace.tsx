@@ -37,6 +37,7 @@ import {
   HRSelfService,
 } from "@/components/hrms-extended-sections";
 import { DEFAULT_OVERTIME_RULES, toOvertimeRules } from "@/lib/overtime";
+import { DEFAULT_LEAVE_RULES, leaveTypeNames, toLeaveRules, type LeaveTypeRule } from "@/lib/leave-entitlement";
 import { SEEDED_PROFILE, toStatutoryProfile, type StatutoryProfile } from "@/lib/payroll-statutory";
 import { DEFAULT_REST_DAYS, fixedHolidays, mergeHolidays, missingGazettedHolidays, restDaysForState } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
@@ -62,7 +63,8 @@ type Snapshot = {
   paymentVouchers: any[];
   settings: {
     departments: string[];
-    leaveTypes: string[];
+    /** Rules now, not bare names — older blobs still hold strings and normalise on read. */
+    leaveTypes: any[];
     workModes: string[];
     attendance?: {
       timezone?: string; shiftStart?: string; shiftEnd?: string; graceMinutes?: number; overtimeAfterMinutes?: number;
@@ -185,7 +187,7 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
           { id: uid(), label: "First-week check-in", done: false },
         ],
       },
-      leave: { ...common, employeeId: firstEmployee, type: data.settings.leaveTypes[0] || "Annual Leave", startDate: today(), endDate: today(), reason: "", status: "Pending" },
+      leave: { ...common, employeeId: firstEmployee, type: leaveTypeNames(toLeaveRules(data.settings.leaveTypes))[0] || "Annual Leave", startDate: today(), endDate: today(), reason: "", status: "Pending" },
       attendance: { ...common, employeeId: firstEmployee, date: today(), status: "Present", workMode: "Office", checkIn: "", checkOut: "", note: "" },
       attendance_corrections: { ...common, employeeId: firstEmployee, attendanceId: "", date: today(), requestedCheckIn: "", requestedCheckOut: "", reason: "", status: "Pending" },
       goals: { ...common, employeeId: firstEmployee, title: "", period: "Q3 2026", dueDate: today(), progress: 0, status: "Not started", notes: "" },
@@ -462,6 +464,7 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
   });
   const [leavePolicy, setLeavePolicy] = useState({ annualAccrual: "annual", carryForwardDays: 5, carryForwardExpiryMonth: 3, prorateNewJoiner: true });
   const [holidays, setHolidays] = useState("");
+  const [leaveRules, setLeaveRules] = useState<LeaveTypeRule[]>(DEFAULT_LEAVE_RULES);
   const [statutory, setStatutory] = useState<StatutoryProfile>(SEEDED_PROFILE);
   // Bands and official tables are edited as text for the same reason public
   // holidays are: they are transcribed from a published document, and a row of
@@ -473,7 +476,7 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
   useEffect(() => {
     setLists({
       departments: (settings.departments || []).join("\n"),
-      leaveTypes: (settings.leaveTypes || []).join("\n"),
+      leaveTypes: leaveTypeNames(toLeaveRules(settings.leaveTypes)).join("\n"),
       workModes: (settings.workModes || []).join("\n"),
     });
     setAttendance({
@@ -493,6 +496,7 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
       prorateNewJoiner: settings.leavePolicy?.prorateNewJoiner !== false,
     });
     setHolidays((settings.publicHolidays || []).map((item) => `${item.date} | ${item.name}`).join("\n"));
+    setLeaveRules(toLeaveRules(settings.leaveTypes));
     // Normalised on the way in as well as the way out, so a profile still
     // stored in the older flat shape opens with every field populated.
     const profile = toStatutoryProfile(settings.statutoryProfiles?.[0] ?? null);
@@ -516,7 +520,7 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
 
   const submit = () => onSave({
     departments: parseList(lists.departments),
-    leaveTypes: parseList(lists.leaveTypes),
+    leaveTypes: parseList(lists.leaveTypes).map((name) => leaveRules.find((rule) => rule.name.toLowerCase() === name.toLowerCase()) ?? { name }),
     workModes: parseList(lists.workModes),
     attendance,
     leavePolicy,
@@ -564,6 +568,7 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
         </div>
       </div>
     </CardContent></Card>
+    <LeaveEntitlementSettings rules={leaveRules} onChange={setLeaveRules} />
     <div className="grid gap-5 xl:grid-cols-2"><Card className="border-black/8 bg-white/90"><CardContent className="p-5"><h2 className="font-semibold">Leave engine</h2><p className="mt-1 text-xs text-muted-foreground">Entitlement, proration, carry-forward and public holiday exclusions.</p><div className="mt-5 grid gap-4 sm:grid-cols-2"><Setting label="Accrual"><Select value={leavePolicy.annualAccrual} onChange={(event) => setLeavePolicy({ ...leavePolicy, annualAccrual: event.target.value })} ><option value="annual">Annual allocation</option><option value="monthly">Monthly accrual</option></Select></Setting><Setting label="Carry-forward days"><Input type="number" min="0" max="30" value={leavePolicy.carryForwardDays} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardDays: Number(event.target.value) })} /></Setting><Setting label="Expiry month"><Input type="number" min="1" max="12" value={leavePolicy.carryForwardExpiryMonth} onChange={(event) => setLeavePolicy({ ...leavePolicy, carryForwardExpiryMonth: Number(event.target.value) })} /></Setting><label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium"><input type="checkbox" checked={leavePolicy.prorateNewJoiner} onChange={(event) => setLeavePolicy({ ...leavePolicy, prorateNewJoiner: event.target.checked })} />Prorate new joiners</label><Setting label="Public holidays · YYYY-MM-DD | Name" wide><Textarea value={holidays} onChange={(event) => setHolidays(event.target.value)} className="min-h-32" placeholder="2026-08-31 | National Day" /></Setting></div><HolidaySeeder state={attendance.state} value={holidays} onChange={setHolidays} /></CardContent></Card>
     <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
       <h2 className="font-semibold">Malaysia statutory profile</h2>
@@ -637,6 +642,63 @@ function HRMSSettings({ settings, saving, authEnabled, onSave }: { settings: Sna
 }
 
 function Setting({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) { return <Label className={cn("text-foreground-soft", wide && "sm:col-span-2")}>{label}<div className="mt-2">{children}</div></Label>; }
+
+/** Says how the chosen type behaves, before the dates are picked rather than after. */
+function LeaveTypeHint({ rules, type }: { rules: LeaveTypeRule[]; type?: string }) {
+  const rule = rules.find((item) => item.name.toLowerCase() === String(type || "").toLowerCase());
+  if (!rule) return null;
+  const parts = [
+    rule.consecutiveDays ? "Counted in consecutive calendar days, so rest days and public holidays fall inside it." : "Counted in working days.",
+    rule.deductsBalance ? "Deducted from the balance." : "Does not draw on a leave balance.",
+    rule.paid ? "" : "Unpaid.",
+    rule.note ?? "",
+  ].filter(Boolean);
+  return <p className="sm:col-span-2 -mt-1 text-[11px] leading-5 text-muted-foreground">{parts.join(" ")}</p>;
+}
+
+/**
+ * Entitlement by length of service.
+ *
+ * Kept beside the master list rather than inside it: the list is names, and a
+ * name is not a policy. What matters here is that the number rises on an
+ * anniversary rather than being typed once when somebody joins.
+ */
+function LeaveEntitlementSettings({ rules, onChange }: { rules: LeaveTypeRule[]; onChange: (next: LeaveTypeRule[]) => void }) {
+  const tiered = rules.filter((rule) => rule.tiers?.length);
+  const fixed = rules.filter((rule) => typeof rule.fixedDays === "number");
+
+  function setTier(name: string, index: number, key: "fromYears" | "days", value: number) {
+    onChange(rules.map((rule) => rule.name !== name ? rule : {
+      ...rule,
+      tiers: (rule.tiers ?? []).map((tier, tierIndex) => tierIndex === index ? { ...tier, [key]: Math.max(0, value) } : tier),
+    }));
+  }
+
+  return <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
+    <h2 className="font-semibold">Leave entitlement</h2>
+    <p className="mt-1 text-xs leading-5 text-muted-foreground">Days earned by length of service. These are the Employment Act minimums — raise them to match your contracts, but lowering one does not reduce what the Act already gives somebody.</p>
+
+    <div className="mt-5 space-y-5">{tiered.map((rule) => <div key={rule.name}>
+      <div className="text-xs font-semibold">{rule.name}</div>
+      <div className="mt-2 grid gap-3 sm:grid-cols-3">{(rule.tiers ?? []).map((tier, index) => <div key={index} className="rounded-xl border bg-card p-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">From</span>
+          <Input type="number" min="0" className="h-9 w-16" value={tier.fromYears} onChange={(event) => setTier(rule.name, index, "fromYears", Number(event.target.value))} />
+          <span className="text-[10px] text-muted-foreground">yr</span>
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <Input type="number" min="0" className="h-9 w-20" value={tier.days} onChange={(event) => setTier(rule.name, index, "days", Number(event.target.value))} />
+          <span className="text-[10px] text-muted-foreground">days</span>
+        </div>
+      </div>)}</div>
+      {rule.note && <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{rule.note}</p>}
+    </div>)}</div>
+
+    <div className="mt-5 grid gap-4 border-t pt-4 sm:grid-cols-2">{fixed.map((rule) => <Setting key={rule.name} label={`${rule.name} (consecutive days)`}>
+      <Input type="number" min="0" value={rule.fixedDays ?? 0} onChange={(event) => onChange(rules.map((item) => item.name === rule.name ? { ...item, fixedDays: Math.max(0, Number(event.target.value)) } : item))} />
+    </Setting>)}</div>
+  </CardContent></Card>;
+}
 
 /**
  * Seeds the holidays that can be seeded, and names the ones that cannot.
@@ -757,7 +819,7 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
           </div>}
         </>}
 
-        {editor.resource === "leave" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Leave type"><Select value={record.type || ""} onChange={(e) => update("type", e.target.value)} >{data.settings.leaveTypes.map((item: string) => <option key={item}>{item}</option>)}</Select></Field><Field label="Duration"><Select value={record.halfDay ? "half" : "full"} onChange={(e) => update("halfDay", e.target.value === "half")} ><option value="full">Full day(s)</option><option value="half">Half day</option></Select></Field><Field label="Start date"><DateInput value={record.startDate || ""} onChange={(e) => update("startDate", e.target.value)} /></Field><Field label="End date"><DateInput value={record.endDate || ""} onChange={(e) => update("endDate", e.target.value)} /></Field><Field label="Handover to"><Select value={record.handoverTo || ""} onChange={(e) => update("handoverTo", e.target.value)} ><option value="">Not required</option>{employeeOptions.filter((item: any) => item.id !== record.employeeId).map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field><EvidenceUpload purpose="leave_attachment" employeeId={record.employeeId} value={record.attachmentId} onUploaded={(id: string) => update("attachmentId", id)} /></div>}
+        {editor.resource === "leave" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Leave type"><Select value={record.type || ""} onChange={(e) => update("type", e.target.value)} >{leaveTypeNames(toLeaveRules(data.settings.leaveTypes)).map((item: string) => <option key={item}>{item}</option>)}</Select></Field><LeaveTypeHint rules={toLeaveRules(data.settings.leaveTypes)} type={record.type} /><Field label="Duration"><Select value={record.halfDay ? "half" : "full"} onChange={(e) => update("halfDay", e.target.value === "half")} ><option value="full">Full day(s)</option><option value="half">Half day</option></Select></Field><Field label="Start date"><DateInput value={record.startDate || ""} onChange={(e) => update("startDate", e.target.value)} /></Field><Field label="End date"><DateInput value={record.endDate || ""} onChange={(e) => update("endDate", e.target.value)} /></Field><Field label="Handover to"><Select value={record.handoverTo || ""} onChange={(e) => update("handoverTo", e.target.value)} ><option value="">Not required</option>{employeeOptions.filter((item: any) => item.id !== record.employeeId).map((employee: any) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field><EvidenceUpload purpose="leave_attachment" employeeId={record.employeeId} value={record.attachmentId} onUploaded={(id: string) => update("attachmentId", id)} /></div>}
 
         {editor.resource === "attendance_corrections" && <div className="grid gap-4 sm:grid-cols-2">{employeeSelect}<Field label="Attendance date"><DateInput value={record.date || ""} onChange={(e) => update("date", e.target.value)} /></Field><Field label="Original record"><Select value={record.attendanceId || ""} onChange={(e) => update("attendanceId", e.target.value)} ><option value="">Match by date</option>{data.attendance.filter((item: any) => item.employeeId === record.employeeId).map((item: any) => <option key={item.id} value={item.id}>{formatDate(item.date)} · {item.checkIn || "—"}–{item.checkOut || "—"}</option>)}</Select></Field><Field label="Requested check-in"><Input type="time" value={record.requestedCheckIn || ""} onChange={(e) => update("requestedCheckIn", e.target.value)} /></Field><Field label="Requested check-out"><Input type="time" value={record.requestedCheckOut || ""} onChange={(e) => update("requestedCheckOut", e.target.value)} /></Field><Field label="Reason" wide><Textarea value={record.reason || ""} onChange={(e) => update("reason", e.target.value)} /></Field></div>}
 

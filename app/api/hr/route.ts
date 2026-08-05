@@ -10,7 +10,10 @@ import {
   resolveOnboarding, SELF_EDITABLE_FIELDS,
 } from "@/lib/staff-onboarding";
 import { overtimeForPeriod, toOvertimeRules } from "@/lib/overtime";
-import { DEFAULT_REST_DAYS, workingDates } from "@/lib/work-calendar";
+import { DEFAULT_REST_DAYS, datesBetween, workingDates } from "@/lib/work-calendar";
+import {
+  countsCalendarDays, DEFAULT_LEAVE_RULES, entitlementFor, findLeaveRule, toLeaveRules,
+} from "@/lib/leave-entitlement";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -52,7 +55,7 @@ const defaultOperations = {
   paymentVouchers: [] as any[],
   settings: {
     departments: ["Leadership", "Marketing", "Creative", "Technology", "Finance", "Operations"],
-    leaveTypes: ["Annual Leave", "Medical Leave", "Emergency Leave", "Unpaid Leave", "Replacement Leave"],
+    leaveTypes: DEFAULT_LEAVE_RULES,
     workModes: ["Office", "Remote", "Hybrid", "Client Site"],
     /*
      * `state` drives the rest days and which state holidays are offered.
@@ -453,6 +456,88 @@ function leaveDates(state: Record<string, any>, start: string, end: string) {
   });
 }
 
+/**
+ * How many days a leave request costs.
+ *
+ * Most types are counted in working days, so rest days and public holidays fall
+ * out. Maternity and paternity leave are granted as consecutive days, so a
+ * weekend inside the period is part of it — counting those in working days
+ * would hand out several extra weeks.
+ */
+function leaveDayCount(state: Record<string, any>, type: string, start: string, end: string, halfDay: boolean) {
+  if (halfDay) return 0.5;
+  const rules = toLeaveRules(object(state.settings).leaveTypes);
+  return countsCalendarDays(rules, type)
+    ? datesBetween(start, end).length
+    : leaveDates(state, start, end).length;
+}
+
+/**
+ * Checks a request against the balance, and reports what it leaves behind.
+ *
+ * Entitlement comes from length of service rather than a number typed onto the
+ * employee record when they joined. The record still wins where it is more
+ * generous, since that is a contractual promise, but it can no longer hold
+ * somebody below the statutory floor their service has earned them.
+ *
+ * This was two near-identical copies, on create and on update, which is how the
+ * update path came to be missing nothing yet and would have drifted the moment
+ * either changed.
+ */
+async function checkLeaveBalance(
+  state: Record<string, any>,
+  sql: any,
+  { employeeId, type, days, startDate, excludeId = "" }: { employeeId: string; type: string; days: number; startDate: string; excludeId?: string },
+) {
+  const rules = toLeaveRules(object(state.settings).leaveTypes);
+  const rule = findLeaveRule(rules, type);
+  // Unpaid leave draws on nothing, and maternity and paternity are granted
+  // rather than accrued, so none of them has a balance to be short of.
+  if (!rule?.deductsBalance) return null;
+
+  const employeeRows = await sql`select * from users where id = ${employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
+  if (!employeeRows.length) throw new Error("Employee was not found.");
+  const employee = mapEmployee(employeeRows[0]);
+
+  const policy = { ...defaultOperations.settings.leavePolicy, ...object(object(state.settings).leavePolicy) };
+  const year = Number(clean(startDate).slice(0, 4));
+  const requestMonth = Number(clean(startDate).slice(5, 7));
+  const recorded = rule.kind === "annual" ? employee.annualLeaveBalance
+    : rule.kind === "sick" ? employee.medicalLeaveBalance
+      : undefined;
+
+  const base = entitlementFor({ rules, typeName: type, startDate: employee.startDate, asOf: startDate, recordedDays: recorded });
+  let entitlement = base.days;
+
+  if (rule.kind === "annual" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
+    const joinMonth = Number(employee.startDate.slice(5, 7));
+    entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
+  }
+  if (rule.kind === "annual" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
+  if (rule.kind === "annual" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) {
+    entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
+  }
+
+  const committed = array(state.leaveRequests)
+    .filter((item: any) => item.id !== excludeId
+      && item.employeeId === employeeId
+      && item.type === type
+      && clean(item.startDate).startsWith(String(year))
+      && ["Pending", "Approved"].includes(item.status))
+    .reduce((sum: number, item: any) => sum + number(item.days), 0);
+
+  const available = Math.max(0, entitlement - committed);
+  if (days > available) throw new Error(`${type} balance is insufficient. Available: ${available} day(s).`);
+
+  return {
+    entitlementAtRequest: entitlement,
+    balanceAfterRequest: Math.max(0, available - days),
+    // Kept so a disputed balance can be explained without re-deriving it.
+    entitlementSource: base.source,
+    yearsOfServiceAtRequest: base.years,
+  };
+}
+
 function requireRole(session: HRSession, roles: HRSession["role"][]) {
   if (!roles.includes(session.role)) throw new HRAuthError("You do not have permission for this HRMS action.", 403);
 }
@@ -821,7 +906,7 @@ export async function POST(request: NextRequest) {
         state.settings = {
           ...object(state.settings),
           departments: uniqueList(data.departments, defaultOperations.settings.departments),
-          leaveTypes: uniqueList(data.leaveTypes, defaultOperations.settings.leaveTypes),
+          leaveTypes: toLeaveRules(array(data.leaveTypes).length ? data.leaveTypes : defaultOperations.settings.leaveTypes),
           workModes: uniqueList(data.workModes, defaultOperations.settings.workModes),
           attendance: {
             timezone: clean(attendance.timezone) || "Asia/Kuala_Lumpur",
@@ -883,31 +968,13 @@ export async function POST(request: NextRequest) {
         const employeeId = session.role === "employee" ? session.userId : clean(data.employeeId);
         let record: any = { ...data, employeeId, id: recordId, createdBy: session.userId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
         if (resource === "leave") {
-          const dates = leaveDates(state, clean(data.startDate), clean(data.endDate));
-          record = { ...record, type: clean(data.type) || "Annual Leave", startDate: clean(data.startDate), endDate: clean(data.endDate), days: data.halfDay ? 0.5 : dates.length, halfDay: bool(data.halfDay), status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
+          const type = clean(data.type) || "Annual Leave";
+          const days = leaveDayCount(state, type, clean(data.startDate), clean(data.endDate), bool(data.halfDay));
+          record = { ...record, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), status: "Pending", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), approverNote: "" };
           if (!employeeId || !record.startDate || !record.endDate || record.days <= 0) throw new Error("Employee and valid leave dates are required.");
           if (record.endDate < record.startDate) throw new Error("Leave end date cannot be before the start date.");
           if (record.halfDay && record.startDate !== record.endDate) throw new Error("Half-day leave must use the same start and end date.");
-          if (["Annual Leave", "Medical Leave"].includes(record.type)) {
-            const employeeRows = await sql`select * from users where id = ${employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
-            if (!employeeRows.length) throw new Error("Employee was not found.");
-            const employee = mapEmployee(employeeRows[0]);
-            const policy = { ...defaultOperations.settings.leavePolicy, ...object(state.settings?.leavePolicy) };
-            const year = Number(record.startDate.slice(0, 4));
-            const requestMonth = Number(record.startDate.slice(5, 7));
-            let entitlement = record.type === "Annual Leave" ? employee.annualLeaveBalance : employee.medicalLeaveBalance;
-            if (record.type === "Annual Leave" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
-              const joinMonth = Number(employee.startDate.slice(5, 7));
-              entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
-            }
-            if (record.type === "Annual Leave" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
-            if (record.type === "Annual Leave" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
-            const committed = array(state.leaveRequests).filter((item: any) => item.employeeId === employeeId && item.type === record.type && clean(item.startDate).startsWith(String(year)) && ["Pending", "Approved"].includes(item.status)).reduce((sum: number, item: any) => sum + number(item.days), 0);
-            const available = Math.max(0, entitlement - committed);
-            if (record.days > available) throw new Error(`${record.type} balance is insufficient. Available: ${available} day(s).`);
-            record.entitlementAtRequest = entitlement;
-            record.balanceAfterRequest = Math.max(0, available - record.days);
-          }
+          Object.assign(record, await checkLeaveBalance(state, sql, { employeeId, type, days: record.days, startDate: record.startDate }) ?? {});
           defer.notify("New leave request", `${record.type} request requires review.`, "hr_leave", recordId);
         } else if (resource === "claims") {
           record = { ...record, claimDate: clean(data.claimDate), category: clean(data.category) || "General", amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), status: "Pending", financeStatus: "Unpaid", approverNote: "" };
@@ -992,11 +1059,11 @@ export async function POST(request: NextRequest) {
         let updated: any;
         if (resource === "payroll") updated = await withComputedPayroll({ ...payrollRecord(data, existing), id, status: existing.status, paidAt: existing.paidAt, updatedAt: now }, state, sql);
         else if (resource === "leave") {
-          const dates = leaveDates(state, clean(data.startDate), clean(data.endDate));
-          const days = bool(data.halfDay) ? 0.5 : dates.length;
+          const type = clean(data.type) || existing.type;
+          const days = leaveDayCount(state, type, clean(data.startDate), clean(data.endDate), bool(data.halfDay));
           if (!clean(data.startDate) || !clean(data.endDate) || clean(data.endDate) < clean(data.startDate) || days <= 0) throw new Error("Valid leave dates are required.");
           if (bool(data.halfDay) && clean(data.startDate) !== clean(data.endDate)) throw new Error("Half-day leave must use the same start and end date.");
-          updated = { ...existing, type: clean(data.type) || existing.type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
+          updated = { ...existing, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
         } else if (resource === "claims") updated = { ...existing, claimDate: clean(data.claimDate), category: clean(data.category) || existing.category, amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), id, updatedAt: now };
         else if (resource === "attendance_corrections") updated = { ...existing, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), id, updatedAt: now };
         else if (resource === "lifecycle") updated = { ...existing, type: clean(data.type) || existing.type, title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || existing.status, notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label), id, updatedAt: now };
@@ -1023,25 +1090,8 @@ export async function POST(request: NextRequest) {
           if (!updated.payee || updated.amount <= 0 || !updated.paymentDate) throw new Error("Payee, payment date and an amount greater than zero are required.");
         }
         else updated = { ...existing, ...data, id, employeeId: existing.employeeId, updatedAt: now };
-        if (resource === "leave" && ["Annual Leave", "Medical Leave"].includes(updated.type)) {
-          const employeeRows = await sql`select * from users where id = ${existing.employeeId} and organization_id = ${ORGANIZATION_ID} limit 1`;
-          if (!employeeRows.length) throw new Error("Employee was not found.");
-          const employee = mapEmployee(employeeRows[0]);
-          const policy = { ...defaultOperations.settings.leavePolicy, ...object(state.settings?.leavePolicy) };
-          const year = Number(updated.startDate.slice(0, 4));
-          const requestMonth = Number(updated.startDate.slice(5, 7));
-          let entitlement = updated.type === "Annual Leave" ? employee.annualLeaveBalance : employee.medicalLeaveBalance;
-          if (updated.type === "Annual Leave" && policy.prorateNewJoiner && employee.startDate?.startsWith(String(year))) {
-            const joinMonth = Number(employee.startDate.slice(5, 7));
-            entitlement = Math.floor(entitlement * Math.max(0, 13 - joinMonth) / 12 * 2) / 2;
-          }
-          if (updated.type === "Annual Leave" && policy.annualAccrual === "monthly") entitlement = Math.floor(entitlement * requestMonth / 12 * 2) / 2;
-          if (updated.type === "Annual Leave" && requestMonth <= number(policy.carryForwardExpiryMonth || 3)) entitlement += Math.min(employee.carryForwardLeaveBalance, number(policy.carryForwardDays));
-          const committed = array(state.leaveRequests).filter((item: any) => item.id !== id && item.employeeId === existing.employeeId && item.type === updated.type && clean(item.startDate).startsWith(String(year)) && ["Pending", "Approved"].includes(item.status)).reduce((sum: number, item: any) => sum + number(item.days), 0);
-          const available = Math.max(0, entitlement - committed);
-          if (updated.days > available) throw new Error(`${updated.type} balance is insufficient. Available: ${available} day(s).`);
-          updated.entitlementAtRequest = entitlement;
-          updated.balanceAfterRequest = Math.max(0, available - updated.days);
+        if (resource === "leave") {
+          Object.assign(updated, await checkLeaveBalance(state, sql, { employeeId: existing.employeeId, type: updated.type, days: updated.days, startDate: updated.startDate, excludeId: id }) ?? {});
         }
         state[key] = list.map((item: any) => item.id === id ? updated : item);
         defer.audit(`hr.${resource}.updated`, `hr_${resource}`, id, updated, session.userId);
