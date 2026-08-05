@@ -8,18 +8,25 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const ORGANIZATION_ID = "org-kretivco";
-const MAX_DATA_URL_CHARACTERS = 2_850_000;
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+/*
+ * The character ceiling is derived rather than typed, so the two limits cannot
+ * drift apart. base64 costs a third more than the bytes it carries, plus a
+ * little for the `data:...;base64,` prefix.
+ */
+const MAX_DATA_URL_CHARACTERS = Math.ceil(MAX_UPLOAD_BYTES * 4 / 3) + 200;
 const ALLOWED_PURPOSES = new Set(["claim_receipt", "leave_attachment", "hr_document"]);
 const clean = (value: unknown) => String(value ?? "").trim();
 const object = (value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 
 function parseFile(value: unknown) {
   const dataUrl = clean(value);
-  if (!dataUrl || dataUrl.length > MAX_DATA_URL_CHARACTERS) throw new Error("File is missing or exceeds the 2 MB limit.");
+  if (!dataUrl) throw new Error("File is missing.");
+  if (dataUrl.length > MAX_DATA_URL_CHARACTERS) throw new Error("File exceeds the 5 MB limit.");
   const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/);
   if (!match) throw new Error("File must be a PDF, JPG, PNG or WebP.");
   const size = Math.floor(match[2].length * 0.75);
-  if (size > 2 * 1024 * 1024) throw new Error("File exceeds the 2 MB limit.");
+  if (size > MAX_UPLOAD_BYTES) throw new Error("File exceeds the 5 MB limit.");
   return { dataUrl, mimeType: match[1], size };
 }
 

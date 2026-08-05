@@ -39,7 +39,9 @@ import {
 import { DEFAULT_OVERTIME_RULES, toOvertimeRules } from "@/lib/overtime";
 import { HRMSTimesheet } from "@/components/hrms-timesheet";
 import { HRMyLeave } from "@/components/hrms-my-leave";
+import { prepareUpload } from "@/lib/compress-image";
 import { scopeSnapshotForView } from "@/lib/hr-view-scope";
+import { checkUpload, describeSize } from "@/lib/upload-limits";
 import { DEFAULT_LEAVE_RULES, leaveTypeNames, toLeaveRules, type LeaveTypeRule } from "@/lib/leave-entitlement";
 import { SEEDED_PROFILE, toStatutoryProfile, type StatutoryProfile } from "@/lib/payroll-statutory";
 import { DEFAULT_REST_DAYS, fixedHolidays, mergeHolidays, missingGazettedHolidays, restDaysForState } from "@/lib/work-calendar";
@@ -1028,13 +1030,23 @@ function EvidenceUpload({ purpose, employeeId, value, onUploaded }: { purpose: s
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [read, setRead] = useState("");
+  const [note, setNote] = useState("");
   async function upload(file?: File) {
     if (!file) return;
-    setBusy(true); setError(""); setRead("");
+    setBusy(true); setError(""); setRead(""); setNote("");
+
+    // Checked before anything is read, so an unusable file is refused
+    // instantly rather than after encoding several megabytes of it.
+    const check = checkUpload({ size: file.size, type: file.type });
+    if (!check.ok) { setError(check.reason); setBusy(false); return; }
+
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
-      const result = await requestJson("/api/hr/files", { method: "POST", body: JSON.stringify({ purpose, employeeId, filename: file.name, dataUrl }) });
+      // Oversized photographs are redrawn to fit rather than rejected: a phone
+      // picture of a receipt is the commonest thing anyone attaches here.
+      const prepared = await prepareUpload(file);
+      const result = await requestJson("/api/hr/files", { method: "POST", body: JSON.stringify({ purpose, employeeId, filename: file.name, dataUrl: prepared.dataUrl }) });
       onUploaded(result.id, result.suggested);
+      if (prepared.compressed) setNote(`Resized from ${describeSize(prepared.originalBytes)} to ${describeSize(prepared.bytes)} so it would send.`);
       // Said plainly, because a form that silently rewrites what someone typed
       // is worse than one that never helped. They can still edit every field.
       if (result.suggested?.total) setRead("Read from the receipt — check the amount and date before saving.");
@@ -1042,7 +1054,7 @@ function EvidenceUpload({ purpose, employeeId, value, onUploaded }: { purpose: s
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Upload failed."); }
     finally { setBusy(false); }
   }
-  return <div className="sm:col-span-2 rounded-xl border border-dashed bg-card p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="flex-1"><div className="text-xs font-semibold">Supporting file</div><div className="mt-1 text-[10px] text-muted-foreground">PDF, JPG, PNG or WebP · maximum 2 MB</div>{value && <a href={`/api/hr/files/${value}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-accent">View uploaded file</a>}{read && <div className="mt-2 text-[11px] text-muted-foreground">{read}</div>}{error && <div className="mt-2 text-xs text-red-600">{error}</div>}</div><label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border bg-card px-4 text-xs font-semibold hover:bg-background">{busy ? (purpose === "claim_receipt" ? "Reading…" : "Uploading…") : value ? "Replace file" : "Choose file"}<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" disabled={busy} onChange={(event) => upload(event.target.files?.[0])} /></label></div></div>;
+  return <div className="sm:col-span-2 rounded-xl border border-dashed bg-card p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="flex-1"><div className="text-xs font-semibold">Supporting file</div><div className="mt-1 text-[10px] text-muted-foreground">PDF, JPG, PNG or WebP · maximum 5 MB · large photos are resized automatically</div>{value && <a href={`/api/hr/files/${value}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-accent">View uploaded file</a>}{note && <div className="mt-2 text-[11px] text-muted-foreground">{note}</div>}{read && <div className="mt-2 text-[11px] text-muted-foreground">{read}</div>}{error && <div className="mt-2 text-xs text-red-600">{error}</div>}</div><label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border bg-card px-4 text-xs font-semibold hover:bg-background">{busy ? (purpose === "claim_receipt" ? "Reading…" : "Uploading…") : value ? "Replace file" : "Choose file"}<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" disabled={busy} onChange={(event) => upload(event.target.files?.[0])} /></label></div></div>;
 }
 
 function resourceLabel(resource: Resource) { return ({ employees: "team member", leave: "leave request", attendance: "attendance record", attendance_corrections: "attendance correction", goals: "goal", learning: "learning record", documents: "HR document", claims: "expense claim", payroll: "payroll record", lifecycle: "lifecycle case", announcements: "announcement", events: "team event" } as Record<Resource, string>)[resource]; }
