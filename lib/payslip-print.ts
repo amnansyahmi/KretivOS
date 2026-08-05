@@ -70,6 +70,23 @@ const num = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+/**
+ * A payroll line becomes a payslip when the period is closed.
+ *
+ * Until then it is a working figure: the statutory amounts are still being
+ * checked, overtime may not have been approved yet, and reopening it is a
+ * normal part of the month. Showing that to the person it is about invites the
+ * one conversation nobody wants — an employee holding a number that changed
+ * before it was paid, and no way to tell which one was real.
+ *
+ * HR and Finance still see drafts, because working on them is the job.
+ */
+export const ISSUED_PAYSLIP_STATUSES = ["Closed", "Paid"];
+
+export function isIssuedPayslip(record: { status?: string }) {
+  return ISSUED_PAYSLIP_STATUSES.includes(String(record?.status ?? "").trim());
+}
+
 const PAYSLIP_COLUMNS: PrintColumn[] = [
   { key: "no", label: "No", align: "left" },
   { key: "description", label: "Description", align: "left" },
