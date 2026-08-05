@@ -17,9 +17,7 @@ export function HRSelfService({ session, employee, leave, attendance, claims, pa
     <Card className="overflow-hidden border-0 bg-foreground text-white"><CardContent className="p-5 sm:p-7"><div className="flex flex-col gap-5 sm:flex-row sm:items-center"><div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-card text-lg font-semibold text-foreground">{initials(employee?.name || session.name)}</div><div className="min-w-0 flex-1"><div className="text-[10px] font-semibold uppercase tracking-[.18em] text-accent-muted">Employee self-service</div><h2 className="mt-2 text-2xl font-semibold">{employee?.name || session.name}</h2><p className="mt-1 text-sm text-white/50">{employee?.title || "Team member"} · {employee?.department || "Kretivco"}</p></div><Button className="bg-card text-foreground hover:bg-white/90" onClick={() => employee && onEdit(employee)}><Pencil className="h-4 w-4" />Update my profile</Button></div><div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4"><DarkMini label="Annual leave" value={`${employee?.annualLeaveBalance ?? 0} days`} /><DarkMini label="Medical leave" value={`${employee?.medicalLeaveBalance ?? 0} days`} /><DarkMini label="Latest clock-in" value={latestAttendance?.checkIn || "—"} /><DarkMini label="Latest payslip" value={latestPayroll?.period || "Not issued"} /></div></CardContent></Card>
 
     {employee && <MyOnboarding employee={employee} documents={documents || []} onEdit={onEdit} onCompleteStep={onCompleteStep} />}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Quick icon={CalendarCheck} title="Apply leave" note={`${leave.filter((item: any) => item.status === "Pending").length} pending`} onClick={() => onCreate("leave")} /><Quick icon={Clock3} title="Attendance" note={latestAttendance ? `${date(latestAttendance.date)} · ${latestAttendance.status}` : "No record yet"} onClick={() => onNavigate("attendance")} /><Quick icon={HandCoins} title="Submit claim" note={`${claims.filter((item: any) => item.status === "Pending").length} awaiting review`} onClick={() => onCreate("claims")} /><Quick icon={ReceiptText} title="My payslips" note={latestPayroll ? `${latestPayroll.status} · ${money(latestPayroll.netPay)}` : "No payroll record"} onClick={() => onNavigate("payslips")} /></div>
-    {employee && <MyProfile employee={employee} onEdit={onEdit} />}
-
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Quick icon={UserCheck} title="My details" note={employee?.bankAccountNumber ? "Profile and payroll details" : "Bank account not recorded"} onClick={() => onNavigate("profile")} /><Quick icon={CalendarCheck} title="Apply leave" note={`${leave.filter((item: any) => item.status === "Pending").length} pending`} onClick={() => onCreate("leave")} /><Quick icon={Clock3} title="Attendance" note={latestAttendance ? `${date(latestAttendance.date)} · ${latestAttendance.status}` : "No record yet"} onClick={() => onNavigate("attendance")} /><Quick icon={HandCoins} title="Submit claim" note={`${claims.filter((item: any) => item.status === "Pending").length} awaiting review`} onClick={() => onCreate("claims")} /><Quick icon={ReceiptText} title="My payslips" note={latestPayroll ? `${latestPayroll.status} · ${money(latestPayroll.netPay)}` : "No payroll record"} onClick={() => onNavigate("payslips")} /></div>
     <div className="grid gap-5 xl:grid-cols-2"><Summary title="Recent leave" empty="No leave request yet." rows={leave.slice(0, 4).map((item: any) => ({ title: item.type, meta: `${date(item.startDate)} – ${date(item.endDate)}`, value: item.status }))} /><Summary title="Recent claims" empty="No claims submitted yet." rows={claims.slice(0, 4).map((item: any) => ({ title: item.category, meta: item.description, value: `${money(item.amount)} · ${item.status}` }))} /></div>
   </div>;
 }
@@ -35,8 +33,8 @@ export function HRSelfService({ session, employee, leave, attendance, claims, pa
  * What is missing is called out rather than left blank, because the blanks here
  * are the ones that hold up a payslip.
  */
-function MyProfile({ employee, onEdit }: any) {
-  const groups = [
+export function HRMyDetails({ employee, role, onEdit }: any) {
+  const groups = !employee ? [] : [
     {
       title: "About me", editable: true, rows: [
         ["Full name", employee.name], ["Job title", employee.title], ["Department", employee.department],
@@ -64,14 +62,24 @@ function MyProfile({ employee, onEdit }: any) {
     },
   ];
 
-  return <Card className="border-black/8 bg-white/90"><CardContent className="p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 className="font-semibold">My profile</h2>
-        <p className="mt-1 text-xs text-muted-foreground">What the company has on file for you. Payroll works from these, so keep the statutory and bank details current.</p>
+  if (!employee) return <div className="rounded-2xl border border-dashed bg-white/50 p-10 text-center text-sm text-muted-foreground">No employee record is linked to this session yet.</div>;
+
+  const outstanding = groups
+    .filter((group) => group.editable)
+    .flatMap((group) => group.rows.filter(([, value]) => !value).map(([label]) => label));
+
+  return <Card className="border-black/8 bg-white/90"><CardContent className="p-4 sm:p-5">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <h2 className="font-semibold">My details</h2>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">What the company has on file for you. Payroll works from these, so keep the statutory and bank details current.</p>
       </div>
-      <Button variant="outline" size="sm" onClick={() => onEdit(employee)}><Pencil className="h-3.5 w-3.5" />Edit my details</Button>
+      <Button variant="outline" size="sm" className="shrink-0" onClick={() => onEdit(employee)}><Pencil className="h-3.5 w-3.5" />Edit my details</Button>
     </div>
+
+    {outstanding.length > 0 && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-[11px] leading-5 text-amber-900">
+      {outstanding.length} field{outstanding.length === 1 ? " is" : "s are"} still missing: {outstanding.slice(0, 4).join(", ")}{outstanding.length > 4 ? `, and ${outstanding.length - 4} more` : ""}. Payroll needs these before a payslip can be issued.
+    </p>}
 
     <div className="mt-5 grid gap-5 lg:grid-cols-3">{groups.map((group) => <div key={group.title}>
       <div className="flex items-center gap-2">

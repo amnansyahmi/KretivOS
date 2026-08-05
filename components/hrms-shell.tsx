@@ -14,6 +14,7 @@ import {
   FileText,
   GraduationCap,
   HandCoins,
+  IdCard,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -33,7 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export type HRMSRole = "hr_admin" | "manager" | "employee" | "finance";
-export type HRMSTab = "self" | "overview" | "team" | "people" | "attendance" | "timesheet" | "leave" | "onboarding" | "lifecycle" | "goals" | "learning" | "claims" | "payslips" | "documents" | "settings";
+export type HRMSTab = "self" | "profile" | "overview" | "team" | "people" | "attendance" | "timesheet" | "leave" | "onboarding" | "lifecycle" | "goals" | "learning" | "claims" | "payslips" | "documents" | "settings";
 export type HRMSSession = {
   userId: string;
   name: string;
@@ -55,7 +56,8 @@ export type HRMSNavigationItem = {
 };
 
 export const HRMS_NAV_ITEMS: HRMSNavigationItem[] = [
-  { id: "self", label: "My HR", description: "Profile and personal requests", group: "Workspace", icon: UserCheck, href: "/hr?section=self" },
+  { id: "self", label: "My HR", description: "Everything waiting on you", group: "Workspace", icon: UserCheck, href: "/hr?section=self" },
+  { id: "profile", label: "My Details", description: "View and edit your record", group: "Workspace", icon: IdCard, href: "/hr?section=profile" },
   { id: "overview", label: "Dashboard", description: "People operations overview", group: "Workspace", icon: LayoutDashboard, href: "/hr?section=overview" },
   { id: "team", label: "Team Hub", description: "News, calendar and organisation", group: "Workspace", icon: MessagesSquare, href: "/hr?section=team" },
   { id: "people", label: "People", description: "Directory and employee profiles", group: "Workforce", icon: Users, href: "/hr?section=people" },
@@ -74,9 +76,9 @@ export const HRMS_NAV_ITEMS: HRMSNavigationItem[] = [
 
 const PERMITTED_TABS: Record<HRMSRole, HRMSTab[]> = {
   hr_admin: HRMS_NAV_ITEMS.map((item) => item.id),
-  manager: ["self", "overview", "team", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
-  finance: ["self", "overview", "team", "people", "timesheet", "claims", "payslips", "documents"],
-  employee: ["self", "team", "attendance", "timesheet", "leave", "claims", "payslips", "documents"],
+  manager: ["self", "profile", "overview", "team", "people", "attendance", "leave", "onboarding", "lifecycle", "goals", "learning", "claims", "payslips", "documents"],
+  finance: ["self", "profile", "overview", "team", "people", "timesheet", "claims", "payslips", "documents"],
+  employee: ["self", "profile", "team", "attendance", "timesheet", "leave", "claims", "payslips", "documents"],
 };
 
 export const HR_VIEW_AS_KEY = "kretivos-hr-view-as";

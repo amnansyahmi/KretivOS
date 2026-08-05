@@ -14,8 +14,10 @@ import { classifyDay, hourlyRate, multiplierFor, overtimeStatusOf, toOvertimeRul
 import { DEFAULT_REST_DAYS } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
-type View = "today" | "timesheet" | "shifts" | "overtime" | "lateness";
-const views: { id: View; label: string }[] = [{ id: "today", label: "Today" }, { id: "timesheet", label: "Timesheet" }, { id: "shifts", label: "Shift planner" }, { id: "overtime", label: "Overtime" }, { id: "lateness", label: "Lateness" }];
+/* "Timesheet" was here too, showing hours worked beside hours logged; it moved
+   to the Timesheet menu so there is one place to look. */
+type View = "today" | "shifts" | "overtime" | "lateness";
+const views: { id: View; label: string }[] = [{ id: "today", label: "Today" }, { id: "shifts", label: "Shift planner" }, { id: "overtime", label: "Overtime" }, { id: "lateness", label: "Lateness" }];
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const localDate = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 const parseDate = (value: string) => new Date(`${value}T00:00:00+08:00`);
@@ -33,7 +35,7 @@ export function HRMSAttendanceWorkbench({ employees, attendance, leaveRequests, 
   return <div className="space-y-4"><div className="overflow-x-auto rounded-2xl border bg-card p-1.5 shadow-sm"><div className="flex min-w-max gap-1">{views.map((item) => <button key={item.id} onClick={() => setView(item.id)} className={cn("rounded-xl px-4 py-2.5 text-xs font-semibold sm:text-sm", view === item.id ? "bg-foreground text-white" : "text-muted-foreground hover:bg-background")}>{item.label}</button>)}</div></div>
     {view === "today" && <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Stat label="Team members" value={team.length} icon={Users} /><Stat label="Clocked in" value={present} icon={Clock3} /><Stat label="Not clocked" value={Math.max(0, team.length - present - leave)} icon={Clock3} /><Stat label="On leave" value={leave} icon={CalendarDays} /></div>{todayContent}{correctionsContent}</div>}
     {view === "overtime" && <OvertimeReview employees={employees} attendance={attendance} payroll={payroll} settings={settings} publicHolidays={publicHolidays} canReview={["hr_admin", "manager"].includes(role)} onReview={onReviewOvertime} />}
-    {(["timesheet", "lateness"] as View[]).includes(view) && <AttendanceReport mode={view} employees={employees} attendance={attendance} query={query} role={role} />}
+    {view === "lateness" && <AttendanceReport mode="lateness" employees={employees} attendance={attendance} query={query} role={role} />}
     {view === "shifts" && <ShiftPlanner employees={employees} shifts={shifts} settings={settings} canManage={["hr_admin", "manager"].includes(role)} onCreate={onCreateShift} onUpdate={onUpdateShift} onDelete={onDeleteShift} />}
   </div>;
 }
