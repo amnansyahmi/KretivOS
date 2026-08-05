@@ -5,6 +5,7 @@ import { createPinCredential, HRAuthError, publicSession, requireHRSession, role
 import { mutateWorkspaceState, WorkspaceConflictError } from "@/lib/workspace-state";
 import { postPayrollAccrual, postPayrollPayment, payrollAlreadyPosted, toPayrollRecord } from "@/lib/payroll-posting";
 import { ageAtPeriod, computePayroll, profileForPeriod, SEEDED_PROFILE, toStatutoryProfile } from "@/lib/payroll-statutory";
+import { isIssuedPayslip } from "@/lib/payslip-print";
 import {
   canCompleteStep, defaultStaffOnboarding, normaliseOnboarding, onboardingSummary,
   resolveOnboarding, SELF_EDITABLE_FIELDS,
@@ -465,7 +466,14 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
     learning: own(array(value.learning)),
     documents: array(value.documents).filter((item: any) => !item.employeeId || item.employeeId === session.userId),
     claims: own(array(value.claims)),
-    payroll: own(array(value.payroll)),
+    /*
+     * Issued payslips only. An employee could previously see their own draft
+     * payroll — the workings, before the statutory figures had been verified
+     * and before overtime had been approved — which is a number that can still
+     * change and, worse, one they had no way to tell apart from the final
+     * figure. Editing was already refused; this stops it being shown at all.
+     */
+    payroll: own(array(value.payroll)).filter(isIssuedPayslip),
     paymentVouchers: [],
     shifts: own(array(value.shifts)),
     lifecycle: own(array(value.lifecycle)),

@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
-import { payslipPrintModel } from "@/lib/payslip-print";
+import { isIssuedPayslip, payslipPrintModel } from "@/lib/payslip-print";
 import { toCompany } from "@/lib/print-templates";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
@@ -39,9 +39,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // Payroll is HR Admin and Finance territory; everybody else gets their own
     // and nothing else. Checked here rather than trusted from the caller,
     // because a payslip URL is exactly the thing somebody tries editing.
+    const manages = ["hr_admin", "finance"].includes(session.role);
     const own = clean(record.employeeId) === session.userId;
-    if (!own && !["hr_admin", "finance"].includes(session.role)) {
+    if (!own && !manages) {
       throw new HRAuthError("You can only open your own payslip.", 403);
+    }
+    /*
+     * A draft is the workings, not a payslip, so it is not the employee's to
+     * open even when it is their own — refused here as well as filtered out of
+     * the snapshot, because a payslip id is exactly the thing somebody tries in
+     * the address bar. HR and Finance still preview drafts; that is the job.
+     */
+    if (!manages && !isIssuedPayslip(record)) {
+      throw new HRAuthError("This payslip has not been issued yet.", 403);
     }
 
     const sql = getDatabase();
@@ -71,14 +81,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     });
 
     /*
-     * A draft is a working figure that can still change. Printing one produces
-     * a document an employee will keep and compare against what they are
-     * actually paid, so it is warned about rather than blocked — there are
-     * legitimate reasons to preview one before closing the period.
+     * Only HR and Finance get this far on a draft. They are warned rather than
+     * blocked, because previewing a period before closing it is a legitimate
+     * thing to want — the warning is what stops the preview being handed over
+     * as though it were the real thing.
      */
-    const warning = ["Closed", "Paid"].includes(clean(record.status))
+    const warning = isIssuedPayslip(record)
       ? null
-      : "This payroll period is still a draft, so these figures can change before it is closed.";
+      : "This payroll period is still a draft, so these figures can change before it is closed. It is not visible to the employee yet.";
 
     return NextResponse.json({ model, warning }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

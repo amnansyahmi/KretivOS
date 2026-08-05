@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { maskAccount, payslipPrintModel, periodLabel } from "./payslip-print.ts";
+import { isIssuedPayslip, maskAccount, payslipPrintModel, periodLabel } from "./payslip-print.ts";
 import type { PrintCompany } from "./print-templates.ts";
 
 const company: PrintCompany = {
@@ -47,6 +47,22 @@ const record = {
 };
 
 const model = payslipPrintModel({ record, employee, company, issuedBy: "Amnan" });
+
+test("a payslip exists once the period is closed, and not before", () => {
+  assert.equal(isIssuedPayslip({ status: "Closed" }), true);
+  assert.equal(isIssuedPayslip({ status: "Paid" }), true);
+  assert.equal(isIssuedPayslip({ status: "Draft" }), false, "a draft is the workings, not a payslip");
+  assert.equal(isIssuedPayslip({}), false, "and neither is a record with no status at all");
+  assert.equal(isIssuedPayslip({ status: "  Paid  " }), true);
+});
+
+test("reopening a period withdraws the payslip", () => {
+  // Reopening sets the status back to Draft, and the figures are in play again
+  // until it closes — so it stops being something the employee can hold.
+  const record = { status: "Paid" };
+  assert.equal(isIssuedPayslip(record), true);
+  assert.equal(isIssuedPayslip({ ...record, status: "Draft" }), false);
+});
 
 test("a period reads as a month, not as a code", () => {
   assert.equal(periodLabel("2026-08"), "August 2026");
