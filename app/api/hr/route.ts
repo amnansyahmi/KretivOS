@@ -73,6 +73,31 @@ const defaultOperations = {
   },
 };
 
+/**
+ * The fields payroll computes from, kept in one place.
+ *
+ * Create and the admin branch of update both rebuild an employee's metadata
+ * from scratch, so a field added to one and forgotten in the other silently
+ * clears itself on the next edit — which for a date of birth means the
+ * contributions quietly stop applying the age rules.
+ */
+function payrollProfileMetadata(data: Record<string, any>) {
+  return {
+    dateOfBirth: clean(data.dateOfBirth),
+    nationality: clean(data.nationality) || "Malaysian",
+    taxResident: data.taxResident !== false,
+    maritalStatus: clean(data.maritalStatus) || "Single",
+    spouseWorking: bool(data.spouseWorking),
+    childRelief: Math.max(0, Math.floor(number(data.childRelief))),
+    epfApplicable: data.epfApplicable !== false,
+    socsoApplicable: data.socsoApplicable !== false,
+    eisApplicable: data.eisApplicable !== false,
+    employeeNumber: clean(data.employeeNumber),
+    bankName: clean(data.bankName),
+    bankAccountNumber: clean(data.bankAccountNumber),
+  };
+}
+
 function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "") || "team.member";
 }
@@ -115,8 +140,56 @@ function mapEmployee(row: any) {
     incomeTaxNumber: clean(metadata.incomeTaxNumber),
     epfNumber: clean(metadata.epfNumber),
     socsoNumber: clean(metadata.socsoNumber),
+    /*
+     * What the statutory engine needs to work the deductions out rather than
+     * have them typed in. Date of birth is not decoration: EPF, SOCSO and EIS
+     * all change at 60, so without it the contributions are computed as though
+     * nobody ever ages. Marital status, a working spouse and the child count
+     * are the PCB reliefs; citizenship and residency change the rules
+     * altogether rather than the rate.
+     */
+    dateOfBirth: clean(metadata.dateOfBirth),
+    nationality: clean(metadata.nationality) || "Malaysian",
+    taxResident: metadata.taxResident !== false,
+    maritalStatus: clean(metadata.maritalStatus) || "Single",
+    spouseWorking: bool(metadata.spouseWorking),
+    childRelief: number(metadata.childRelief),
+    epfApplicable: metadata.epfApplicable !== false,
+    socsoApplicable: metadata.socsoApplicable !== false,
+    eisApplicable: metadata.eisApplicable !== false,
+    /*
+     * Payment details. Without an account number payroll cannot leave the
+     * building except by somebody retyping it into the bank, which is exactly
+     * the manual step the rest of this is removing.
+     */
+    employeeNumber: clean(metadata.employeeNumber),
+    bankName: clean(metadata.bankName),
+    bankAccountNumber: clean(metadata.bankAccountNumber),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Blanks the fields that exist only so payroll can be computed and paid.
+ *
+ * A manager needs the directory to run probation reviews and approve leave;
+ * none of that needs a colleague's NRIC, date of birth, marital status or bank
+ * account. Those were readable before only because nothing sensitive enough
+ * to matter was in the payload — adding an account number changes that, so the
+ * cut is made now rather than after it is somebody's problem.
+ *
+ * Only the shape leaves; the values stay on the server. Manager edits write
+ * back a fixed set of fields, so a redacted record cannot save its own blanks
+ * over the real ones.
+ */
+function withoutPersonalFinanceData(employee: ReturnType<typeof mapEmployee>) {
+  return {
+    ...employee,
+    identificationNumber: "", incomeTaxNumber: "", epfNumber: "", socsoNumber: "",
+    dateOfBirth: "", maritalStatus: "", spouseWorking: false, childRelief: 0,
+    bankName: "", bankAccountNumber: "",
+    redacted: true,
   };
 }
 
@@ -293,6 +366,7 @@ function scopedSnapshot(value: Record<string, any>, session: HRSession) {
   };
   if (session.role === "manager") return {
     ...value,
+    employees: array(value.employees).map((item: any) => item.id === session.userId ? item : withoutPersonalFinanceData(item)),
     payroll: own(array(value.payroll)),
     paymentVouchers: [],
     documents: array(value.documents).filter((item: any) => !item.employeeId || item.employeeId === session.userId),
@@ -453,6 +527,7 @@ export async function POST(request: NextRequest) {
           location: clean(data.location), startDate: clean(data.startDate), phone: clean(data.phone), emergencyContact: clean(data.emergencyContact),
           identificationNumber: clean(data.identificationNumber), incomeTaxNumber: clean(data.incomeTaxNumber),
           epfNumber: clean(data.epfNumber), socsoNumber: clean(data.socsoNumber), endDate: clean(data.endDate),
+          ...payrollProfileMetadata(data),
           annualLeaveBalance: number(data.annualLeaveBalance || 14), medicalLeaveBalance: number(data.medicalLeaveBalance || 14),
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),
@@ -487,6 +562,7 @@ export async function POST(request: NextRequest) {
           location: clean(data.location), startDate: clean(data.startDate), phone: clean(data.phone), emergencyContact: clean(data.emergencyContact),
           identificationNumber: clean(data.identificationNumber), incomeTaxNumber: clean(data.incomeTaxNumber),
           epfNumber: clean(data.epfNumber), socsoNumber: clean(data.socsoNumber), endDate: clean(data.endDate),
+          ...payrollProfileMetadata(data),
           annualLeaveBalance: number(data.annualLeaveBalance), medicalLeaveBalance: number(data.medicalLeaveBalance),
           carryForwardLeaveBalance: number(data.carryForwardLeaveBalance),
           skills: array(data.skills).map(clean).filter(Boolean), notes: clean(data.notes), managerId: clean(data.managerId),

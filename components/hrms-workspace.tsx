@@ -166,6 +166,9 @@ export function HRMSWorkspace({ initialTab, session }: { initialTab?: string; se
         ...common, name: "", email: "", title: "", department: data.settings.departments[0] || "Leadership",
         employmentType: "Core Team", workMode: data.settings.workModes[0] || "Hybrid", location: "", startDate: today(),
         phone: "", emergencyContact: "", annualLeaveBalance: 14, medicalLeaveBalance: 14, carryForwardLeaveBalance: 0, role: "employee", skills: [], notes: "",
+        employeeNumber: "", dateOfBirth: "", identificationNumber: "", incomeTaxNumber: "", epfNumber: "", socsoNumber: "",
+        nationality: "Malaysian", taxResident: true, maritalStatus: "Single", spouseWorking: false, childRelief: 0,
+        epfApplicable: true, socsoApplicable: true, eisApplicable: true, bankName: "", bankAccountNumber: "",
         status: "active", onboarding: [
           { id: uid(), label: "Personal and contact details", done: false },
           { id: uid(), label: "Employment terms acknowledged", done: false },
@@ -490,6 +493,29 @@ function EditorDialog({ editor, setEditor, data, session, saving, onSave }: any)
             <Field label="Skills" wide><Input value={(record.skills || []).join(", ")} disabled={!admin} onChange={(e) => update("skills", e.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></Field>
             <Field label="Notes" wide><Textarea value={record.notes || ""} onChange={(e) => update("notes", e.target.value)} /></Field>
           </div>
+
+          {admin && <div className="rounded-2xl border bg-card p-4">
+            <div className="flex items-center gap-2"><WalletCards className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Payroll and statutory</h3></div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">What payroll works the deductions out from. Date of birth is required for the age rules on EPF, SOCSO and EIS; marital status and children set the PCB reliefs.</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Employee number"><Input value={record.employeeNumber || ""} onChange={(e) => update("employeeNumber", e.target.value)} /></Field>
+              <Field label="Date of birth"><DateInput value={record.dateOfBirth || ""} onChange={(e) => update("dateOfBirth", e.target.value)} /></Field>
+              <Field label="Identification number (NRIC or passport)"><Input value={record.identificationNumber || ""} onChange={(e) => update("identificationNumber", e.target.value)} /></Field>
+              <Field label="Income tax number"><Input value={record.incomeTaxNumber || ""} onChange={(e) => update("incomeTaxNumber", e.target.value)} /></Field>
+              <Field label="EPF number"><Input value={record.epfNumber || ""} onChange={(e) => update("epfNumber", e.target.value)} /></Field>
+              <Field label="SOCSO number"><Input value={record.socsoNumber || ""} onChange={(e) => update("socsoNumber", e.target.value)} /></Field>
+              <Field label="Nationality"><Select value={record.nationality || "Malaysian"} onChange={(e) => update("nationality", e.target.value)}>{["Malaysian", "Permanent Resident", "Foreign"].map((item) => <option key={item}>{item}</option>)}</Select></Field>
+              <Field label="Tax residency"><Select value={record.taxResident === false ? "non-resident" : "resident"} onChange={(e) => update("taxResident", e.target.value === "resident")}><option value="resident">Resident</option><option value="non-resident">Non-resident</option></Select></Field>
+              <Field label="Marital status"><Select value={record.maritalStatus || "Single"} onChange={(e) => update("maritalStatus", e.target.value)}><option>Single</option><option>Married</option></Select></Field>
+              <Field label="Children claimed for relief"><Input type="number" min="0" step="1" value={record.childRelief ?? 0} onChange={(e) => update("childRelief", Number(e.target.value))} /></Field>
+              {String(record.maritalStatus) === "Married" && <label className="flex items-center gap-3 rounded-xl border bg-background p-3 text-xs font-medium sm:col-span-2"><input type="checkbox" className="h-4 w-4" checked={Boolean(record.spouseWorking)} onChange={(e) => update("spouseWorking", e.target.checked)} />Spouse has their own income (no spouse relief is claimed)</label>}
+              <Field label="Bank"><Input value={record.bankName || ""} onChange={(e) => update("bankName", e.target.value)} placeholder="Maybank" /></Field>
+              <Field label="Bank account number"><Input value={record.bankAccountNumber || ""} onChange={(e) => update("bankAccountNumber", e.target.value)} /></Field>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {([["epfApplicable", "EPF"], ["socsoApplicable", "SOCSO"], ["eisApplicable", "EIS"]] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 rounded-xl border bg-background px-3 py-2 text-xs font-medium"><input type="checkbox" className="h-4 w-4" checked={record[key] !== false} onChange={(e) => update(key, e.target.checked)} />{label} applies</label>)}
+            </div>
+          </div>}
           {admin && <div className="rounded-2xl border bg-card p-4"><div className="flex items-center gap-2"><BookOpenCheck className="h-4 w-4 text-accent" /><h3 className="text-sm font-semibold">Onboarding checklist</h3></div><div className="mt-3 space-y-2">{(record.onboarding || []).map((item: any, index: number) => <label key={item.id} className="flex items-center gap-3 rounded-xl bg-background p-3 text-sm"><input type="checkbox" checked={item.done} onChange={(e) => update("onboarding", record.onboarding.map((row: any, rowIndex: number) => rowIndex === index ? { ...row, done: e.target.checked } : row))} className="h-4 w-4" /><span>{item.label}</span></label>)}</div></div>}
         </>}
 
