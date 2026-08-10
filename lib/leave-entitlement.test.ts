@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  attachmentRequirementFor,
   countsCalendarDays,
   DEFAULT_LEAVE_RULES,
   entitlementFor,
@@ -136,4 +137,32 @@ test("plain strings still load, since that is how the list used to be stored", (
   assert.deepEqual(stored.map((rule) => rule.name), ["Annual Leave", "Unpaid Leave"]);
   assert.equal(stored[0].kind, "annual", "and pick their behaviour back up from the defaults");
   assert.equal(stored[1].deductsBalance, false);
+});
+
+test("medical leave asks for a certificate, and says what it is called", () => {
+  const requirement = attachmentRequirementFor(rules, "Medical Leave");
+  assert.equal(requirement.required, true);
+  assert.equal(requirement.label, "Medical certificate", "'Attachment required' tells nobody what to go and find");
+});
+
+test("annual leave asks for nothing", () => {
+  assert.equal(attachmentRequirementFor(rules, "Annual Leave").required, false);
+});
+
+test("maternity leave asks for one too", () => {
+  assert.equal(attachmentRequirementFor(rules, "Maternity Leave").required, true);
+});
+
+test("whether a document is required is configurable per type", () => {
+  // A company that trusts a self-declared sick day should be able to stop
+  // asking, without a code change.
+  const relaxed = toLeaveRules([{ name: "Medical Leave", requiresAttachment: false }]);
+  assert.equal(attachmentRequirementFor(relaxed, "Medical Leave").required, false);
+
+  const strict = toLeaveRules([{ name: "Emergency Leave", requiresAttachment: true, attachmentLabel: "Supporting letter" }]);
+  assert.deepEqual(attachmentRequirementFor(strict, "Emergency Leave"), { required: true, label: "Supporting letter" });
+});
+
+test("an unknown type requires nothing rather than blocking", () => {
+  assert.equal(attachmentRequirementFor(rules, "Study Leave").required, false);
 });

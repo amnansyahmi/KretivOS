@@ -7,10 +7,10 @@ import { useConfirm } from "@/components/confirm";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-type Employee = { id: string; name: string; status: string; workMode?: string; title?: string };
+export type Employee = { id: string; name: string; status: string; workMode?: string; title?: string };
 type Geo = { status?: string; latitude?: number | null; longitude?: number | null; accuracy?: number | null; capturedAt?: string | null };
 type Attendance = { id: string; employeeId: string; date: string; status: string; workMode?: string; checkIn?: string; checkOut?: string; checkInAt?: string; checkOutAt?: string; checkInPhotoId?: string; checkOutPhotoId?: string; checkInVerification?: string; checkOutVerification?: string; checkInDriftSeconds?: number; checkOutDriftSeconds?: number; checkInLocation?: Geo; checkOutLocation?: Geo; durationMinutes?: number; lateMinutes?: number; note?: string };
-type Action = "check_in" | "check_out";
+export type Action = "check_in" | "check_out";
 type Props = { employees: Employee[]; attendance: Attendance[]; query?: string; onRefresh: () => Promise<void> | void; onNotice: (message: string) => void; onError: (message: string) => void };
 type Evidence = { photoId: string; employeeName: string; action: Action; time: string; date: string; verification?: string; driftSeconds?: number; geo?: Geo };
 
@@ -59,7 +59,7 @@ export function HRPhotoAttendance({ employees, attendance, query = "", onRefresh
     <div><h2 className="font-semibold">Attendance history</h2><p className="mt-1 text-xs text-muted-foreground">Tap a photo time to view or manage evidence.</p></div>
     <div className="space-y-3">{filtered.map((record) => <Card key={record.id} className="bg-white/90"><CardContent className="p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-center"><div className="flex flex-1 items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-foreground text-xs font-semibold text-white">{initials(employeeName(record.employeeId))}</div><div><div className="font-semibold">{employeeName(record.employeeId)}</div><div className="text-xs text-muted-foreground">{displayDate(record.date)} · {record.workMode || record.status}</div></div></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[520px]"><EvidenceCell label="Clock in" value={record.checkIn || "—"} enabled={Boolean(record.checkInPhotoId)} onClick={() => inspect(record, "check_in")} /><EvidenceCell label="Clock out" value={record.checkOut || "—"} enabled={Boolean(record.checkOutPhotoId)} onClick={() => inspect(record, "check_out")} /><Info label="Duration" value={duration(record.durationMinutes)} /><Info label="Punctuality" value={Number(record.lateMinutes || 0) ? `${record.lateMinutes} min late` : "On time"} /></div></div></CardContent></Card>)}{!filtered.length && <div className="rounded-2xl border border-dashed p-10 text-center"><Clock3 className="mx-auto h-7 w-7 text-muted-foreground" /><div className="mt-3 font-semibold">No attendance records</div></div>}</div>
 
-    {camera && <CaptureDialog employee={camera.employee} action={camera.action} onClose={() => setCamera(null)} onDone={async (result) => { setCamera(null); await onRefresh(); onNotice(`${result.employeeName} ${camera.action === "check_in" ? "clocked in" : "clocked out"} at ${result.officialTime}.`); }} onError={onError} />}
+    {camera && <HRAttendanceCapture employee={camera.employee} action={camera.action} onClose={() => setCamera(null)} onDone={async (result) => { setCamera(null); await onRefresh(); onNotice(`${result.employeeName} ${camera.action === "check_in" ? "clocked in" : "clocked out"} at ${result.officialTime}.`); }} onError={onError} />}
     {evidence && <EvidenceDialog evidence={evidence} onClose={() => setEvidence(null)} onChanged={async (message) => { setEvidence(null); await onRefresh(); onNotice(message); }} onError={onError} />}
   </div>;
 }
@@ -69,7 +69,15 @@ function MiniDark({ label, value }: { label: string; value: string }) { return <
 function Info({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-background p-3"><div className="text-[10px] text-muted-foreground">{label}</div><div className="mt-1 text-xs font-semibold">{value}</div></div>; }
 function EvidenceCell({ label, value, enabled, onClick }: { label: string; value: string; enabled: boolean; onClick: () => void }) { return <button disabled={!enabled} onClick={onClick} className={cn("rounded-xl p-3 text-left", enabled ? "bg-muted" : "bg-background")}><div className="flex justify-between text-[10px] text-muted-foreground">{label}{enabled && <Eye className="h-3.5 w-3.5" />}</div><div className="mt-1 text-xs font-semibold">{value}</div></button>; }
 
-function CaptureDialog({ employee, action, onClose, onDone, onError }: { employee: Employee; action: Action; onClose: () => void; onDone: (result: any) => Promise<void> | void; onError: (message: string) => void }) {
+/**
+ * The capture itself: camera, GPS, the drift check and the watermark.
+ *
+ * Exported because the employee app clocks in through this same dialogue. A
+ * second implementation would mean two versions of the one path where the
+ * evidence is produced — and the one most worth getting right, since the
+ * timestamp it stamps into the image is what an attendance dispute turns on.
+ */
+export function HRAttendanceCapture({ employee, action, onClose, onDone, onError }: { employee: Employee; action: Action; onClose: () => void; onDone: (result: any) => Promise<void> | void; onError: (message: string) => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [error, setError] = useState("");

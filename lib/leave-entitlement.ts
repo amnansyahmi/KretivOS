@@ -40,6 +40,15 @@ export type LeaveTypeRule = {
   consecutiveDays?: boolean;
   /** Deducted from a balance, or simply recorded. */
   deductsBalance: boolean;
+  /**
+   * Whether the request has to carry a document, and what that document is
+   * called. A property of the type rather than a rule in the form: a company
+   * that wants evidence for compassionate leave should be able to ask for it
+   * without a code change, and one that trusts a self-declared sick day should
+   * be able to stop asking.
+   */
+  requiresAttachment?: boolean;
+  attachmentLabel?: string;
   paid: boolean;
   note?: string;
 };
@@ -67,6 +76,8 @@ export const DEFAULT_LEAVE_RULES: LeaveTypeRule[] = [
     tiers: [{ fromYears: 0, days: 14 }, { fromYears: 2, days: 18 }, { fromYears: 5, days: 22 }],
     deductsBalance: true,
     paid: true,
+    requiresAttachment: true,
+    attachmentLabel: "Medical certificate",
     note: "Non-hospitalised entitlement. A longer aggregate applies where hospitalisation is involved.",
   },
   {
@@ -76,6 +87,8 @@ export const DEFAULT_LEAVE_RULES: LeaveTypeRule[] = [
     consecutiveDays: true,
     deductsBalance: false,
     paid: true,
+    requiresAttachment: true,
+    attachmentLabel: "Medical certificate",
     note: "Taken as consecutive days, so rest days and public holidays fall inside the period.",
   },
   {
@@ -203,6 +216,8 @@ export function toLeaveRules(stored: unknown): LeaveTypeRule[] {
       fixedDays: typeof item?.fixedDays === "number" ? Math.max(0, item.fixedDays) : fallback?.fixedDays,
       consecutiveDays: typeof item?.consecutiveDays === "boolean" ? item.consecutiveDays : fallback?.consecutiveDays,
       deductsBalance: typeof item?.deductsBalance === "boolean" ? item.deductsBalance : fallback?.deductsBalance ?? true,
+      requiresAttachment: typeof item?.requiresAttachment === "boolean" ? item.requiresAttachment : fallback?.requiresAttachment ?? false,
+      attachmentLabel: clean(item?.attachmentLabel) || fallback?.attachmentLabel,
       paid: typeof item?.paid === "boolean" ? item.paid : fallback?.paid ?? true,
       note: clean(item?.note) || fallback?.note,
     };
@@ -223,4 +238,17 @@ export function leaveTypeNames(rules: LeaveTypeRule[]) {
  */
 export function countsCalendarDays(rules: LeaveTypeRule[], typeName: string) {
   return Boolean(findLeaveRule(rules, typeName)?.consecutiveDays);
+}
+
+/**
+ * What a request of this type has to be accompanied by, if anything.
+ *
+ * Named rather than a bare boolean, because "Attachment required" tells
+ * somebody nothing about what to go and find. "Medical certificate" tells them
+ * exactly.
+ */
+export function attachmentRequirementFor(rules: LeaveTypeRule[], typeName: string): { required: boolean; label: string } {
+  const rule = findLeaveRule(rules, typeName);
+  if (!rule?.requiresAttachment) return { required: false, label: rule?.attachmentLabel || "Supporting document" };
+  return { required: true, label: rule.attachmentLabel || "Supporting document" };
 }

@@ -48,6 +48,11 @@ const ALLOWED = [
     why: "viewport themeColor must be a literal",
   },
   {
+    // The employee app sets its own status-bar colour, same browser API.
+    file: "app/hr/app/page.tsx",
+    why: "viewport themeColor must be a literal",
+  },
+  {
     // A placeholder showing the operator what a brand colour looks like. This
     // is content about colour, not the app's own colour.
     file: "app/brands/page.tsx",
