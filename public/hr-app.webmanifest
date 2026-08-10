@@ -9,11 +9,29 @@
   "theme_color": "#202c25",
   "orientation": "portrait",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "/hr/app/icon",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
   ],
   "shortcuts": [
-    { "name": "Apply for leave", "url": "/hr/app?do=leave" },
-    { "name": "Submit a claim", "url": "/hr/app?do=claim" }
+    {
+      "name": "Clock in or out",
+      "url": "/hr/app"
+    },
+    {
+      "name": "Log a task",
+      "url": "/hr/app?do=task"
+    },
+    {
+      "name": "Apply for leave",
+      "url": "/hr/app?do=leave"
+    },
+    {
+      "name": "Submit a claim",
+      "url": "/hr/app?do=claim"
+    }
   ]
 }

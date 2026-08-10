@@ -15,6 +15,13 @@ export const metadata: Metadata = {
   description: "Clock in, apply for leave, submit claims and read your payslips",
   manifest: "/hr-app.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Kretivco HR" },
+  /*
+   * Stated rather than left to `icon.tsx` and `apple-icon.tsx`: the root layout
+   * sets `icons` explicitly, and an explicit parent beats a child's file
+   * convention, so without this the installed app would still wear KretivOS's
+   * mark. The URLs are those two files' routes.
+   */
+  icons: { icon: "/hr/app/icon", apple: "/hr/app/apple-icon" },
 };
 
 /** Dark, because the app header is the first thing under the status bar. */

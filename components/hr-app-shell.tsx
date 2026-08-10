@@ -16,13 +16,15 @@
  */
 
 import { type ReactNode } from "react";
-import { Bell, FileText, House, Inbox, User } from "lucide-react";
+import { Bell, FileText, House, Inbox, ListChecks, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type AppTab = "home" | "requests" | "inbox" | "profile";
+export type AppTab = "home" | "timesheet" | "requests" | "inbox" | "profile";
 
+/** Five is the most a thumb can hit reliably, and the most iOS itself uses. */
 export const APP_TABS: { id: AppTab; label: string; icon: typeof House }[] = [
   { id: "home", label: "Home", icon: House },
+  { id: "timesheet", label: "Timesheet", icon: ListChecks },
   { id: "requests", label: "Requests", icon: FileText },
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "profile", label: "Profile", icon: User },
@@ -77,7 +79,7 @@ export function HRAppShell({
       className="sticky bottom-0 z-30 border-t bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
       aria-label="Employee app"
     >
-      <div className="mx-auto grid max-w-lg grid-cols-4">
+      <div className="mx-auto grid max-w-lg grid-cols-5">
         {APP_TABS.map((item) => {
           const Icon = item.icon;
           const active = tab === item.id;

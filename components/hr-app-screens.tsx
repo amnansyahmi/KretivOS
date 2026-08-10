@@ -11,8 +11,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight, CalendarPlus, Camera, ChevronRight, Clock3, FileText, HandCoins,
-  LogOut, Megaphone, PartyPopper, Receipt, ShieldCheck, Wallet,
+  ArrowRight, CalendarPlus, Camera, ChevronLeft, ChevronRight, Clock3, FileText, HandCoins,
+  ListChecks, LogOut, Megaphone, PartyPopper, Pencil, Plus, Receipt, ShieldCheck, Trash2, Wallet,
 } from "lucide-react";
 import { AppAction, AppCard } from "@/components/hr-app-shell";
 import { StatusBadge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { myLeaveBalances, todayStatus, type TodayStatus } from "@/lib/my-hr-summary";
 import { toLeaveRules } from "@/lib/leave-entitlement";
 import { describeLeaveDuration } from "@/lib/leave-request";
+import { formatDuration, toHours, totalMinutes } from "@/lib/timesheet";
 import { fixedHolidays, mergeHolidays } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
@@ -146,7 +147,7 @@ export function AppHome({ data, session, today, onTab, onOpenLeave, onOpenClaim,
       <AppAction icon={CalendarPlus} label="Apply Leave" onClick={onOpenLeave} />
       <AppAction icon={Receipt} label="Submit Claim" onClick={onOpenClaim} />
       <AppAction icon={Camera} label="Clock In/Out" onClick={() => onClock(status.action === "clock_out" ? "check_out" : "check_in")} />
-      <AppAction icon={Wallet} label="Payslip" onClick={() => onOpenHR("payslips")} />
+      <AppAction icon={ListChecks} label="Log Task" onClick={() => onTab("timesheet")} />
     </div>
 
     <div className="grid gap-4 sm:grid-cols-2">
@@ -301,8 +302,25 @@ export function AppInbox({ notifications, loading, onOpen, onMarkAllRead }: any)
   </div>;
 }
 
+/**
+ * Whether this is running as an installed app.
+ *
+ * Two checks because iOS never implemented the standard one: Safari sets a
+ * non-standard `navigator.standalone` and ignores `display-mode`.
+ */
+function useInstalled() {
+  const [installed, setInstalled] = useState(false);
+  useEffect(() => {
+    const standalone = window.matchMedia?.("(display-mode: standalone)")?.matches
+      || (window.navigator as any).standalone === true;
+    setInstalled(Boolean(standalone));
+  }, []);
+  return installed;
+}
+
 export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: any) {
   const employee = data.employees.find((item: any) => item.id === session.userId);
+  const installed = useInstalled();
 
   const rows: [string, string][] = [
     ["Employee number", employee?.employeeNumber || ""],
@@ -346,6 +364,21 @@ export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: 
       ))}
     </div>
 
+    {/*
+      * Shown only when this is running in a browser tab. Installed, it would be
+      * instructions for something already done.
+      */}
+    {!installed && <AppCard title="Add to your home screen">
+      <ol className="list-decimal space-y-1.5 pl-4 text-[11px] leading-4 text-muted-foreground">
+        <li>Open this page in Safari, not inside another app.</li>
+        <li>Tap Share, then <span className="font-medium text-foreground">Add to Home Screen</span>.</li>
+        <li>Name it and tap Add. It opens full screen, with the camera available for clocking in.</li>
+      </ol>
+      <p className="mt-3 text-[11px] leading-4 text-muted-foreground">
+        On iPhone the long-press menu on a home-screen icon only offers Edit, Share and Delete — Apple does not support app shortcuts for web apps, so there is nothing to add there. Everything is one tap from Home instead.
+      </p>
+    </AppCard>}
+
     <button onClick={() => onOpenHR("self")} className="w-full rounded-2xl border border-black/8 bg-card p-4 text-sm font-medium transition active:bg-secondary">
       Open the full HR workspace
     </button>
@@ -353,5 +386,111 @@ export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: 
     {authEnabled && <Button variant="outline" className="w-full bg-card text-destructive" onClick={onSignOut}>
       <LogOut className="h-4 w-4" />Sign out
     </Button>}
+  </div>;
+}
+
+
+const localDate = (input = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(input);
+const parseDay = (value: string) => new Date(`${value}T00:00:00+08:00`);
+const addDays = (value: string, count: number) => { const date = parseDay(value); date.setDate(date.getDate() + count); return localDate(date); };
+const mondayOf = (value: string) => { const date = parseDay(value); const day = date.getDay(); date.setDate(date.getDate() - (day === 0 ? 6 : day - 1)); return localDate(date); };
+const weekdayShort = (value: string) => parseDay(value).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", weekday: "narrow" });
+
+/**
+ * The timesheet, sized for a thumb.
+ *
+ * A week strip rather than the workspace's seven stacked cards: on a phone the
+ * question is almost always "what did I do today, and what have I not written
+ * up yet", and a strip answers both in one glance — a dot under a day says it
+ * has something on it, and the gaps are the days that do not.
+ *
+ * One day at a time below it, because a day holds as many tasks as it took and
+ * showing seven days of them at once is how a log becomes a wall.
+ */
+export function AppTimesheet({ data, session, onAdd, onEdit, onDelete, onOpenHR }: any) {
+  const today = localDate();
+  const [selected, setSelected] = useState(today);
+  const weekStart = mondayOf(selected);
+  const week = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+
+  const mine = (data.timesheets || []).filter((entry: any) => entry.employeeId === session.userId);
+  const byDay = (date: string) => mine
+    .filter((entry: any) => entry.date === date)
+    .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)));
+
+  const dayEntries = byDay(selected);
+  const weekMinutes = totalMinutes(mine.filter((entry: any) => entry.date >= weekStart && entry.date <= week[6]));
+
+  return <div className="space-y-4">
+    <AppCard>
+      <div className="flex items-center gap-2">
+        <button onClick={() => setSelected(addDays(weekStart, -7))} aria-label="Previous week" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><ChevronLeft className="h-4 w-4" /></button>
+        <div className="min-w-0 flex-1 text-center">
+          <div className="text-xs font-semibold">{parseDay(weekStart).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short" })} – {parseDay(week[6]).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short" })}</div>
+          <div className="text-[10px] text-muted-foreground">{toHours(weekMinutes)}h logged this week</div>
+        </div>
+        <button onClick={() => setSelected(addDays(weekStart, 7))} aria-label="Next week" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><ChevronRight className="h-4 w-4" /></button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-7 gap-1">{week.map((date) => {
+        const count = byDay(date).length;
+        const isSelected = date === selected;
+        return <button
+          key={date}
+          onClick={() => setSelected(date)}
+          aria-label={`${parseDay(date).toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long" })}, ${count} task${count === 1 ? "" : "s"}`}
+          aria-pressed={isSelected}
+          className={cn(
+            "flex flex-col items-center gap-1 rounded-xl py-2 transition",
+            isSelected ? "bg-foreground text-white" : date === today ? "bg-secondary" : "active:bg-secondary",
+          )}
+        >
+          <span className={cn("text-[9px] uppercase", isSelected ? "text-white/60" : "text-muted-foreground")}>{weekdayShort(date)}</span>
+          <span className="text-sm font-semibold tabular-nums">{Number(date.slice(-2))}</span>
+          {/* A dot means the day has something on it; a gap means it does not. */}
+          <span className={cn("h-1 w-1 rounded-full", count ? (isSelected ? "bg-accent-muted" : "bg-accent") : "bg-transparent")} />
+        </button>;
+      })}</div>
+    </AppCard>
+
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className="truncate text-sm font-semibold">{parseDay(selected).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", weekday: "long", day: "numeric", month: "long" })}</h2>
+        <p className="text-[11px] text-muted-foreground">{dayEntries.length ? `${formatDuration(totalMinutes(dayEntries))} · ${dayEntries.length} task${dayEntries.length === 1 ? "" : "s"}` : "Nothing logged"}</p>
+      </div>
+      <Button size="sm" className="shrink-0" onClick={() => onAdd(selected)}><Plus className="h-3.5 w-3.5" />Add task</Button>
+    </div>
+
+    <div className="space-y-2">{dayEntries.map((entry: any) => <AppCard key={entry.id}>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium leading-5">{entry.task}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+            <span className="tabular-nums">{entry.startTime}–{entry.endTime}</span>
+            <span className="font-semibold text-foreground-soft">{formatDuration(entry.durationMinutes)}</span>
+            {entry.project && <span className="rounded-full bg-muted px-2 py-0.5">{entry.project}</span>}
+            {entry.billable && <span className="rounded-full bg-accent-tint px-2 py-0.5 text-accent-tint-foreground">Billable</span>}
+          </div>
+          {entry.notes && <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{entry.notes}</p>}
+          {entry.overlapWarning && <p className="mt-1.5 text-[11px] text-accent">{entry.overlapWarning}</p>}
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <button onClick={() => onEdit(entry)} aria-label={`Edit ${entry.task}`} className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><Pencil className="h-3.5 w-3.5" /></button>
+          <button onClick={() => onDelete(entry.id)} aria-label={`Delete ${entry.task}`} className="flex h-8 w-8 items-center justify-center rounded-full text-destructive transition active:bg-secondary"><Trash2 className="h-3.5 w-3.5" /></button>
+        </div>
+      </div>
+    </AppCard>)}
+
+    {!dayEntries.length && <AppCard>
+      <div className="py-8 text-center">
+        <ListChecks className="mx-auto h-6 w-6 text-muted-foreground" strokeWidth={1.6} />
+        <p className="mt-3 text-sm font-semibold">Nothing logged yet</p>
+        <p className="mt-1 text-xs text-muted-foreground">Add what you worked on and how long it took.</p>
+      </div>
+    </AppCard>}</div>
+
+    <button onClick={() => onOpenHR("timesheet")} className="flex w-full items-center justify-center gap-2 py-2 text-xs font-semibold text-accent">
+      Monthly report and export<ArrowRight className="h-3.5 w-3.5" />
+    </button>
   </div>;
 }

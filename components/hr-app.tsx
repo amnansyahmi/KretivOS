@@ -17,7 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 import { HRAppShell, type AppTab } from "@/components/hr-app-shell";
-import { AppHome, AppInbox, AppProfile, AppRequests } from "@/components/hr-app-screens";
+import { AppHome, AppInbox, AppProfile, AppRequests, AppTimesheet } from "@/components/hr-app-screens";
 import { HRAppComposer, type ComposerKind } from "@/components/hr-app-composer";
 import { HRAttendanceCapture, type Action as ClockAction } from "@/components/hr-photo-attendance";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import type { HRMSSession } from "@/components/hrms-shell";
 
 const TITLES: Record<AppTab, string> = {
   home: "HR Portal",
+  timesheet: "Timesheet",
   requests: "Requests",
   inbox: "Inbox",
   profile: "Profile",
@@ -47,6 +48,7 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
   const [raw, setRaw] = useState<any>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [composer, setComposer] = useState<ComposerKind | null>(null);
+  const [taskDraft, setTaskDraft] = useState<any>(null);
   const [clocking, setClocking] = useState<ClockAction | null>(null);
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -93,7 +95,8 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
    */
   useEffect(() => {
     const wanted = search.get("do");
-    if (wanted === "leave" || wanted === "claim") {
+    if (wanted === "leave" || wanted === "claim" || wanted === "task") {
+      if (wanted === "task") setTaskDraft(null);
       setComposer(wanted);
       router.replace("/hr/app", { scroll: false });
     }
@@ -108,6 +111,7 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
     const next = await requestJson("/api/hr", { method: "POST", body: JSON.stringify(payload) });
     setRaw(next);
     setComposer(null);
+    setTaskDraft(null);
   }
 
   async function markAllRead() {
@@ -157,6 +161,17 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
         onOpenLeave={() => setComposer("leave")}
         onOpenClaim={() => setComposer("claim")}
         onClock={setClocking}
+        onOpenHR={openHR}
+      />}
+      {tab === "timesheet" && <AppTimesheet
+        data={data}
+        session={session}
+        onAdd={(date: string) => { setTaskDraft({ date }); setComposer("task"); }}
+        onEdit={(entry: any) => { setTaskDraft(entry); setComposer("task"); }}
+        onDelete={async (id: string) => {
+          try { setRaw(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation: "delete", resource: "timesheets", id }) })); }
+          catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete that task."); }
+        }}
         onOpenHR={openHR}
       />}
       {tab === "requests" && <AppRequests
@@ -215,7 +230,8 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
       kind={composer}
       session={session}
       settings={data.settings}
-      onClose={() => setComposer(null)}
+      draft={composer === "task" ? taskDraft : undefined}
+      onClose={() => { setComposer(null); setTaskDraft(null); }}
       onSubmit={submit}
     />}
   </HRAppShell>;
