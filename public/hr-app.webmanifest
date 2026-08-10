@@ -1,0 +1,19 @@
+{
+  "name": "Kretivco HR",
+  "short_name": "HR",
+  "description": "Clock in, apply for leave, submit claims and read your payslips",
+  "start_url": "/hr/app",
+  "scope": "/hr",
+  "display": "standalone",
+  "background_color": "#f7f4ed",
+  "theme_color": "#202c25",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Apply for leave", "url": "/hr/app?do=leave" },
+    { "name": "Submit a claim", "url": "/hr/app?do=claim" }
+  ]
+}

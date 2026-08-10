@@ -22,6 +22,7 @@ import {
   Menu,
   ReceiptText,
   Settings2,
+  Smartphone,
   UserCheck,
   Users,
   UsersRound,
@@ -249,6 +250,11 @@ function SidebarContent({
         </select>
         <span className="mt-1.5 block text-[9px] leading-4 text-white/30">Changes which menus are shown. Sign-in is off, so it grants no extra access.</span>
       </label>}
+      {/* The phone surface, findable from the desktop one. Installing it puts
+          clocking in on a home screen. */}
+      <Link href="/hr/app" onClick={onClose} className="mb-2 flex min-h-11 items-center gap-3 rounded-xl border border-white/10 px-3 text-xs font-medium text-white/65 transition hover:border-white/20 hover:bg-white/[.06] hover:text-white">
+        <Smartphone className="h-4 w-4" />Employee app
+      </Link>
       <Link href="/" onClick={onClose} className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 px-3 text-xs font-medium text-white/65 transition hover:border-white/20 hover:bg-white/[.06] hover:text-white">
         <ArrowLeft className="h-4 w-4" />Back to KretivOS
       </Link>
