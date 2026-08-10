@@ -23,10 +23,11 @@ import { HALF_DAY_SESSIONS, leaveProblemFor, validateLeaveRequest } from "@/lib/
 import { attachmentRequirementFor, leaveTypeNames, toLeaveRules } from "@/lib/leave-entitlement";
 import { prepareUpload } from "@/lib/compress-image";
 import { checkUpload, describeSize } from "@/lib/upload-limits";
+import { formatDuration, validateEntry } from "@/lib/timesheet";
 import type { HRMSSession } from "@/components/hrms-shell";
 import { cn } from "@/lib/utils";
 
-export type ComposerKind = "leave" | "claim";
+export type ComposerKind = "leave" | "claim" | "task";
 
 const CLAIM_CATEGORIES = ["General", "Travel", "Meals", "Medical", "Software", "Equipment", "Client expense"];
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -35,24 +36,49 @@ export function HRAppComposer({
   kind,
   session,
   settings,
+  draft,
   onClose,
   onSubmit,
 }: {
   kind: ComposerKind;
   session: HRMSSession;
   settings: any;
+  /**
+   * The record being edited, or the date a new one is being logged against.
+   * Shared across kinds: a leave request opened from the calendar arrives the
+   * same way a task opened from the week strip does.
+   */
+  draft?: any;
   onClose: () => void;
   onSubmit: (payload: any) => Promise<void>;
 }) {
   const rules = toLeaveRules(settings?.leaveTypes);
   const leaveTypes = leaveTypeNames(rules);
-  const [leave, setLeave] = useState<any>({
-    employeeId: session.userId, type: leaveTypes[0] || "Annual Leave",
-    startDate: today(), endDate: today(), halfDay: false, halfDaySession: "first", reason: "", attachmentId: "",
-  });
+  const [leave, setLeave] = useState<any>(() => ({
+    employeeId: session.userId,
+    type: draft?.type || leaveTypes[0] || "Annual Leave",
+    startDate: draft?.startDate || today(),
+    endDate: draft?.endDate || draft?.startDate || today(),
+    halfDay: Boolean(draft?.halfDay),
+    halfDaySession: draft?.halfDaySession || "first",
+    reason: draft?.reason || "",
+    attachmentId: draft?.attachmentId || "",
+    id: draft?.id,
+  }));
   const [claim, setClaim] = useState<any>({
     employeeId: session.userId, claimDate: today(), category: "General", amount: "", description: "", receiptAssetId: "",
   });
+  const [task, setTask] = useState<any>(() => ({
+    employeeId: session.userId,
+    date: draft?.date || today(),
+    task: draft?.task || "",
+    startTime: draft?.startTime || "09:00",
+    endTime: draft?.endTime || "10:00",
+    project: draft?.project || "",
+    notes: draft?.notes || "",
+    billable: Boolean(draft?.billable),
+    id: draft?.id,
+  }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -71,7 +97,8 @@ export function HRAppComposer({
       !claim.receiptAssetId ? { field: "attachment", message: "Receipt required" } : null,
     ].filter(Boolean) as { field: string; message: string }[]
     : [];
-  const problems = kind === "leave" ? leaveProblems : claimProblems;
+  const taskProblems = kind === "task" ? validateEntry(task) : [];
+  const problems = kind === "leave" ? leaveProblems : kind === "claim" ? claimProblems : taskProblems;
   const problemFor = (field: string) => problems.find((problem) => problem.field === field)?.message ?? "";
 
   async function submit() {
@@ -79,8 +106,10 @@ export function HRAppComposer({
     setBusy(true); setError("");
     try {
       await onSubmit(kind === "leave"
-        ? { operation: "create", resource: "leave", data: leave }
-        : { operation: "create", resource: "claims", data: { ...claim, amount: Number(claim.amount) } });
+        ? { operation: leave.id ? "update" : "create", resource: "leave", id: leave.id, data: leave }
+        : kind === "claim"
+          ? { operation: "create", resource: "claims", data: { ...claim, amount: Number(claim.amount) } }
+          : { operation: task.id ? "update" : "create", resource: "timesheets", id: task.id, data: task });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not submit that.");
     } finally {
@@ -97,13 +126,45 @@ export function HRAppComposer({
       <div className="sticky top-0 z-10 bg-background pt-2">
         <div className="mx-auto h-1 w-10 rounded-full bg-border" />
         <div className="flex items-center justify-between gap-3 px-5 py-3">
-          <h2 className="text-lg font-semibold">{kind === "leave" ? "Apply for leave" : "Submit a claim"}</h2>
+          <h2 className="text-lg font-semibold">{kind === "leave" ? (leave.id ? "Edit leave request" : "Apply for leave") : kind === "claim" ? "Submit a claim" : task.id ? "Edit task" : "Log a task"}</h2>
           <button onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><X className="h-4 w-4" /></button>
         </div>
       </div>
 
       <div className="space-y-4 px-5 pb-5">
-        {kind === "leave" ? <>
+        {kind === "task" ? <>
+          <Field label="What did you work on" problem={problemFor("task")}>
+            <Input value={task.task} onChange={(event) => setTask({ ...task, task: event.target.value })} placeholder="Storyboard revisions" />
+          </Field>
+
+          <Field label="Date" problem={problemFor("date")}>
+            <DateInput value={task.date} onChange={(event) => setTask({ ...task, date: event.target.value })} />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="From" problem={problemFor("startTime")}>
+              <Input type="time" value={task.startTime} onChange={(event) => setTask({ ...task, startTime: event.target.value })} />
+            </Field>
+            <Field label="To" problem={problemFor("endTime")}>
+              <Input type="time" value={task.endTime} onChange={(event) => setTask({ ...task, endTime: event.target.value })} />
+            </Field>
+          </div>
+
+          <Field label="Project or client">
+            <Input value={task.project} onChange={(event) => setTask({ ...task, project: event.target.value })} placeholder="Chef Ammar" />
+          </Field>
+
+          <label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium">
+            <input type="checkbox" className="h-4 w-4" checked={Boolean(task.billable)} onChange={(event) => setTask({ ...task, billable: event.target.checked })} />
+            Billable to the client
+          </label>
+
+          <Field label="Notes">
+            <Textarea value={task.notes} onChange={(event) => setTask({ ...task, notes: event.target.value })} className="min-h-20" />
+          </Field>
+
+          {!problems.length && <p className="text-[11px] text-muted-foreground">{formatDuration(taskMinutes(task))} on this task.</p>}
+        </> : kind === "leave" ? <>
           <Field label="Leave type">
             <Select value={leave.type} onChange={(event) => setLeave({ ...leave, type: event.target.value })}>
               {leaveTypes.map((item) => <option key={item}>{item}</option>)}
@@ -188,11 +249,19 @@ export function HRAppComposer({
         {error && <p className="rounded-xl border border-destructive/25 bg-card p-3 text-xs leading-5 text-destructive">{error}</p>}
 
         <Button className="h-12 w-full" onClick={submit} disabled={busy || problems.length > 0}>
-          {busy ? "Submitting…" : "Submit Request"}
+          {busy ? "Saving…" : kind === "task" ? "Save task" : "Submit Request"}
         </Button>
       </div>
     </div>
   </div>;
+}
+
+/** Minutes between the two times, for the line under the form. */
+function taskMinutes(entry: any) {
+  const [startHour, startMinute] = String(entry.startTime || "").split(":").map(Number);
+  const [endHour, endMinute] = String(entry.endTime || "").split(":").map(Number);
+  if ([startHour, startMinute, endHour, endMinute].some((part) => !Number.isFinite(part))) return 0;
+  return Math.max(0, (endHour * 60 + endMinute) - (startHour * 60 + startMinute));
 }
 
 function Field({ label, problem, children }: { label: string; problem?: string; children: React.ReactNode }) {

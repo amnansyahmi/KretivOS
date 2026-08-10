@@ -1,18 +1,23 @@
 "use client";
 
 /**
- * The four screens of the employee app.
+ * The tabs of the employee app.
  *
  * Each answers one question and stops. Home is "what is today and what can I
- * do"; Requests is "where did my leave and claims get to"; Inbox is what HR
- * has told me; Profile is my record. Anything an employee does monthly rather
- * than daily stays on `/hr`, which this links out to rather than reproducing.
+ * do"; Timesheet is "what did I work on"; Requests is "where did my leave and
+ * claims get to"; Inbox is what HR has told me; Profile is my record.
+ *
+ * What an employee reaches for monthly rather than daily — payslips, the leave
+ * calendar, documents — is a screen pushed over a tab rather than a link out to
+ * `/hr`; those live in `hr-app-detail-screens.tsx`, and the reason they are not
+ * links is written there.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight, CalendarPlus, Camera, ChevronRight, Clock3, FileText, HandCoins,
-  LogOut, Megaphone, PartyPopper, Receipt, ShieldCheck, Wallet,
+  ArrowRight, CalendarCheck, CalendarPlus, Camera, ChevronLeft, ChevronRight, Clock3, ExternalLink,
+  FileText, HandCoins, ListChecks, LogOut, Megaphone, PartyPopper, Pencil, Plus, Receipt, ShieldCheck,
+  Trash2, Wallet,
 } from "lucide-react";
 import { AppAction, AppCard } from "@/components/hr-app-shell";
 import { StatusBadge } from "@/components/ui/badge";
@@ -20,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { myLeaveBalances, todayStatus, type TodayStatus } from "@/lib/my-hr-summary";
 import { toLeaveRules } from "@/lib/leave-entitlement";
 import { describeLeaveDuration } from "@/lib/leave-request";
+import { formatDuration, toHours, totalMinutes } from "@/lib/timesheet";
 import { fixedHolidays, mergeHolidays } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
@@ -146,7 +152,7 @@ export function AppHome({ data, session, today, onTab, onOpenLeave, onOpenClaim,
       <AppAction icon={CalendarPlus} label="Apply Leave" onClick={onOpenLeave} />
       <AppAction icon={Receipt} label="Submit Claim" onClick={onOpenClaim} />
       <AppAction icon={Camera} label="Clock In/Out" onClick={() => onClock(status.action === "clock_out" ? "check_out" : "check_in")} />
-      <AppAction icon={Wallet} label="Payslip" onClick={() => onOpenHR("payslips")} />
+      <AppAction icon={ListChecks} label="Log Task" onClick={() => onTab("timesheet")} />
     </div>
 
     <div className="grid gap-4 sm:grid-cols-2">
@@ -206,17 +212,23 @@ export function AppHome({ data, session, today, onTab, onOpenLeave, onOpenClaim,
   </div>;
 }
 
-export function AppRequests({ data, onOpenLeave, onOpenClaim, onOpenHR }: any) {
-  const [filter, setFilter] = useState<"all" | "leave" | "claims">("all");
+export function AppRequests({ data, focus, onOpenLeave, onOpenClaim, onEditLeave, onCancelLeave, onOpenHR }: any) {
+  const [filter, setFilter] = useState<"all" | "leave" | "claims">(focus || "all");
+
+  // Arriving from "My claims" or a claim notification should land on claims,
+  // not on everything with claims somewhere in it.
+  useEffect(() => { if (focus) setFilter(focus); }, [focus]);
 
   const rows = [
     ...(filter === "claims" ? [] : data.leaveRequests.map((item: any) => ({
       id: `l-${item.id}`, kind: "Leave", title: item.type, meta: describeLeaveDuration(item),
       date: item.startDate, endDate: item.endDate, status: item.status, note: item.approverNote, amount: null,
+      record: item,
     }))),
     ...(filter === "leave" ? [] : data.claims.map((item: any) => ({
       id: `c-${item.id}`, kind: "Claim", title: item.category, meta: item.description,
       date: item.claimDate, endDate: item.claimDate, status: item.status, note: item.approverNote, amount: item.amount,
+      record: null,
     }))),
   ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
@@ -252,6 +264,13 @@ export function AppRequests({ data, onOpenLeave, onOpenClaim, onOpenHR }: any) {
           {row.amount !== null && <div className="mt-1.5 text-sm font-semibold">{money(row.amount)}</div>}
         </div>
       </div>
+
+      {/* Withdrawing a request you no longer need is the commonest thing to
+          want from this list, and it was only possible in the workspace. */}
+      {row.record && ["Pending", "Rejected", "Approved"].includes(row.status) && <div className="mt-3 flex gap-2 border-t border-black/5 pt-3">
+        {["Pending", "Rejected"].includes(row.status) && <Button size="sm" variant="outline" className="h-9 flex-1 text-[11px]" onClick={() => onEditLeave(row.record)}>Edit</Button>}
+        {["Pending", "Approved"].includes(row.status) && <Button size="sm" variant="outline" className="h-9 flex-1 text-[11px]" onClick={() => onCancelLeave(row.record.id)}>Cancel</Button>}
+      </div>}
     </AppCard>)}
 
     {!rows.length && <AppCard>
@@ -263,7 +282,7 @@ export function AppRequests({ data, onOpenLeave, onOpenClaim, onOpenHR }: any) {
     </AppCard>}</div>
 
     <button onClick={() => onOpenHR("leave")} className="flex w-full items-center justify-center gap-2 py-2 text-xs font-semibold text-accent">
-      Open the full leave calendar<ArrowRight className="h-3.5 w-3.5" />
+      Open the leave calendar<ArrowRight className="h-3.5 w-3.5" />
     </button>
   </div>;
 }
@@ -301,8 +320,25 @@ export function AppInbox({ notifications, loading, onOpen, onMarkAllRead }: any)
   </div>;
 }
 
-export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: any) {
+/**
+ * Whether this is running as an installed app.
+ *
+ * Two checks because iOS never implemented the standard one: Safari sets a
+ * non-standard `navigator.standalone` and ignores `display-mode`.
+ */
+function useInstalled() {
+  const [installed, setInstalled] = useState(false);
+  useEffect(() => {
+    const standalone = window.matchMedia?.("(display-mode: standalone)")?.matches
+      || (window.navigator as any).standalone === true;
+    setInstalled(Boolean(standalone));
+  }, []);
+  return installed;
+}
+
+export function AppProfile({ data, session, onOpenHR, onOpenWorkspace, onSignOut, authEnabled }: any) {
   const employee = data.employees.find((item: any) => item.id === session.userId);
+  const installed = useInstalled();
 
   const rows: [string, string][] = [
     ["Employee number", employee?.employeeNumber || ""],
@@ -336,9 +372,17 @@ export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: 
       </div>)}</dl>
     </AppCard>
 
+    {/* Every one of these opens a screen in the app. None of them leaves it. */}
     <div className="space-y-2">
-      {([["payslips", Wallet, "My payslips"], ["timesheet", Clock3, "My timesheet"], ["claims", HandCoins, "My claims"], ["documents", FileText, "HR documents"]] as const).map(([tab, Icon, label]) => (
-        <button key={tab} onClick={() => onOpenHR(tab)} className="flex w-full items-center gap-3 rounded-2xl border border-black/8 bg-card p-4 text-left transition active:bg-secondary">
+      {([
+        ["payslips", Wallet, "My payslips"],
+        ["timesheet", Clock3, "My timesheet"],
+        ["claims", HandCoins, "My claims"],
+        ["attendance", CalendarCheck, "My attendance"],
+        ["documents", FileText, "HR documents"],
+        ["team", Megaphone, "Team hub"],
+      ] as const).map(([section, Icon, label]) => (
+        <button key={section} onClick={() => onOpenHR(section)} className="flex w-full items-center gap-3 rounded-2xl border border-black/8 bg-card p-4 text-left transition active:bg-secondary">
           <Icon className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.6} />
           <span className="flex-1 text-sm font-medium">{label}</span>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -346,12 +390,138 @@ export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: 
       ))}
     </div>
 
-    <button onClick={() => onOpenHR("self")} className="w-full rounded-2xl border border-black/8 bg-card p-4 text-sm font-medium transition active:bg-secondary">
-      Open the full HR workspace
+    {/*
+      * Shown only when this is running in a browser tab. Installed, it would be
+      * instructions for something already done.
+      */}
+    {!installed && <AppCard title="Add to your home screen">
+      <ol className="list-decimal space-y-1.5 pl-4 text-[11px] leading-4 text-muted-foreground">
+        <li>Open this page in Safari, not inside another app.</li>
+        <li>Tap Share, then <span className="font-medium text-foreground">Add to Home Screen</span>.</li>
+        <li>Name it and tap Add. It opens full screen, with the camera available for clocking in.</li>
+      </ol>
+      <p className="mt-3 text-[11px] leading-4 text-muted-foreground">
+        On iPhone the long-press menu on a home-screen icon only offers Edit, Share and Delete — Apple does not support app shortcuts for web apps, so there is nothing to add there. Everything is one tap from Home instead.
+      </p>
+    </AppCard>}
+
+    {/*
+      * The only way out of the app, and it says so. Everything else on this
+      * screen stays here; this one is a deliberate step into the desktop
+      * workspace, which has no way back into a standalone window.
+      */}
+    <button onClick={onOpenWorkspace} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-black/8 bg-card p-4 text-sm font-medium transition active:bg-secondary">
+      Open the full HR workspace<ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
     </button>
 
     {authEnabled && <Button variant="outline" className="w-full bg-card text-destructive" onClick={onSignOut}>
       <LogOut className="h-4 w-4" />Sign out
     </Button>}
+  </div>;
+}
+
+
+const localDate = (input = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(input);
+const parseDay = (value: string) => new Date(`${value}T00:00:00+08:00`);
+const addDays = (value: string, count: number) => { const date = parseDay(value); date.setDate(date.getDate() + count); return localDate(date); };
+const mondayOf = (value: string) => { const date = parseDay(value); const day = date.getDay(); date.setDate(date.getDate() - (day === 0 ? 6 : day - 1)); return localDate(date); };
+const weekdayShort = (value: string) => parseDay(value).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", weekday: "narrow" });
+
+/**
+ * The timesheet, sized for a thumb.
+ *
+ * A week strip rather than the workspace's seven stacked cards: on a phone the
+ * question is almost always "what did I do today, and what have I not written
+ * up yet", and a strip answers both in one glance — a dot under a day says it
+ * has something on it, and the gaps are the days that do not.
+ *
+ * One day at a time below it, because a day holds as many tasks as it took and
+ * showing seven days of them at once is how a log becomes a wall.
+ */
+export function AppTimesheet({ data, session, onAdd, onEdit, onDelete, onOpenHR }: any) {
+  const today = localDate();
+  const [selected, setSelected] = useState(today);
+  const weekStart = mondayOf(selected);
+  const week = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+
+  const mine = (data.timesheets || []).filter((entry: any) => entry.employeeId === session.userId);
+  const byDay = (date: string) => mine
+    .filter((entry: any) => entry.date === date)
+    .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)));
+
+  const dayEntries = byDay(selected);
+  const weekMinutes = totalMinutes(mine.filter((entry: any) => entry.date >= weekStart && entry.date <= week[6]));
+
+  return <div className="space-y-4">
+    <AppCard>
+      <div className="flex items-center gap-2">
+        <button onClick={() => setSelected(addDays(weekStart, -7))} aria-label="Previous week" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><ChevronLeft className="h-4 w-4" /></button>
+        <div className="min-w-0 flex-1 text-center">
+          <div className="text-xs font-semibold">{parseDay(weekStart).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short" })} – {parseDay(week[6]).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short" })}</div>
+          <div className="text-[10px] text-muted-foreground">{toHours(weekMinutes)}h logged this week</div>
+        </div>
+        <button onClick={() => setSelected(addDays(weekStart, 7))} aria-label="Next week" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><ChevronRight className="h-4 w-4" /></button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-7 gap-1">{week.map((date) => {
+        const count = byDay(date).length;
+        const isSelected = date === selected;
+        return <button
+          key={date}
+          onClick={() => setSelected(date)}
+          aria-label={`${parseDay(date).toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long" })}, ${count} task${count === 1 ? "" : "s"}`}
+          aria-pressed={isSelected}
+          className={cn(
+            "flex flex-col items-center gap-1 rounded-xl py-2 transition",
+            isSelected ? "bg-foreground text-white" : date === today ? "bg-secondary" : "active:bg-secondary",
+          )}
+        >
+          <span className={cn("text-[9px] uppercase", isSelected ? "text-white/60" : "text-muted-foreground")}>{weekdayShort(date)}</span>
+          <span className="text-sm font-semibold tabular-nums">{Number(date.slice(-2))}</span>
+          {/* A dot means the day has something on it; a gap means it does not. */}
+          <span className={cn("h-1 w-1 rounded-full", count ? (isSelected ? "bg-accent-muted" : "bg-accent") : "bg-transparent")} />
+        </button>;
+      })}</div>
+    </AppCard>
+
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className="truncate text-sm font-semibold">{parseDay(selected).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", weekday: "long", day: "numeric", month: "long" })}</h2>
+        <p className="text-[11px] text-muted-foreground">{dayEntries.length ? `${formatDuration(totalMinutes(dayEntries))} · ${dayEntries.length} task${dayEntries.length === 1 ? "" : "s"}` : "Nothing logged"}</p>
+      </div>
+      <Button size="sm" className="shrink-0" onClick={() => onAdd(selected)}><Plus className="h-3.5 w-3.5" />Add task</Button>
+    </div>
+
+    <div className="space-y-2">{dayEntries.map((entry: any) => <AppCard key={entry.id}>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium leading-5">{entry.task}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+            <span className="tabular-nums">{entry.startTime}–{entry.endTime}</span>
+            <span className="font-semibold text-foreground-soft">{formatDuration(entry.durationMinutes)}</span>
+            {entry.project && <span className="rounded-full bg-muted px-2 py-0.5">{entry.project}</span>}
+            {entry.billable && <span className="rounded-full bg-accent-tint px-2 py-0.5 text-accent-tint-foreground">Billable</span>}
+          </div>
+          {entry.notes && <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{entry.notes}</p>}
+          {entry.overlapWarning && <p className="mt-1.5 text-[11px] text-accent">{entry.overlapWarning}</p>}
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <button onClick={() => onEdit(entry)} aria-label={`Edit ${entry.task}`} className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><Pencil className="h-3.5 w-3.5" /></button>
+          <button onClick={() => onDelete(entry.id)} aria-label={`Delete ${entry.task}`} className="flex h-8 w-8 items-center justify-center rounded-full text-destructive transition active:bg-secondary"><Trash2 className="h-3.5 w-3.5" /></button>
+        </div>
+      </div>
+    </AppCard>)}
+
+    {!dayEntries.length && <AppCard>
+      <div className="py-8 text-center">
+        <ListChecks className="mx-auto h-6 w-6 text-muted-foreground" strokeWidth={1.6} />
+        <p className="mt-3 text-sm font-semibold">Nothing logged yet</p>
+        <p className="mt-1 text-xs text-muted-foreground">Add what you worked on and how long it took.</p>
+      </div>
+    </AppCard>}</div>
+
+    <button onClick={() => onOpenHR("timesheet")} className="flex w-full items-center justify-center gap-2 py-2 text-xs font-semibold text-accent">
+      Monthly report and export<ArrowRight className="h-3.5 w-3.5" />
+    </button>
   </div>;
 }

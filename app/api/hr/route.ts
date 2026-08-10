@@ -823,6 +823,41 @@ export async function POST(request: NextRequest) {
       }
 
       /*
+       * Editing your own record, as its own operation.
+       *
+       * `update` decides what you may write from your *role*, so an HR admin
+       * saving their own details takes the administrator branch — which writes
+       * the whole record from the payload and blanks every field the payload
+       * does not carry. That is correct for the workspace form, which carries
+       * all of them, and destructive for the employee app's, which carries the
+       * handful an employee is allowed to fill in: saving a phone number there
+       * would have wiped a title, a department and a leave balance.
+       *
+       * So intent is stated rather than inferred. This writes the self-editable
+       * set and nothing else, whoever is signed in, and refuses any id but the
+       * caller's own.
+       */
+      if (operation === "self_update") {
+        if (id !== session.userId) throw new HRAuthError("You can only edit your own details here.", 403);
+        const rows = await sql`select * from users where id = ${id} and organization_id = ${ORGANIZATION_ID} limit 1`;
+        if (!rows.length) throw new Error("Employee was not found.");
+
+        const previousMetadata = object(rows[0].metadata);
+        const metadata = {
+          ...previousMetadata,
+          ...Object.fromEntries(SELF_EDITABLE_FIELDS
+            .filter((field) => field in data)
+            .map((field) => [field, field === "spouseWorking" ? bool(data[field])
+              : field === "childRelief" ? Math.max(0, Math.floor(number(data[field])))
+                : clean(data[field])])),
+        };
+
+        const updated = await sql`update users set metadata = ${JSON.stringify(metadata)}::jsonb where id = ${id} and organization_id = ${ORGANIZATION_ID} returning *`;
+        await audit("hr.employee.self_updated", "employee", id, mapEmployee(updated[0]), session.userId);
+        return NextResponse.json(await snapshot(session));
+      }
+
+      /*
        * Completing one onboarding step, as its own operation.
        *
        * It cannot go through `update`: an employee is not allowed to write the
