@@ -13,14 +13,16 @@
  */
 
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Camera, FileText, Loader2, Paperclip, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateInput } from "@/components/date-input";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { HALF_DAY_SESSIONS, leaveProblemFor, validateLeaveRequest } from "@/lib/leave-request";
-import { leaveTypeNames, toLeaveRules } from "@/lib/leave-entitlement";
+import { attachmentRequirementFor, leaveTypeNames, toLeaveRules } from "@/lib/leave-entitlement";
+import { prepareUpload } from "@/lib/compress-image";
+import { checkUpload, describeSize } from "@/lib/upload-limits";
 import type { HRMSSession } from "@/components/hrms-shell";
 import { cn } from "@/lib/utils";
 
@@ -42,23 +44,31 @@ export function HRAppComposer({
   onClose: () => void;
   onSubmit: (payload: any) => Promise<void>;
 }) {
-  const leaveTypes = leaveTypeNames(toLeaveRules(settings?.leaveTypes));
+  const rules = toLeaveRules(settings?.leaveTypes);
+  const leaveTypes = leaveTypeNames(rules);
   const [leave, setLeave] = useState<any>({
     employeeId: session.userId, type: leaveTypes[0] || "Annual Leave",
-    startDate: today(), endDate: today(), halfDay: false, halfDaySession: "first", reason: "",
+    startDate: today(), endDate: today(), halfDay: false, halfDaySession: "first", reason: "", attachmentId: "",
   });
   const [claim, setClaim] = useState<any>({
-    employeeId: session.userId, claimDate: today(), category: "General", amount: "", description: "",
+    employeeId: session.userId, claimDate: today(), category: "General", amount: "", description: "", receiptAssetId: "",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const leaveProblems = kind === "leave" ? validateLeaveRequest(leave) : [];
+  const needs = attachmentRequirementFor(rules, leave.type);
+  const leaveProblems = kind === "leave"
+    ? [
+      ...validateLeaveRequest(leave),
+      ...(needs.required && !leave.attachmentId ? [{ field: "attachment", message: `${needs.label} required` }] : []),
+    ]
+    : [];
   const claimProblems = kind === "claim"
     ? [
       !claim.claimDate ? { field: "claimDate", message: "Choose the date of the expense." } : null,
       !(Number(claim.amount) > 0) ? { field: "amount", message: "Enter an amount." } : null,
       !String(claim.description).trim() ? { field: "description", message: "Say what it was for." } : null,
+      !claim.receiptAssetId ? { field: "attachment", message: "Receipt required" } : null,
     ].filter(Boolean) as { field: string; message: string }[]
     : [];
   const problems = kind === "leave" ? leaveProblems : claimProblems;
@@ -128,6 +138,15 @@ export function HRAppComposer({
           <Field label="Reason">
             <Textarea value={leave.reason} onChange={(event) => setLeave({ ...leave, reason: event.target.value })} className="min-h-24" placeholder="Family vacation" />
           </Field>
+
+          <AppUpload
+            purpose="leave_attachment"
+            employeeId={session.userId}
+            label={needs.required ? needs.label : "Supporting document"}
+            required={needs.required}
+            value={leave.attachmentId}
+            onChange={(id: string) => setLeave({ ...leave, attachmentId: id })}
+          />
         </> : <>
           <Field label="Category">
             <Select value={claim.category} onChange={(event) => setClaim({ ...claim, category: event.target.value })}>
@@ -148,7 +167,22 @@ export function HRAppComposer({
             <Textarea value={claim.description} onChange={(event) => setClaim({ ...claim, description: event.target.value })} className="min-h-24" placeholder="Client lunch · Chef Ammar" />
           </Field>
 
-          <p className="text-[11px] leading-4 text-muted-foreground">Attach the receipt from the full HR workspace — this form keeps the claim moving without it.</p>
+          <AppUpload
+            purpose="claim_receipt"
+            employeeId={session.userId}
+            label="Receipt"
+            required
+            value={claim.receiptAssetId}
+            onChange={(id: string, suggested?: any) => setClaim((current: any) => ({
+              ...current,
+              receiptAssetId: id,
+              // Only fills what has not been typed: a read amount never
+              // overwrites a figure somebody entered deliberately.
+              ...(suggested?.total && !Number(current.amount) ? { amount: String(suggested.total) } : {}),
+              ...(suggested?.documentDate ? { claimDate: suggested.documentDate } : {}),
+              ...(suggested?.vendorName && !String(current.description).trim() ? { description: suggested.vendorName } : {}),
+            }))}
+          />
         </>}
 
         {error && <p className="rounded-xl border border-destructive/25 bg-card p-3 text-xs leading-5 text-destructive">{error}</p>}
@@ -168,4 +202,90 @@ function Field({ label, problem, children }: { label: string; problem?: string; 
     </span>
     <div className="mt-2">{children}</div>
   </label>;
+}
+
+/**
+ * Attaching a receipt or a certificate, from a phone.
+ *
+ * Two buttons rather than one file input: on a phone "Take photo" and "Choose
+ * file" are different intentions, and a single control that opens a picker
+ * with the camera buried inside it is the thing people give up on. `capture`
+ * asks the camera app for the rear lens, which is the one pointed at a
+ * receipt.
+ *
+ * Oversized photographs are resized on the way through — see `upload-limits`
+ * for why the stated 5 MB and what can actually be sent are different numbers.
+ */
+function AppUpload({
+  purpose,
+  employeeId,
+  label,
+  required,
+  value,
+  onChange,
+}: {
+  purpose: "claim_receipt" | "leave_attachment";
+  employeeId: string;
+  label: string;
+  required?: boolean;
+  value?: string;
+  onChange: (id: string, suggested?: any) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [name, setName] = useState("");
+
+  async function upload(file?: File) {
+    if (!file) return;
+    setError(""); setNote("");
+
+    const check = checkUpload({ size: file.size, type: file.type });
+    if (!check.ok) { setError(check.reason); return; }
+
+    setBusy(true);
+    try {
+      const prepared = await prepareUpload(file);
+      const response = await fetch("/api/hr/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purpose, employeeId, filename: file.name, dataUrl: prepared.dataUrl }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Upload failed.");
+      setName(file.name);
+      onChange(result.id, result.suggested);
+      if (prepared.compressed) setNote(`Resized from ${describeSize(prepared.originalBytes)} so it would send.`);
+      else if (purpose === "claim_receipt" && result.suggested?.total) setNote("Read from the receipt — check the amount and date.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div>
+    <span className="flex items-center justify-between gap-2 text-xs font-medium text-foreground-soft">
+      {label}{required && !value && <span className="text-[10px] font-normal text-destructive">Required</span>}
+    </span>
+
+    {value ? <div className="mt-2 flex items-center gap-3 rounded-xl border bg-card p-3">
+      <FileText className="h-4 w-4 shrink-0 text-accent" />
+      <span className="min-w-0 flex-1 truncate text-xs font-medium">{name || "Attached"}</span>
+      <button onClick={() => { onChange(""); setName(""); setNote(""); }} aria-label={`Remove ${label}`} className="text-muted-foreground"><X className="h-4 w-4" /></button>
+    </div> : <div className="mt-2 grid grid-cols-2 gap-2">
+      <label className={cn("flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border bg-card text-xs font-semibold", busy && "opacity-60")}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}Take photo
+        <input type="file" accept="image/*" capture="environment" className="hidden" disabled={busy} onChange={(event) => upload(event.target.files?.[0])} />
+      </label>
+      <label className={cn("flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border bg-card text-xs font-semibold", busy && "opacity-60")}>
+        <Paperclip className="h-4 w-4" />Choose file
+        <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" disabled={busy} onChange={(event) => upload(event.target.files?.[0])} />
+      </label>
+    </div>}
+
+    {note && <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">{note}</p>}
+    {error && <p className="mt-1.5 text-[10px] leading-4 text-destructive">{error}</p>}
+    {!value && !error && <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">JPG, PNG or PDF · up to 5 MB · photos are resized automatically</p>}
+  </div>;
 }

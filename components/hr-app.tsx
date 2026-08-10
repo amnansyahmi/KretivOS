@@ -19,6 +19,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { HRAppShell, type AppTab } from "@/components/hr-app-shell";
 import { AppHome, AppInbox, AppProfile, AppRequests } from "@/components/hr-app-screens";
 import { HRAppComposer, type ComposerKind } from "@/components/hr-app-composer";
+import { HRAttendanceCapture, type Action as ClockAction } from "@/components/hr-photo-attendance";
 import { Button } from "@/components/ui/button";
 import { scopeSnapshotForView } from "@/lib/hr-view-scope";
 import type { HRMSSession } from "@/components/hrms-shell";
@@ -46,6 +47,8 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
   const [raw, setRaw] = useState<any>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [composer, setComposer] = useState<ComposerKind | null>(null);
+  const [clocking, setClocking] = useState<ClockAction | null>(null);
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -153,6 +156,7 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
         onTab={setTab}
         onOpenLeave={() => setComposer("leave")}
         onOpenClaim={() => setComposer("claim")}
+        onClock={setClocking}
         onOpenHR={openHR}
       />}
       {tab === "requests" && <AppRequests
@@ -178,6 +182,34 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
         }}
       />}
     </>}
+
+    {notice && <button
+      onClick={() => setNotice("")}
+      className="fixed inset-x-4 bottom-24 z-[140] rounded-2xl bg-foreground px-4 py-3 text-left text-xs font-medium text-white shadow-2xl"
+    >{notice}</button>}
+
+    {/*
+      * The same capture the workspace uses — camera, GPS, drift check and the
+      * watermarked timestamp. Reused rather than reimplemented: it is the one
+      * path that produces the evidence an attendance dispute turns on.
+      */}
+    {clocking && data && (() => {
+      const me = data.employees.find((item: any) => item.id === session.userId);
+      if (!me) return null;
+      return <HRAttendanceCapture
+        employee={{ id: me.id, name: me.name, status: me.status, workMode: me.workMode, title: me.title }}
+        action={clocking}
+        onClose={() => setClocking(null)}
+        onError={(message: string) => setError(message)}
+        onDone={async (result: any) => {
+          const was = clocking;
+          setClocking(null);
+          await load();
+          setNotice(`${was === "check_in" ? "Clocked in" : "Clocked out"} at ${result.officialTime}.`);
+          window.setTimeout(() => setNotice(""), 6000);
+        }}
+      />;
+    })()}
 
     {composer && data && <HRAppComposer
       kind={composer}

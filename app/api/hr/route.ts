@@ -15,7 +15,7 @@ import {
 import { overtimeForPeriod, toOvertimeRules } from "@/lib/overtime";
 import { DEFAULT_REST_DAYS, datesBetween, workingDates } from "@/lib/work-calendar";
 import {
-  countsCalendarDays, DEFAULT_LEAVE_RULES, entitlementFor, findLeaveRule, toLeaveRules,
+  attachmentRequirementFor, countsCalendarDays, DEFAULT_LEAVE_RULES, entitlementFor, findLeaveRule, toLeaveRules,
 } from "@/lib/leave-entitlement";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
@@ -1054,11 +1054,16 @@ export async function POST(request: NextRequest) {
           if (!employeeId || !record.startDate || !record.endDate || record.days <= 0) throw new Error("Employee and valid leave dates are required.");
           if (record.endDate < record.startDate) throw new Error("Leave end date cannot be before the start date.");
           if (record.halfDay && record.startDate !== record.endDate) throw new Error("Half-day leave must use the same start and end date.");
+          const needs = attachmentRequirementFor(toLeaveRules(object(state.settings).leaveTypes), type);
+          if (needs.required && !clean(record.attachmentId)) throw new Error(`${type} needs a ${needs.label.toLowerCase()} attached.`);
           Object.assign(record, await checkLeaveBalance(state, sql, { employeeId, type, days: record.days, startDate: record.startDate }) ?? {});
           defer.notify("New leave request", `${record.type} request requires review.`, "hr_leave", recordId);
         } else if (resource === "claims") {
           record = { ...record, claimDate: clean(data.claimDate), category: clean(data.category) || "General", amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), status: "Pending", financeStatus: "Unpaid", approverNote: "" };
           if (!employeeId || !record.claimDate || record.amount <= 0 || !record.description) throw new Error("Claim date, amount and description are required.");
+          // Without one a claim is a figure somebody typed, and the reviewer has
+          // nothing to check it against.
+          if (!clean(record.receiptAssetId)) throw new Error("Attach the receipt before submitting this claim.");
           defer.notify("New expense claim", `${record.category} claim requires review.`, "hr_claim", recordId);
         } else if (resource === "payroll") {
           record = { ...record, ...payrollRecord(data), status: "Draft", paidAt: null };
@@ -1159,7 +1164,10 @@ export async function POST(request: NextRequest) {
           if (!clean(data.startDate) || !clean(data.endDate) || clean(data.endDate) < clean(data.startDate) || days <= 0) throw new Error("Valid leave dates are required.");
           if (bool(data.halfDay) && clean(data.startDate) !== clean(data.endDate)) throw new Error("Half-day leave must use the same start and end date.");
           updated = { ...existing, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), halfDaySession: bool(data.halfDay) ? toHalfDaySession(data.halfDaySession) : "", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
-        } else if (resource === "claims") updated = { ...existing, claimDate: clean(data.claimDate), category: clean(data.category) || existing.category, amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), id, updatedAt: now };
+        } else if (resource === "claims") {
+          updated = { ...existing, claimDate: clean(data.claimDate), category: clean(data.category) || existing.category, amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), id, updatedAt: now };
+          if (!clean(updated.receiptAssetId)) throw new Error("Attach the receipt before saving this claim.");
+        }
         else if (resource === "attendance_corrections") updated = { ...existing, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), id, updatedAt: now };
         else if (resource === "lifecycle") updated = { ...existing, type: clean(data.type) || existing.type, title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || existing.status, notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label), id, updatedAt: now };
         else if (resource === "documents") updated = { ...existing, title: clean(data.title), category: clean(data.category) || existing.category, employeeId: clean(data.employeeId), reference: clean(data.reference), expiryDate: clean(data.expiryDate), status: clean(data.status) || existing.status, notes: clean(data.notes), assetId: clean(data.assetId), id, updatedAt: now };
@@ -1194,6 +1202,8 @@ export async function POST(request: NextRequest) {
         }
         else updated = { ...existing, ...data, id, employeeId: existing.employeeId, updatedAt: now };
         if (resource === "leave") {
+          const needs = attachmentRequirementFor(toLeaveRules(object(state.settings).leaveTypes), updated.type);
+          if (needs.required && !clean(updated.attachmentId)) throw new Error(`${updated.type} needs a ${needs.label.toLowerCase()} attached.`);
           Object.assign(updated, await checkLeaveBalance(state, sql, { employeeId: existing.employeeId, type: updated.type, days: updated.days, startDate: updated.startDate, excludeId: id }) ?? {});
         }
         state[key] = list.map((item: any) => item.id === id ? updated : item);

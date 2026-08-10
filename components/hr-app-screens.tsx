@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight, CalendarPlus, ChevronRight, Clock3, FileText, HandCoins,
+  ArrowRight, CalendarPlus, Camera, ChevronRight, Clock3, FileText, HandCoins,
   LogOut, Megaphone, PartyPopper, Receipt, ShieldCheck, Wallet,
 } from "lucide-react";
 import { AppAction, AppCard } from "@/components/hr-app-shell";
@@ -61,7 +61,7 @@ function useElapsed(since: string | null) {
   return { hours: Math.floor(minutes / 60), minutes: minutes % 60 };
 }
 
-export function AppHome({ data, session, today, onTab, onOpenLeave, onOpenClaim, onOpenHR }: any) {
+export function AppHome({ data, session, today, onTab, onOpenLeave, onOpenClaim, onClock, onOpenHR }: any) {
   const employee = data.employees.find((item: any) => item.id === session.userId);
   const leave = data.leaveRequests;
   const claims = data.claims;
@@ -134,8 +134,10 @@ export function AppHome({ data, session, today, onTab, onOpenLeave, onOpenClaim,
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{status.detail}</p>
       </div>}
 
-      {status.action && <Button className="mt-4 h-12 w-full text-sm" onClick={() => onOpenHR("attendance")}>
-        {status.action === "clock_in" ? "Clock In" : "Clock Out"}
+      {/* Straight into the camera: routing to the workspace to clock in was the
+          one action the app existed for and did not perform. */}
+      {status.action && <Button className="mt-4 h-12 w-full text-sm" onClick={() => onClock(status.action === "clock_in" ? "check_in" : "check_out")}>
+        <Camera className="h-4 w-4" />{status.action === "clock_in" ? "Clock In" : "Clock Out"}
       </Button>}
     </AppCard>
 
@@ -143,7 +145,7 @@ export function AppHome({ data, session, today, onTab, onOpenLeave, onOpenClaim,
     <div className="grid grid-cols-4 gap-1">
       <AppAction icon={CalendarPlus} label="Apply Leave" onClick={onOpenLeave} />
       <AppAction icon={Receipt} label="Submit Claim" onClick={onOpenClaim} />
-      <AppAction icon={Clock3} label="Attendance" onClick={() => onOpenHR("attendance")} />
+      <AppAction icon={Camera} label="Clock In/Out" onClick={() => onClock(status.action === "clock_out" ? "check_out" : "check_in")} />
       <AppAction icon={Wallet} label="Payslip" onClick={() => onOpenHR("payslips")} />
     </div>
 
