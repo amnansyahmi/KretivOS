@@ -43,17 +43,28 @@ export function HRAppComposer({
   kind: ComposerKind;
   session: HRMSSession;
   settings: any;
-  /** A task being edited, or the date a new one is being logged against. */
+  /**
+   * The record being edited, or the date a new one is being logged against.
+   * Shared across kinds: a leave request opened from the calendar arrives the
+   * same way a task opened from the week strip does.
+   */
   draft?: any;
   onClose: () => void;
   onSubmit: (payload: any) => Promise<void>;
 }) {
   const rules = toLeaveRules(settings?.leaveTypes);
   const leaveTypes = leaveTypeNames(rules);
-  const [leave, setLeave] = useState<any>({
-    employeeId: session.userId, type: leaveTypes[0] || "Annual Leave",
-    startDate: today(), endDate: today(), halfDay: false, halfDaySession: "first", reason: "", attachmentId: "",
-  });
+  const [leave, setLeave] = useState<any>(() => ({
+    employeeId: session.userId,
+    type: draft?.type || leaveTypes[0] || "Annual Leave",
+    startDate: draft?.startDate || today(),
+    endDate: draft?.endDate || draft?.startDate || today(),
+    halfDay: Boolean(draft?.halfDay),
+    halfDaySession: draft?.halfDaySession || "first",
+    reason: draft?.reason || "",
+    attachmentId: draft?.attachmentId || "",
+    id: draft?.id,
+  }));
   const [claim, setClaim] = useState<any>({
     employeeId: session.userId, claimDate: today(), category: "General", amount: "", description: "", receiptAssetId: "",
   });
@@ -95,7 +106,7 @@ export function HRAppComposer({
     setBusy(true); setError("");
     try {
       await onSubmit(kind === "leave"
-        ? { operation: "create", resource: "leave", data: leave }
+        ? { operation: leave.id ? "update" : "create", resource: "leave", id: leave.id, data: leave }
         : kind === "claim"
           ? { operation: "create", resource: "claims", data: { ...claim, amount: Number(claim.amount) } }
           : { operation: task.id ? "update" : "create", resource: "timesheets", id: task.id, data: task });
@@ -115,7 +126,7 @@ export function HRAppComposer({
       <div className="sticky top-0 z-10 bg-background pt-2">
         <div className="mx-auto h-1 w-10 rounded-full bg-border" />
         <div className="flex items-center justify-between gap-3 px-5 py-3">
-          <h2 className="text-lg font-semibold">{kind === "leave" ? "Apply for leave" : kind === "claim" ? "Submit a claim" : task.id ? "Edit task" : "Log a task"}</h2>
+          <h2 className="text-lg font-semibold">{kind === "leave" ? (leave.id ? "Edit leave request" : "Apply for leave") : kind === "claim" ? "Submit a claim" : task.id ? "Edit task" : "Log a task"}</h2>
           <button onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><X className="h-4 w-4" /></button>
         </div>
       </div>

@@ -16,7 +16,7 @@
  */
 
 import { type ReactNode } from "react";
-import { Bell, FileText, House, Inbox, ListChecks, User } from "lucide-react";
+import { ArrowLeft, Bell, FileText, House, Inbox, ListChecks, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type AppTab = "home" | "timesheet" | "requests" | "inbox" | "profile";
@@ -37,6 +37,7 @@ export function HRAppShell({
   unread,
   pendingRequests,
   onBell,
+  onBack,
   children,
 }: {
   title: string;
@@ -45,6 +46,8 @@ export function HRAppShell({
   unread: number;
   pendingRequests: number;
   onBell: () => void;
+  /** Present on a detail screen, which is a push over a tab rather than a tab. */
+  onBack?: () => void;
   children: ReactNode;
 }) {
   return <div className="flex min-h-dvh flex-col bg-background">
@@ -56,6 +59,18 @@ export function HRAppShell({
       */}
     <header className="sticky top-0 z-30 bg-foreground pt-[env(safe-area-inset-top)] text-white">
       <div className="flex h-14 items-center gap-3 px-5">
+        {/*
+          * Installed, there is no browser chrome and therefore no back button.
+          * Every screen that is not a tab has to supply its own way out or it
+          * is a dead end.
+          */}
+        {onBack && <button
+          onClick={onBack}
+          aria-label="Back"
+          className="-ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/85 transition active:bg-white/10"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>}
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{title}</h1>
         <button
           onClick={onBell}

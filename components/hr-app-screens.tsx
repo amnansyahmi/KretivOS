@@ -1,18 +1,23 @@
 "use client";
 
 /**
- * The four screens of the employee app.
+ * The tabs of the employee app.
  *
  * Each answers one question and stops. Home is "what is today and what can I
- * do"; Requests is "where did my leave and claims get to"; Inbox is what HR
- * has told me; Profile is my record. Anything an employee does monthly rather
- * than daily stays on `/hr`, which this links out to rather than reproducing.
+ * do"; Timesheet is "what did I work on"; Requests is "where did my leave and
+ * claims get to"; Inbox is what HR has told me; Profile is my record.
+ *
+ * What an employee reaches for monthly rather than daily — payslips, the leave
+ * calendar, documents — is a screen pushed over a tab rather than a link out to
+ * `/hr`; those live in `hr-app-detail-screens.tsx`, and the reason they are not
+ * links is written there.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight, CalendarPlus, Camera, ChevronLeft, ChevronRight, Clock3, FileText, HandCoins,
-  ListChecks, LogOut, Megaphone, PartyPopper, Pencil, Plus, Receipt, ShieldCheck, Trash2, Wallet,
+  ArrowRight, CalendarCheck, CalendarPlus, Camera, ChevronLeft, ChevronRight, Clock3, ExternalLink,
+  FileText, HandCoins, ListChecks, LogOut, Megaphone, PartyPopper, Pencil, Plus, Receipt, ShieldCheck,
+  Trash2, Wallet,
 } from "lucide-react";
 import { AppAction, AppCard } from "@/components/hr-app-shell";
 import { StatusBadge } from "@/components/ui/badge";
@@ -207,17 +212,23 @@ export function AppHome({ data, session, today, onTab, onOpenLeave, onOpenClaim,
   </div>;
 }
 
-export function AppRequests({ data, onOpenLeave, onOpenClaim, onOpenHR }: any) {
-  const [filter, setFilter] = useState<"all" | "leave" | "claims">("all");
+export function AppRequests({ data, focus, onOpenLeave, onOpenClaim, onEditLeave, onCancelLeave, onOpenHR }: any) {
+  const [filter, setFilter] = useState<"all" | "leave" | "claims">(focus || "all");
+
+  // Arriving from "My claims" or a claim notification should land on claims,
+  // not on everything with claims somewhere in it.
+  useEffect(() => { if (focus) setFilter(focus); }, [focus]);
 
   const rows = [
     ...(filter === "claims" ? [] : data.leaveRequests.map((item: any) => ({
       id: `l-${item.id}`, kind: "Leave", title: item.type, meta: describeLeaveDuration(item),
       date: item.startDate, endDate: item.endDate, status: item.status, note: item.approverNote, amount: null,
+      record: item,
     }))),
     ...(filter === "leave" ? [] : data.claims.map((item: any) => ({
       id: `c-${item.id}`, kind: "Claim", title: item.category, meta: item.description,
       date: item.claimDate, endDate: item.claimDate, status: item.status, note: item.approverNote, amount: item.amount,
+      record: null,
     }))),
   ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
@@ -253,6 +264,13 @@ export function AppRequests({ data, onOpenLeave, onOpenClaim, onOpenHR }: any) {
           {row.amount !== null && <div className="mt-1.5 text-sm font-semibold">{money(row.amount)}</div>}
         </div>
       </div>
+
+      {/* Withdrawing a request you no longer need is the commonest thing to
+          want from this list, and it was only possible in the workspace. */}
+      {row.record && ["Pending", "Rejected", "Approved"].includes(row.status) && <div className="mt-3 flex gap-2 border-t border-black/5 pt-3">
+        {["Pending", "Rejected"].includes(row.status) && <Button size="sm" variant="outline" className="h-9 flex-1 text-[11px]" onClick={() => onEditLeave(row.record)}>Edit</Button>}
+        {["Pending", "Approved"].includes(row.status) && <Button size="sm" variant="outline" className="h-9 flex-1 text-[11px]" onClick={() => onCancelLeave(row.record.id)}>Cancel</Button>}
+      </div>}
     </AppCard>)}
 
     {!rows.length && <AppCard>
@@ -264,7 +282,7 @@ export function AppRequests({ data, onOpenLeave, onOpenClaim, onOpenHR }: any) {
     </AppCard>}</div>
 
     <button onClick={() => onOpenHR("leave")} className="flex w-full items-center justify-center gap-2 py-2 text-xs font-semibold text-accent">
-      Open the full leave calendar<ArrowRight className="h-3.5 w-3.5" />
+      Open the leave calendar<ArrowRight className="h-3.5 w-3.5" />
     </button>
   </div>;
 }
@@ -318,7 +336,7 @@ function useInstalled() {
   return installed;
 }
 
-export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: any) {
+export function AppProfile({ data, session, onOpenHR, onOpenWorkspace, onSignOut, authEnabled }: any) {
   const employee = data.employees.find((item: any) => item.id === session.userId);
   const installed = useInstalled();
 
@@ -354,9 +372,17 @@ export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: 
       </div>)}</dl>
     </AppCard>
 
+    {/* Every one of these opens a screen in the app. None of them leaves it. */}
     <div className="space-y-2">
-      {([["payslips", Wallet, "My payslips"], ["timesheet", Clock3, "My timesheet"], ["claims", HandCoins, "My claims"], ["documents", FileText, "HR documents"]] as const).map(([tab, Icon, label]) => (
-        <button key={tab} onClick={() => onOpenHR(tab)} className="flex w-full items-center gap-3 rounded-2xl border border-black/8 bg-card p-4 text-left transition active:bg-secondary">
+      {([
+        ["payslips", Wallet, "My payslips"],
+        ["timesheet", Clock3, "My timesheet"],
+        ["claims", HandCoins, "My claims"],
+        ["attendance", CalendarCheck, "My attendance"],
+        ["documents", FileText, "HR documents"],
+        ["team", Megaphone, "Team hub"],
+      ] as const).map(([section, Icon, label]) => (
+        <button key={section} onClick={() => onOpenHR(section)} className="flex w-full items-center gap-3 rounded-2xl border border-black/8 bg-card p-4 text-left transition active:bg-secondary">
           <Icon className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.6} />
           <span className="flex-1 text-sm font-medium">{label}</span>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -379,8 +405,13 @@ export function AppProfile({ data, session, onOpenHR, onSignOut, authEnabled }: 
       </p>
     </AppCard>}
 
-    <button onClick={() => onOpenHR("self")} className="w-full rounded-2xl border border-black/8 bg-card p-4 text-sm font-medium transition active:bg-secondary">
-      Open the full HR workspace
+    {/*
+      * The only way out of the app, and it says so. Everything else on this
+      * screen stays here; this one is a deliberate step into the desktop
+      * workspace, which has no way back into a standalone window.
+      */}
+    <button onClick={onOpenWorkspace} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-black/8 bg-card p-4 text-sm font-medium transition active:bg-secondary">
+      Open the full HR workspace<ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
     </button>
 
     {authEnabled && <Button variant="outline" className="w-full bg-card text-destructive" onClick={onSignOut}>

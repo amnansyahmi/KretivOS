@@ -22,18 +22,13 @@ import { StatusBadge } from "@/components/ui/badge";
 import { toLeaveRules } from "@/lib/leave-entitlement";
 import { myLeaveBalances } from "@/lib/my-hr-summary";
 import { describeLeaveDuration, shortLeaveLabel } from "@/lib/leave-request";
-import { fixedHolidays, mergeHolidays, missingGazettedHolidays } from "@/lib/work-calendar";
+import { holidayMap, leaveDayMap, monthCells, shiftMonth } from "@/lib/leave-calendar";
+import { missingGazettedHolidays } from "@/lib/work-calendar";
 import { cn } from "@/lib/utils";
 
 const localDate = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 const monthTitle = (value: string) => new Date(`${value}-01T00:00:00+08:00`).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", month: "long", year: "numeric" });
 const dateLabel = (value?: string) => value ? new Date(`${String(value).slice(0, 10)}T00:00:00+08:00`).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short", year: "numeric" }) : "—";
-
-function shiftMonth(value: string, amount: number) {
-  const [year, month] = value.split("-").map(Number);
-  const next = new Date(Date.UTC(year, month - 1 + amount, 1));
-  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 export function HRMyLeave({ employee, requests, publicHolidays, settings, onCreate, onCancel, onEdit }: any) {
   const [month, setMonth] = useState(() => localDate().slice(0, 7));
@@ -46,46 +41,21 @@ export function HRMyLeave({ employee, requests, publicHolidays, settings, onCrea
    * The configured list, plus the Malaysian holidays that fall on the same date
    * every year. Without the second half the calendar was simply blank until
    * somebody typed a year of dates in by hand, which is the state it was
-   * actually shipped in. Configured entries always win — a state variation or a
-   * company day was chosen deliberately.
+   * actually shipped in.
    */
-  const holidays = useMemo(() => {
-    const configured = (publicHolidays || []).filter((item: any) => item?.date && item?.name);
-    const seeded = fixedHolidays(Number(month.slice(0, 4)), String(settings?.attendance?.state || "Selangor"));
-    const configuredDates = new Set(configured.map((item: any) => String(item.date)));
-    return new Map<string, { name: string; confirmed: boolean }>(
-      mergeHolidays(configured, seeded).map((item) => [item.date, { name: item.name, confirmed: configuredDates.has(item.date) }]),
-    );
-  }, [publicHolidays, month, settings]);
+  const holidays = useMemo(
+    () => holidayMap(publicHolidays, Number(month.slice(0, 4)), String(settings?.attendance?.state || "Selangor")),
+    [publicHolidays, month, settings],
+  );
 
   /* The ones nobody can seed, so the gap is visible rather than discovered. */
   const missingHolidays = useMemo(
     () => missingGazettedHolidays((publicHolidays || []) as any, Number(month.slice(0, 4))),
     [publicHolidays, month],
   );
-  const leaveDays = useMemo(() => {
-    const map = new Map<string, any[]>();
-    for (const request of requests) {
-      if (!["Pending", "Approved"].includes(request.status)) continue;
-      const start = String(request.startDate || "");
-      const end = String(request.endDate || start);
-      if (!start) continue;
-      const cursor = new Date(`${start}T00:00:00Z`);
-      const last = new Date(`${end}T00:00:00Z`);
-      for (let guard = 0; guard < 400 && cursor <= last; guard += 1) {
-        const date = cursor.toISOString().slice(0, 10);
-        map.set(date, [...(map.get(date) ?? []), request]);
-        cursor.setUTCDate(cursor.getUTCDate() + 1);
-      }
-    }
-    return map;
-  }, [requests]);
+  const leaveDays = useMemo(() => leaveDayMap(requests), [requests]);
 
-  const [yearNumber, monthNumber] = month.split("-").map(Number);
-  const firstDay = new Date(Date.UTC(yearNumber, monthNumber - 1, 1)).getUTCDay();
-  const dayCount = new Date(Date.UTC(yearNumber, monthNumber, 0)).getUTCDate();
-  const cells: (number | null)[] = Array.from({ length: firstDay + dayCount }, (_, index) => index < firstDay ? null : index - firstDay + 1);
-  while (cells.length % 7) cells.push(null);
+  const cells = monthCells(month);
   const today = localDate();
 
   const upcoming = requests
@@ -127,9 +97,9 @@ export function HRMyLeave({ employee, requests, publicHolidays, settings, onCrea
         * dot and the detail opens underneath — which also gives the leave on
         * that day somewhere to be cancelled from.
         */}
-      <div className="grid grid-cols-7 gap-1">{cells.map((day, index) => {
-        if (!day) return <div key={`empty-${index}`} className="aspect-square rounded-lg bg-black/[.015] sm:min-h-16" />;
-        const date = `${month}-${String(day).padStart(2, "0")}`;
+      <div className="grid grid-cols-7 gap-1">{cells.map((date, index) => {
+        if (!date) return <div key={`empty-${index}`} className="aspect-square rounded-lg bg-black/[.015] sm:min-h-16" />;
+        const day = Number(date.slice(-2));
         const holiday = holidays.get(date);
         const dayLeave = leaveDays.get(date) ?? [];
         const approved = dayLeave.find((item: any) => item.status === "Approved");
