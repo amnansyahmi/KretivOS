@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { HALF_DAY_SESSIONS, leaveProblemFor, validateLeaveRequest } from "@/lib/leave-request";
 import { attachmentRequirementFor, leaveTypeNames, toLeaveRules } from "@/lib/leave-entitlement";
 import { certificateCoverage, certificateNameMismatch } from "@/lib/medical-certificate";
+import { receiptPatient } from "@/lib/medical-receipt";
 import { prepareUpload } from "@/lib/compress-image";
 import { checkUpload, describeSize } from "@/lib/upload-limits";
 import { formatDuration, validateEntry } from "@/lib/timesheet";
@@ -84,6 +85,8 @@ export function HRAppComposer({
   const [error, setError] = useState("");
   /** What was read off an attached certificate, for the checks below the form. */
   const [certificate, setCertificate] = useState<any>(null);
+  /** The same for a clinic receipt on a medical claim. */
+  const [receipt, setReceipt] = useState<any>(null);
   /**
    * Whether the dates are the employee's rather than the defaults. A
    * certificate fills an untouched form; it never argues with somebody who has
@@ -94,6 +97,19 @@ export function HRAppComposer({
   const needs = attachmentRequirementFor(rules, leave.type);
   const coverage = certificateCoverage(certificate, leave);
   const nameMismatch = certificateNameMismatch(certificate, session.name);
+
+  /*
+   * Everything a clinic receipt disagreed with, in one list. The name check
+   * runs here rather than on the server because the server does not know who
+   * is filling the form in — only that somebody uploaded a file.
+   */
+  const receiptNotes: string[] = receipt?.kind === "medical_receipt"
+    ? [
+      receipt.amountNote,
+      ...(receipt.warnings ?? []),
+      receiptPatient(receipt, session.name).message,
+    ].filter(Boolean)
+    : [];
   const leaveProblems = kind === "leave"
     ? [
       ...validateLeaveRequest(leave),
@@ -265,19 +281,38 @@ export function HRAppComposer({
           <AppUpload
             purpose="claim_receipt"
             employeeId={session.userId}
+            // A medical claim is read by a different extractor, because a
+            // clinic receipt stacks four amounts and the one that matters is
+            // the payment made, not the last or largest figure on the page.
+            category={claim.category}
             label="Receipt"
             required
             value={claim.receiptAssetId}
-            onChange={(id: string, suggested?: any) => setClaim((current: any) => ({
-              ...current,
-              receiptAssetId: id,
-              // Only fills what has not been typed: a read amount never
-              // overwrites a figure somebody entered deliberately.
-              ...(suggested?.total && !Number(current.amount) ? { amount: String(suggested.total) } : {}),
-              ...(suggested?.documentDate ? { claimDate: suggested.documentDate } : {}),
-              ...(suggested?.vendorName && !String(current.description).trim() ? { description: suggested.vendorName } : {}),
-            }))}
+            onChange={(id: string, suggested?: any) => {
+              setReceipt(id ? suggested ?? null : null);
+              setClaim((current: any) => ({
+                ...current,
+                receiptAssetId: id,
+                // Only fills what has not been typed: a read amount never
+                // overwrites a figure somebody entered deliberately.
+                ...(suggested?.total && !Number(current.amount) ? { amount: String(suggested.total) } : {}),
+                ...(suggested?.documentDate ? { claimDate: suggested.documentDate } : {}),
+                // A clinic receipt says what the visit was for, which is a
+                // better description than the clinic's name on its own.
+                ...(!String(current.description).trim() && (suggested?.treatment || suggested?.vendorName)
+                  ? { description: [suggested.vendorName, suggested.treatment].filter(Boolean).join(" · ") }
+                  : {}),
+              }));
+            }}
           />
+
+          {/*
+            * What the receipt disagreed with, and who it is for. Shown rather
+            * than blocked: a part-paid bill, a claim for a dependant and a
+            * smudged figure are all legitimate things to submit, and the
+            * approver is the one who decides.
+            */}
+          {receiptNotes.map((note) => <p key={note} className="rounded-xl bg-accent-tint px-3 py-2.5 text-[11px] leading-4 text-accent-tint-foreground">{note}</p>)}
         </>}
 
         {error && <p className="rounded-xl border border-destructive/25 bg-card p-3 text-xs leading-5 text-destructive">{error}</p>}
@@ -329,6 +364,7 @@ function Field({ label, problem, children }: { label: string; problem?: string; 
 function AppUpload({
   purpose,
   employeeId,
+  category,
   label,
   required,
   value,
@@ -336,6 +372,8 @@ function AppUpload({
 }: {
   purpose: "claim_receipt" | "leave_attachment";
   employeeId: string;
+  /** The claim category, which decides how the server reads the receipt. */
+  category?: string;
   label: string;
   required?: boolean;
   value?: string;
@@ -359,7 +397,7 @@ function AppUpload({
       const response = await fetch("/api/hr/files", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purpose, employeeId, filename: file.name, dataUrl: prepared.dataUrl }),
+        body: JSON.stringify({ purpose, employeeId, category, filename: file.name, dataUrl: prepared.dataUrl }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Upload failed.");
@@ -371,10 +409,18 @@ function AppUpload({
        * blindly after that; a line naming what was read invites the glance
        * that catches a misread date.
        */
+      // Ordered most specific first. A medical receipt also satisfies the
+      // generic claim test below it, so checking that first would mean the
+      // clinic-specific line never appeared.
       if (prepared.compressed) setNote(`Resized from ${describeSize(prepared.originalBytes)} so it would send.`);
-      else if (purpose === "claim_receipt" && result.suggested?.total) setNote("Read from the receipt — check the amount and date.");
+      else if (result.suggested?.kind === "medical_receipt") {
+        setNote(result.suggested.total
+          ? "Read from the receipt — the amount is what was paid, not the bill total."
+          : "The amount could not be read clearly, so key it in.");
+      }
       else if (purpose === "leave_attachment" && result.suggested?.prefill) setNote("Dates read from the certificate — check them before submitting.");
       else if (purpose === "leave_attachment" && result.suggested?.ok) setNote("The dates on the certificate could not be read clearly, so key them in.");
+      else if (purpose === "claim_receipt" && result.suggested?.total) setNote("Read from the receipt — check the amount and date.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Upload failed.");
     } finally {
