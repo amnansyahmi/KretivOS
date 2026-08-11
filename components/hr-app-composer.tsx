@@ -299,7 +299,14 @@ function taskMinutes(entry: any) {
 }
 
 function Field({ label, problem, children }: { label: string; problem?: string; children: React.ReactNode }) {
-  return <label className="block">
+  /*
+   * min-w-0: a grid item's default min-width is auto — its content's min-content
+   * size — not 0, so `w-full` on the input inside does not stop it. iOS Safari's
+   * native time picker has an intrinsic width to fit "10:00 AM" plus its wheel
+   * affordance, and in a two-column grid at phone width that pushed the second
+   * field off the right edge of the screen instead of shrinking to fit.
+   */
+  return <label className="block min-w-0">
     <span className="flex items-center justify-between gap-2 text-xs font-medium text-foreground-soft">
       {label}{problem && <span className={cn("text-[10px] font-normal text-destructive")}>{problem}</span>}
     </span>
