@@ -28,6 +28,12 @@ export type TimesheetEntry = {
   category?: string;
   notes?: string;
   billable?: boolean;
+  /**
+   * A photograph of the work, optionally. A storyboard frame or a site photo
+   * says more about a day than a line of text does, and a timesheet is the
+   * record a client dispute over billed hours is settled from.
+   */
+  attachmentId?: string;
   /** Set by the API when the entry shares minutes with another on the same day. */
   overlapWarning?: string;
 };
@@ -107,6 +113,7 @@ export function normaliseEntry(entry: TimesheetEntry): TimesheetEntry {
     durationMinutes: durationBetween(startTime, endTime) ?? 0,
     project: clean(entry.project).slice(0, 120),
     category: clean(entry.category).slice(0, 60),
+    attachmentId: clean(entry.attachmentId),
     notes: clean(entry.notes).slice(0, 1000),
     billable: Boolean(entry.billable),
   };
@@ -175,4 +182,39 @@ export function entriesForPeriod(entries: TimesheetEntry[], employeeId: string, 
   return entries
     .filter((entry) => clean(entry.employeeId) === clean(employeeId) && clean(entry.date).startsWith(clean(period)))
     .sort((a, b) => clean(a.date).localeCompare(clean(b.date)) || clean(a.startTime).localeCompare(clean(b.startTime)));
+}
+
+/**
+ * One CSV cell, escaped.
+ *
+ * Every field is quoted rather than only the ones that need it. A task
+ * description is free text: it contains commas, quotation marks and the
+ * occasional newline pasted out of a brief, and any of those unquoted turns one
+ * row into two or shifts every column after it. Quoting unconditionally costs a
+ * few bytes and removes the question.
+ */
+function csvCell(value: unknown) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+/**
+ * A timesheet as CSV, for the export button.
+ *
+ * CRLF line endings because the file is opened in Excel far more often than
+ * anywhere else, and Excel on Windows is the one reader that still cares.
+ *
+ * `employeeName` is passed in rather than looked up: the employee app knows
+ * only its own user, the workspace knows everybody, and neither should have to
+ * hand this function a directory it does not have.
+ */
+export function timesheetCsv(entries: TimesheetEntry[], employeeName: (id: string) => string): string {
+  const headers = ["Date", "Team member", "Task", "Project", "From", "To", "Hours", "Billable", "Notes"];
+  const rows = [...(Array.isArray(entries) ? entries : [])]
+    .sort((a, b) => clean(a.date).localeCompare(clean(b.date)) || clean(a.startTime).localeCompare(clean(b.startTime)))
+    .map((entry) => [
+      entry.date, employeeName(clean(entry.employeeId)), entry.task, entry.project ?? "",
+      entry.startTime, entry.endTime, toHours(entry.durationMinutes), entry.billable ? "Yes" : "No", entry.notes ?? "",
+    ]);
+
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
 }

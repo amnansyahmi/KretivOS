@@ -17,6 +17,9 @@ import { DEFAULT_REST_DAYS, datesBetween, workingDates } from "@/lib/work-calend
 import {
   attachmentRequirementFor, countsCalendarDays, DEFAULT_LEAVE_RULES, entitlementFor, findLeaveRule, toLeaveRules,
 } from "@/lib/leave-entitlement";
+import {
+  CLAIMANT_RELATIONS, claimBalance, DEFAULT_CLAIM_RULES, findClaimRule, toClaimRules, validateClaim,
+} from "@/lib/claim-entitlement";
 import { sendPushToUsers } from "@/lib/push";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
@@ -61,6 +64,7 @@ const defaultOperations = {
   settings: {
     departments: ["Leadership", "Marketing", "Creative", "Technology", "Finance", "Operations"],
     leaveTypes: DEFAULT_LEAVE_RULES,
+    claimTypes: DEFAULT_CLAIM_RULES,
     workModes: ["Office", "Remote", "Hybrid", "Client Site"],
     /*
      * `state` drives the rest days and which state holidays are offered.
@@ -548,6 +552,60 @@ function leaveDates(state: Record<string, any>, start: string, end: string) {
     restDays: restDays.length ? restDays : DEFAULT_REST_DAYS,
     holidays,
   });
+}
+
+/**
+ * The fields a claim is made of.
+ *
+ * A claim used to be a category, an amount, a date and a sentence — enough to
+ * reimburse a taxi fare, and not enough for a benefit. `incurredAt`, the bill's
+ * own date and number, and who the claim is for were all either absent or
+ * buried in the free-text description, which meant an approver checking a
+ * medical claim against a policy had to open the receipt image to find any of
+ * it.
+ *
+ * `claimDate` is when it was filed and `receiptDate` is the date printed on the
+ * bill. They are usually days apart, and it is the second that decides which
+ * year's allowance the claim comes out of.
+ */
+function claimFields(data: Record<string, any>, existing: Record<string, any> = {}) {
+  const relation = clean(data.claimingFor);
+  return {
+    claimDate: clean(data.claimDate) || clean(existing.claimDate),
+    category: clean(data.category) || clean(existing.category) || "General",
+    amount: Math.max(0, number(data.amount)),
+    currency: clean(data.currency) || clean(existing.currency) || "MYR",
+    claimingFor: CLAIMANT_RELATIONS.includes(relation as any) ? relation : "Self",
+    // Only kept for a dependant: a name left behind after switching back to
+    // Self would show a claim as somebody else's on every list that reads it.
+    claimingForName: relation && relation !== "Self" ? clean(data.claimingForName) : "",
+    incurredAt: clean(data.incurredAt),
+    receiptDate: clean(data.receiptDate),
+    receiptNumber: clean(data.receiptNumber),
+    description: clean(data.description),
+    receiptAssetId: clean(data.receiptAssetId),
+  };
+}
+
+/**
+ * Refuses a claim the same rules the form refuses.
+ *
+ * Checked again here because the form's copy of the rules runs in a browser,
+ * and the entitlement in particular has to be measured against what everybody
+ * else has already claimed — which only the server can see.
+ */
+function assertClaimIsValid(state: Record<string, any>, record: Record<string, any>, employeeId: string, excludeId = "") {
+  const rules = toClaimRules(object(state.settings).claimTypes);
+  const rule = findClaimRule(rules, record.category);
+
+  const year = Number((clean(record.receiptDate) || clean(record.claimDate)).slice(0, 4)) || new Date().getFullYear();
+  const mine = array(state.claims)
+    .filter((claim: any) => clean(claim.employeeId) === employeeId && clean(claim.id) !== excludeId);
+  const balance = claimBalance(rules, record.category, mine, year);
+
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const problems = validateClaim(record, rule, balance, today);
+  if (problems.length) throw new Error(problems[0].message);
 }
 
 /**
@@ -1040,6 +1098,7 @@ export async function POST(request: NextRequest) {
           ...object(state.settings),
           departments: uniqueList(data.departments, defaultOperations.settings.departments),
           leaveTypes: toLeaveRules(array(data.leaveTypes).length ? data.leaveTypes : defaultOperations.settings.leaveTypes),
+          claimTypes: toClaimRules(array(data.claimTypes).length ? data.claimTypes : defaultOperations.settings.claimTypes),
           workModes: uniqueList(data.workModes, defaultOperations.settings.workModes),
           attendance: {
             timezone: clean(attendance.timezone) || "Asia/Kuala_Lumpur",
@@ -1112,11 +1171,9 @@ export async function POST(request: NextRequest) {
           Object.assign(record, await checkLeaveBalance(state, sql, { employeeId, type, days: record.days, startDate: record.startDate }) ?? {});
           defer.notify("New leave request", `${record.type} request requires review.`, "hr_leave", recordId);
         } else if (resource === "claims") {
-          record = { ...record, claimDate: clean(data.claimDate), category: clean(data.category) || "General", amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), status: "Pending", financeStatus: "Unpaid", approverNote: "" };
-          if (!employeeId || !record.claimDate || record.amount <= 0 || !record.description) throw new Error("Claim date, amount and description are required.");
-          // Without one a claim is a figure somebody typed, and the reviewer has
-          // nothing to check it against.
-          if (!clean(record.receiptAssetId)) throw new Error("Attach the receipt before submitting this claim.");
+          record = { ...record, ...claimFields(data), status: "Pending", financeStatus: "Unpaid", approverNote: "" };
+          if (!employeeId) throw new Error("A claim needs an employee.");
+          assertClaimIsValid(state, record, employeeId);
           defer.notify("New expense claim", `${record.category} claim requires review.`, "hr_claim", recordId);
         } else if (resource === "payroll") {
           record = { ...record, ...payrollRecord(data), status: "Draft", paidAt: null };
@@ -1218,8 +1275,10 @@ export async function POST(request: NextRequest) {
           if (bool(data.halfDay) && clean(data.startDate) !== clean(data.endDate)) throw new Error("Half-day leave must use the same start and end date.");
           updated = { ...existing, type, startDate: clean(data.startDate), endDate: clean(data.endDate), days, halfDay: bool(data.halfDay), halfDaySession: bool(data.halfDay) ? toHalfDaySession(data.halfDaySession) : "", reason: clean(data.reason), handoverTo: clean(data.handoverTo), attachmentId: clean(data.attachmentId), id, updatedAt: now };
         } else if (resource === "claims") {
-          updated = { ...existing, claimDate: clean(data.claimDate), category: clean(data.category) || existing.category, amount: Math.max(0, number(data.amount)), description: clean(data.description), receiptAssetId: clean(data.receiptAssetId), id, updatedAt: now };
-          if (!clean(updated.receiptAssetId)) throw new Error("Attach the receipt before saving this claim.");
+          updated = { ...existing, ...claimFields(data, existing), id, updatedAt: now };
+          // Excluding itself, so editing a pending claim is not refused against
+          // the entitlement its own amount is already holding.
+          assertClaimIsValid(state, updated, clean(existing.employeeId), id);
         }
         else if (resource === "attendance_corrections") updated = { ...existing, attendanceId: clean(data.attendanceId), date: clean(data.date), requestedCheckIn: clean(data.requestedCheckIn), requestedCheckOut: clean(data.requestedCheckOut), reason: clean(data.reason), id, updatedAt: now };
         else if (resource === "lifecycle") updated = { ...existing, type: clean(data.type) || existing.type, title: clean(data.title), dueDate: clean(data.dueDate), status: clean(data.status) || existing.status, notes: clean(data.notes), tasks: array(data.tasks).map((task: any) => ({ id: clean(task.id) || randomUUID(), label: clean(task.label), done: bool(task.done) })).filter((task: any) => task.label), id, updatedAt: now };

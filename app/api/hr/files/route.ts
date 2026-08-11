@@ -17,7 +17,7 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
  * little for the `data:...;base64,` prefix.
  */
 const MAX_DATA_URL_CHARACTERS = Math.ceil(MAX_UPLOAD_BYTES * 4 / 3) + 200;
-const ALLOWED_PURPOSES = new Set(["claim_receipt", "leave_attachment", "hr_document"]);
+const ALLOWED_PURPOSES = new Set(["claim_receipt", "leave_attachment", "hr_document", "timesheet_attachment"]);
 const clean = (value: unknown) => String(value ?? "").trim();
 const object = (value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 

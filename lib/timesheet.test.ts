@@ -10,10 +10,11 @@ import {
   overlapsWith,
   summariseByDay,
   summariseByProject,
+  timesheetCsv,
   toHours,
   totalMinutes,
-  validateEntry,
   type TimesheetEntry,
+  validateEntry,
 } from "./timesheet.ts";
 
 const valid: TimesheetEntry = {
@@ -151,4 +152,48 @@ test("a period is one person's month, in the order the day happened", () => {
     "2026-08-05 14:00",
     "2026-08-06 09:00",
   ]);
+});
+
+test("a timesheet exports with a header and one row per entry", () => {
+  const csv = timesheetCsv([
+    { employeeId: "e1", date: "2026-08-11", task: "Storyboard", project: "Chef Ammar", startTime: "09:00", endTime: "12:30", durationMinutes: 210, billable: true },
+  ], () => "Amirul Hafiz");
+  const lines = csv.split("\r\n");
+
+  assert.equal(lines.length, 2);
+  assert.ok(lines[0].startsWith('"Date","Team member"'));
+  assert.ok(lines[1].includes('"Amirul Hafiz"'));
+  assert.ok(lines[1].includes('"3.5"'), "hours, not minutes");
+  assert.ok(lines[1].includes('"Yes"'));
+});
+
+test("free text cannot break out of its cell", () => {
+  // A task description holds commas, quotes and the odd pasted newline. Any of
+  // them unescaped turns one row into two, or shifts every column after it.
+  const csv = timesheetCsv([
+    { employeeId: "e1", date: "2026-08-11", task: 'Revise "hero" shot, then grade', notes: "line one\nline two", startTime: "09:00", endTime: "10:00", durationMinutes: 60 },
+  ], () => "Amirul");
+
+  const row = csv.split("\r\n")[1];
+  assert.ok(row.includes('"Revise ""hero"" shot, then grade"'), row);
+  // A newline inside a quoted cell is valid CSV; the row must still be one row
+  // as far as the quoting is concerned.
+  assert.equal((row.match(/","/g) ?? []).length, 8, "nine columns, so eight separators");
+});
+
+test("rows come out in date then start-time order", () => {
+  const csv = timesheetCsv([
+    { employeeId: "e1", date: "2026-08-12", task: "B", startTime: "09:00", endTime: "10:00" },
+    { employeeId: "e1", date: "2026-08-11", task: "A2", startTime: "14:00", endTime: "15:00" },
+    { employeeId: "e1", date: "2026-08-11", task: "A1", startTime: "09:00", endTime: "10:00" },
+  ], () => "x");
+
+  const tasks = csv.split("\r\n").slice(1).map((row) => row.split(",")[2]);
+  assert.deepEqual(tasks, ['"A1"', '"A2"', '"B"']);
+});
+
+test("an empty timesheet still exports its header", () => {
+  const csv = timesheetCsv([], () => "x");
+  assert.equal(csv.split("\r\n").length, 1);
+  assert.ok(csv.startsWith('"Date"'));
 });
