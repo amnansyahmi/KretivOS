@@ -71,6 +71,13 @@ export function HRAppShell({
         >
           <ArrowLeft className="h-5 w-5" />
         </button>}
+        {/*
+          * The mark alone, and only where there is no back button. The full
+          * wordmark cannot go here — "Kretiv" is near-black and disappears into
+          * this header — and at 390px a back arrow, a mark, a title and a bell
+          * is one thing too many for the row.
+          */}
+        {!onBack && <img src="/icons/hr-mark.png" alt="" aria-hidden className="h-7 w-7 shrink-0" />}
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{title}</h1>
         <button
           onClick={onBell}
