@@ -142,6 +142,35 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
     }
   }, [search, router]);
 
+  /**
+   * Opens a workspace section wherever the app has a screen for it.
+   *
+   * Falls through to `/hr` only for sections with no employee-sized screen.
+   * That is the one deliberate way out of the app, and every caller that uses
+   * it says so on the button.
+   */
+  const openSection = useCallback((section: string) => {
+    const route = SECTION_ROUTES[section];
+    if (!route) { router.push(`/hr?section=${section}`); return; }
+    if (route.tab) setTab(route.tab);
+    setRequestFocus(route.focus ?? "all");
+    setView(route.view ?? null);
+    window.scrollTo({ top: 0 });
+  }, [router]);
+
+  /*
+   * Where a tapped push notification lands. The service worker navigates the
+   * app to `/hr/app?section=…`, which the shortcut handler above ignores, so
+   * without this a notification about a payslip opened the Home screen.
+   * Cleared from the URL for the same reason as `do`.
+   */
+  useEffect(() => {
+    const section = search.get("section");
+    if (!section) return;
+    openSection(section);
+    router.replace("/hr/app", { scroll: false });
+  }, [search, router, openSection]);
+
   // Always the employee lens, whatever the session's own role is: this surface
   // exists to be the employee view, and an admin opening it should see what
   // their team sees rather than the whole organisation on a phone.
@@ -160,22 +189,6 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
       setNotifications(next.notifications || []);
     } catch { /* An inbox that will not mark read is not worth an error screen. */ }
   }
-
-  /**
-   * Opens a workspace section wherever the app has a screen for it.
-   *
-   * Falls through to `/hr` only for sections with no employee-sized screen.
-   * That is the one deliberate way out of the app, and every caller that uses
-   * it says so on the button.
-   */
-  const openSection = useCallback((section: string) => {
-    const route = SECTION_ROUTES[section];
-    if (!route) { router.push(`/hr?section=${section}`); return; }
-    if (route.tab) setTab(route.tab);
-    setRequestFocus(route.focus ?? "all");
-    setView(route.view ?? null);
-    window.scrollTo({ top: 0 });
-  }, [router]);
 
   async function openNotification(item: any) {
     if (!item.read) {

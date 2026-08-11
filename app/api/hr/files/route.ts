@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 import { extractDocument } from "@/lib/ocr";
+import { extractMedicalCertificate, suggestLeaveFromCertificate } from "@/lib/medical-certificate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -42,8 +43,7 @@ function parseFile(value: unknown) {
  * Suggestions only — nothing is written from this, and the reviewer still sees
  * whatever the claimant finally submitted.
  */
-async function readClaimReceipt(purpose: string, dataUrl: string) {
-  if (purpose !== "claim_receipt") return null;
+async function readClaimReceipt(dataUrl: string) {
   try {
     const extraction = await extractDocument({ imageDataUrl: dataUrl, kind: "receipt" });
     if (!extraction.ok) return null;
@@ -57,6 +57,53 @@ async function readClaimReceipt(purpose: string, dataUrl: string) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Read a medical certificate so the sick leave dates do not have to be keyed.
+ *
+ * A receipt has been read on upload since claims shipped; a certificate was
+ * stored and never opened, so somebody attaching an MC still typed the dates
+ * off it by hand — and nothing ever compared the two. The dates come back as
+ * suggestions the employee confirms, and `coverage` is the part that matters to
+ * an approver: whether the certificate actually spans the days being asked for.
+ *
+ * Same contract as the receipt reader: suggestions only, nothing written, and a
+ * failure returns null rather than throwing.
+ */
+async function readMedicalCertificate(dataUrl: string) {
+  try {
+    const certificate = await extractMedicalCertificate({ imageDataUrl: dataUrl });
+    if (!certificate.ok) return null;
+    return {
+      kind: "medical_certificate",
+      ok: true,
+      // What was read, which the coverage check needs whether or not it was
+      // read well enough to prefill the form.
+      startDate: certificate.startDate ?? "",
+      endDate: certificate.endDate ?? "",
+      // Whether it was read well enough to put in the form unasked. A
+      // half-read date dropped into a field is worse than an empty one,
+      // because an empty field gets filled in and a wrong one gets submitted.
+      prefill: Boolean(suggestLeaveFromCertificate(certificate)),
+      clinicName: certificate.clinicName,
+      practitioner: certificate.practitioner,
+      certificateNumber: certificate.certificateNumber,
+      patientName: certificate.patientName,
+      days: certificate.rangeDays,
+      confidence: certificate.confidence,
+      warnings: certificate.warnings,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Whichever reader the purpose calls for, or none. */
+async function readUpload(purpose: string, dataUrl: string) {
+  if (purpose === "claim_receipt") return readClaimReceipt(dataUrl);
+  if (purpose === "leave_attachment") return readMedicalCertificate(dataUrl);
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -87,7 +134,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       id, filename, purpose, mimeType: file.mimeType, fileSize: file.size,
       url: `/api/hr/files/${id}`,
-      suggested: await readClaimReceipt(purpose, file.dataUrl),
+      suggested: await readUpload(purpose, file.dataUrl),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to upload HR file.";

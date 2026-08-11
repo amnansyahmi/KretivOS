@@ -20,6 +20,7 @@ import {
   Trash2, Wallet,
 } from "lucide-react";
 import { AppAction, AppCard } from "@/components/hr-app-shell";
+import { HRPushToggle } from "@/components/hr-push-toggle";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { myLeaveBalances, todayStatus, type TodayStatus } from "@/lib/my-hr-summary";
@@ -389,6 +390,8 @@ export function AppProfile({ data, session, onOpenHR, onOpenWorkspace, onSignOut
         </button>
       ))}
     </div>
+
+    <HRPushToggle />
 
     {/*
       * Shown only when this is running in a browser tab. Installed, it would be

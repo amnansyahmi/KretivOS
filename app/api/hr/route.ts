@@ -17,6 +17,7 @@ import { DEFAULT_REST_DAYS, datesBetween, workingDates } from "@/lib/work-calend
 import {
   attachmentRequirementFor, countsCalendarDays, DEFAULT_LEAVE_RULES, entitlementFor, findLeaveRule, toLeaveRules,
 } from "@/lib/leave-entitlement";
+import { sendPushToUsers } from "@/lib/push";
 import { neonWorkspaceStore } from "@/lib/workspace-store";
 
 export const dynamic = "force-dynamic";
@@ -338,18 +339,35 @@ async function audit(action: string, entityType: string, entityId: string | null
 async function notify(title: string, body: string, entityType: string, entityId: string, userId?: string) {
   try {
     const sql = getDatabase();
-    if (userId === "*") {
-      await sql`
+    /*
+     * The row is the record and the push is a courtesy on top of it, so the
+     * insert happens first and the push is never allowed to fail it. Recipients
+     * are read back from the insert rather than assumed: a broadcast goes to
+     * whoever was active at the time, and guessing that list twice is how the
+     * two halves drift apart.
+     */
+    const recipients = userId === "*"
+      ? await sql`
         insert into notifications (organization_id, user_id, title, body, type, status, entity_type, entity_id)
         select ${ORGANIZATION_ID}, id, ${title}, ${body}, 'hr', 'Unread', ${entityType}, ${entityId}
         from users where organization_id = ${ORGANIZATION_ID} and status = 'active'
+        returning id, user_id
+      `
+      : await sql`
+        insert into notifications (organization_id, user_id, title, body, type, status, entity_type, entity_id)
+        values (${ORGANIZATION_ID}, ${userId || null}, ${title}, ${body}, 'hr', 'Unread', ${entityType}, ${entityId})
+        returning id, user_id
       `;
-      return;
+
+    const userIds = recipients.map((row: any) => row.user_id).filter(Boolean);
+    if (userIds.length) {
+      await sendPushToUsers(userIds, {
+        // Only meaningful when there is one recipient; a broadcast row differs
+        // per person and the tap falls back to the section either way.
+        id: recipients.length === 1 ? recipients[0].id : "",
+        title, body, entityType, entityId,
+      }).catch(() => undefined);
     }
-    await sql`
-      insert into notifications (organization_id, user_id, title, body, type, status, entity_type, entity_id)
-      values (${ORGANIZATION_ID}, ${userId || null}, ${title}, ${body}, 'hr', 'Unread', ${entityType}, ${entityId})
-    `;
   } catch {}
 }
 

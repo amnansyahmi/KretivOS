@@ -39,6 +39,24 @@ apply `db/migrations/0005_hrms_security.sql`, set `HRMS_AUTH_ENABLED=true` and
 statutory rates are versioned operational inputs; HR and Finance must verify EPF,
 SOCSO, EIS and PCB values against the official Malaysian portals before closing payroll.
 
+#### The employee app
+
+`/hr/app` is the same data on a phone: five tabs, its own manifest and its own
+icon, installable to a home screen. Everything an employee does about themselves
+happens inside it — payslips, leave, timesheet, claims, documents, their own
+details — and the only link that leaves is labelled "Open the full HR workspace".
+
+Notifications reach a closed app once a VAPID keypair is set (see `.env.example`)
+and `db/migrations/0015_push_subscriptions.sql` is applied. Without keys the
+in-app bell and Inbox work exactly as before and the setup card hides itself.
+
+Two platform limits, neither of which is a bug in this app. Long-pressing the
+home-screen icon shows no app shortcuts on iPhone — Apple has never implemented
+the manifest `shortcuts` field, so only Edit, Share and Delete appear; the same
+icon on Android shows all four. And iOS delivers push only to an app added to
+the home screen, never to a Safari tab, so the app asks people to install it
+first before offering the switch.
+
 #### Commercial documents with line items
 
 A template that uses the `{{line_items}}` variable — Quotation, Invoice and any
