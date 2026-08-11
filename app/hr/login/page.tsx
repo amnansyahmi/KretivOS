@@ -60,14 +60,12 @@ export default function HRLoginPage() {
       <Link href="/" className="mb-5 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to KretivOS</Link>
 
       {/*
-        * The wordmark sits here, on the page's cream, rather than inside the
-        * card's dark header. "Kretiv" is drawn in near-black, so on the dark
-        * green it reads as a hole between the mark and "HR"; on cream the whole
-        * lockup is legible. Unoptimised because it is a transparent PNG whose
-        * exact edges are the brand, and the optimiser's re-encoding is not
-        * worth the risk on a single 60px-tall image.
+        * The mark sits here, on the page's cream, rather than inside the card's
+        * dark header — it carries its own magenta outline and does not need a
+        * dark field behind it. Taller than a wordmark would be, because this
+        * lockup is close to square: at wordmark height it would be a thumbnail.
         */}
-      <img src="/icons/hr-wordmark.png" alt="KretivHR" className="mb-5 h-9 w-auto" />
+      <img src="/icons/hr-mark.png" alt="KretivHR" className="mb-5 h-16 w-auto" />
 
       <Card className="overflow-hidden border-black/8 bg-white/90 shadow-xl">
         {/* The generic people glyph that used to sit here read as a second,
