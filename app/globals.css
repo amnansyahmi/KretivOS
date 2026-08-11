@@ -325,3 +325,37 @@ button {
     padding-top: .55rem;
   }
 }
+
+/*
+ * Stop iOS zooming the page when a field is focused.
+ *
+ * Safari zooms in on any input whose font-size is under 16px, which is most of
+ * them here — the forms use 14px. The zoom is not a pinch the user asked for
+ * and it does not undo itself, so tapping a field left the app enlarged with
+ * its fixed bars pushed off the edges of the screen.
+ *
+ * Scoped to coarse pointers so a desktop keeps the denser type it was designed
+ * with. Checkboxes and radios are exempt because their size comes from width
+ * and height, not from font-size, and 16px would inflate their tap targets.
+ */
+@media (pointer: coarse) {
+  /*
+   * `:not(:disabled)` is doing two jobs. It is true — a field that cannot be
+   * focused cannot trigger the zoom — and it lifts these above Tailwind's
+   * `text-sm`, which a bare element selector loses to on specificity. Without
+   * it `select` and `textarea` stayed at 14px and still zoomed.
+   */
+  input:not([type="checkbox"]):not([type="radio"]):not(:disabled),
+  select:not(:disabled),
+  textarea:not(:disabled) {
+    font-size: 16px;
+  }
+}
+
+/*
+ * And stop the double-tap-to-zoom gesture, which also removes the 300ms delay
+ * browsers hold every tap for while they wait to see if a second one is coming.
+ */
+body {
+  touch-action: manipulation;
+}

@@ -29,6 +29,7 @@ import { missingGazettedHolidays } from "@/lib/work-calendar";
 import { toLeaveRules } from "@/lib/leave-entitlement";
 import { myLeaveBalances } from "@/lib/my-hr-summary";
 import { describeLeaveDuration, shortLeaveLabel } from "@/lib/leave-request";
+import { entriesForPeriod, formatDuration, summariseByProject, timesheetCsv, toHours, totalMinutes } from "@/lib/timesheet";
 import { cn } from "@/lib/utils";
 
 const localDate = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -442,5 +443,85 @@ export function AppDetails({ data, session, onSave, saving, error }: any) {
     <Button className="h-12 w-full" disabled={saving} onClick={() => onSave(draft)}>
       {saving ? "Saving…" : "Save my details"}
     </Button>
+  </div>;
+}
+
+/**
+ * The monthly timesheet, and a file to send somebody.
+ *
+ * The Timesheet tab answers "what did I do today"; this answers "what did I do
+ * this month, and can I prove it". They are different questions, which is why
+ * the link at the foot of the tab used to point at the tab it was already on
+ * and appear to do nothing when tapped.
+ *
+ * The export is generated in the browser rather than fetched, so it works with
+ * whatever the app already has and needs no endpoint of its own.
+ */
+export function AppTimesheetReport({ data, session }: any) {
+  const [month, setMonth] = useState(() => localDate().slice(0, 7));
+
+  const mine = (data.timesheets || []).filter((entry: any) => entry.employeeId === session.userId);
+  const entries = entriesForPeriod(mine, session.userId, month);
+  const minutes = totalMinutes(entries);
+  const billableMinutes = totalMinutes(entries.filter((entry: any) => entry.billable));
+  const byProject = summariseByProject(entries);
+  const days = new Set(entries.map((entry: any) => entry.date)).size;
+
+  function download() {
+    const employee = data.employees.find((item: any) => item.id === session.userId);
+    const csv = timesheetCsv(entries, () => employee?.name || session.name);
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `timesheet-${month}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return <div className="space-y-4">
+    <AppCard>
+      <div className="flex items-center gap-2">
+        <button onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><ChevronLeft className="h-4 w-4" /></button>
+        <button onClick={() => setMonth(localDate().slice(0, 7))} className="min-w-0 flex-1 truncate text-center text-sm font-semibold">{monthTitle(month)}</button>
+        <button onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month" className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition active:bg-secondary"><ChevronRight className="h-4 w-4" /></button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+        {([["Logged", `${toHours(minutes)}h`], ["Billable", `${toHours(billableMinutes)}h`], ["Days", String(days)]] as const).map(([label, value]) => <div key={label}>
+          <div className="text-xl font-semibold tabular-nums">{value}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">{label}</div>
+        </div>)}
+      </div>
+    </AppCard>
+
+    <AppCard title="By project">
+      <div className="space-y-3">{byProject.map((row: any) => <div key={row.project}>
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="truncate text-xs">{row.project || "No project"}</span>
+          <span className="shrink-0 text-xs font-semibold tabular-nums">{toHours(row.minutes)}h</span>
+        </div>
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-accent" style={{ width: `${minutes ? Math.max(3, row.minutes / minutes * 100) : 0}%` }} />
+        </div>
+      </div>)}
+      {!byProject.length && <p className="text-xs text-muted-foreground">Nothing logged this month.</p>}</div>
+    </AppCard>
+
+    <Button variant="outline" className="h-12 w-full bg-card" disabled={!entries.length} onClick={download}>
+      <Download className="h-4 w-4" />Export {month} as CSV
+    </Button>
+
+    <AppCard title="Every entry">
+      <div className="space-y-3">{entries.map((entry: any) => <div key={entry.id} className="flex items-start gap-3 border-b border-black/5 pb-3 last:border-0 last:pb-0">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium leading-4">{entry.task}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">
+            {dayLabel(entry.date)} · {entry.startTime}–{entry.endTime}{entry.project ? ` · ${entry.project}` : ""}
+          </div>
+        </div>
+        <span className="shrink-0 text-[11px] font-semibold tabular-nums">{formatDuration(entry.durationMinutes)}</span>
+      </div>)}
+      {!entries.length && <p className="text-xs text-muted-foreground">Nothing logged this month.</p>}</div>
+    </AppCard>
   </div>;
 }

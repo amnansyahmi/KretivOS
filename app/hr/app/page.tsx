@@ -37,7 +37,12 @@ export const viewport: Viewport = {
   themeColor: "#202c25",
   width: "device-width",
   initialScale: 1,
+  // An installed app should not pinch-zoom: it is a fixed layout with fixed
+  // bars, and a zoomed one leaves the tab bar off-screen with no way back.
+  // Safari ignores this in a browser tab, which is the right call there and
+  // why the layout below also has to survive being zoomed.
   maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
 };
 

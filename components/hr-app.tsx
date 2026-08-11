@@ -22,7 +22,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { HRAppShell, type AppTab } from "@/components/hr-app-shell";
 import { AppHome, AppInbox, AppProfile, AppRequests, AppTimesheet } from "@/components/hr-app-screens";
 import {
-  AppAttendance, AppDetails, AppDocuments, AppLeaveCalendar, AppPayslips, AppTeam,
+  AppAttendance, AppDetails, AppDocuments, AppLeaveCalendar, AppPayslips, AppTeam, AppTimesheetReport,
 } from "@/components/hr-app-detail-screens";
 import { HRAppComposer, type ComposerKind } from "@/components/hr-app-composer";
 import { HRAttendanceCapture, type Action as ClockAction } from "@/components/hr-photo-attendance";
@@ -31,7 +31,7 @@ import { scopeSnapshotForView } from "@/lib/hr-view-scope";
 import type { HRMSSession } from "@/components/hrms-shell";
 
 /** A screen pushed over a tab. Not a tab itself — it has a Back button. */
-type AppView = "calendar" | "payslips" | "documents" | "details" | "team" | "attendance";
+type AppView = "calendar" | "payslips" | "documents" | "details" | "team" | "attendance" | "timesheet-report";
 
 const TITLES: Record<AppTab, string> = {
   home: "HR Portal",
@@ -48,6 +48,7 @@ const VIEW_TITLES: Record<AppView, string> = {
   details: "My details",
   team: "Team hub",
   attendance: "My attendance",
+  "timesheet-report": "Monthly report",
 };
 
 /**
@@ -262,6 +263,7 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
     {data && view === "documents" && <AppDocuments data={data} session={session} />}
     {data && view === "team" && <AppTeam data={data} />}
     {data && view === "attendance" && <AppAttendance data={data} />}
+    {data && view === "timesheet-report" && <AppTimesheetReport data={data} session={session} />}
     {data && view === "details" && <AppDetails
       data={data}
       session={session}
@@ -290,7 +292,7 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
           try { setRaw(await requestJson("/api/hr", { method: "POST", body: JSON.stringify({ operation: "delete", resource: "timesheets", id }) })); }
           catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete that task."); }
         }}
-        onOpenHR={openSection}
+        onReport={() => { setView("timesheet-report"); window.scrollTo({ top: 0 }); }}
       />}
       {tab === "requests" && <AppRequests
         data={data}
@@ -352,6 +354,7 @@ export function HREmployeeApp({ session }: { session: HRMSSession }) {
       kind={composer}
       session={session}
       settings={data.settings}
+      claims={data.claims}
       draft={draft}
       onClose={() => { setComposer(null); setDraft(null); }}
       onSubmit={submit}

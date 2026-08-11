@@ -25,6 +25,7 @@ import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { myLeaveBalances, todayStatus, type TodayStatus } from "@/lib/my-hr-summary";
 import { toLeaveRules } from "@/lib/leave-entitlement";
+import { describeClaimant } from "@/lib/claim-entitlement";
 import { describeLeaveDuration } from "@/lib/leave-request";
 import { formatDuration, toHours, totalMinutes } from "@/lib/timesheet";
 import { fixedHolidays, mergeHolidays } from "@/lib/work-calendar";
@@ -227,8 +228,13 @@ export function AppRequests({ data, focus, onOpenLeave, onOpenClaim, onEditLeave
       record: item,
     }))),
     ...(filter === "leave" ? [] : data.claims.map((item: any) => ({
-      id: `c-${item.id}`, kind: "Claim", title: item.category, meta: item.description,
-      date: item.claimDate, endDate: item.claimDate, status: item.status, note: item.approverNote, amount: item.amount,
+      id: `c-${item.id}`, kind: "Claim", title: item.category,
+      // Where and who, which is what an approver checks a claim on. The
+      // description is a sentence somebody wrote; these are facts off the bill.
+      meta: [item.incurredAt, describeClaimant(item) !== "Self" ? describeClaimant(item) : "", item.description]
+        .filter(Boolean).join(" · "),
+      date: item.receiptDate || item.claimDate, endDate: item.receiptDate || item.claimDate,
+      status: item.status, note: item.approverNote, amount: item.amount,
       record: null,
     }))),
   ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
@@ -441,7 +447,7 @@ const weekdayShort = (value: string) => parseDay(value).toLocaleDateString("en-M
  * One day at a time below it, because a day holds as many tasks as it took and
  * showing seven days of them at once is how a log becomes a wall.
  */
-export function AppTimesheet({ data, session, onAdd, onEdit, onDelete, onOpenHR }: any) {
+export function AppTimesheet({ data, session, onAdd, onEdit, onDelete, onReport }: any) {
   const today = localDate();
   const [selected, setSelected] = useState(today);
   const weekStart = mondayOf(selected);
@@ -506,6 +512,9 @@ export function AppTimesheet({ data, session, onAdd, onEdit, onDelete, onOpenHR 
             {entry.billable && <span className="rounded-full bg-accent-tint px-2 py-0.5 text-accent-tint-foreground">Billable</span>}
           </div>
           {entry.notes && <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{entry.notes}</p>}
+          {entry.attachmentId && <a href={`/api/hr/files/${entry.attachmentId}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-accent">
+            <Camera className="h-3.5 w-3.5" />Photo
+          </a>}
           {entry.overlapWarning && <p className="mt-1.5 text-[11px] text-accent">{entry.overlapWarning}</p>}
         </div>
         <div className="flex shrink-0 gap-1">
@@ -523,7 +532,9 @@ export function AppTimesheet({ data, session, onAdd, onEdit, onDelete, onOpenHR 
       </div>
     </AppCard>}</div>
 
-    <button onClick={() => onOpenHR("timesheet")} className="flex w-full items-center justify-center gap-2 py-2 text-xs font-semibold text-accent">
+    {/* Opened a screen of its own now. It used to route to the section this
+        tab already is, so tapping it appeared to do nothing. */}
+    <button onClick={onReport} className="flex w-full items-center justify-center gap-2 py-2 text-xs font-semibold text-accent">
       Monthly report and export<ArrowRight className="h-3.5 w-3.5" />
     </button>
   </div>;

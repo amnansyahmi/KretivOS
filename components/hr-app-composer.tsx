@@ -15,13 +15,17 @@
 import { useState } from "react";
 import { Camera, FileText, Loader2, Paperclip, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DateInput } from "@/components/date-input";
+import { DateInput, TimeInput } from "@/components/date-input";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { HALF_DAY_SESSIONS, leaveProblemFor, validateLeaveRequest } from "@/lib/leave-request";
 import { attachmentRequirementFor, leaveTypeNames, toLeaveRules } from "@/lib/leave-entitlement";
 import { certificateCoverage, certificateNameMismatch } from "@/lib/medical-certificate";
+import { receiptPatient } from "@/lib/medical-receipt";
+import {
+  CLAIMANT_RELATIONS, claimBalance, claimTypeNames, findClaimRule, toClaimRules, validateClaim,
+} from "@/lib/claim-entitlement";
 import { prepareUpload } from "@/lib/compress-image";
 import { checkUpload, describeSize } from "@/lib/upload-limits";
 import { formatDuration, validateEntry } from "@/lib/timesheet";
@@ -30,13 +34,13 @@ import { cn } from "@/lib/utils";
 
 export type ComposerKind = "leave" | "claim" | "task";
 
-const CLAIM_CATEGORIES = ["General", "Travel", "Meals", "Medical", "Software", "Equipment", "Client expense"];
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 export function HRAppComposer({
   kind,
   session,
   settings,
+  claims,
   draft,
   onClose,
   onSubmit,
@@ -44,6 +48,8 @@ export function HRAppComposer({
   kind: ComposerKind;
   session: HRMSSession;
   settings: any;
+  /** The employee's own claims, for measuring what is left of an allowance. */
+  claims?: any[];
   /**
    * The record being edited, or the date a new one is being logged against.
    * Shared across kinds: a leave request opened from the calendar arrives the
@@ -55,6 +61,7 @@ export function HRAppComposer({
 }) {
   const rules = toLeaveRules(settings?.leaveTypes);
   const leaveTypes = leaveTypeNames(rules);
+  const claimRules = toClaimRules(settings?.claimTypes);
   const [leave, setLeave] = useState<any>(() => ({
     employeeId: session.userId,
     type: draft?.type || leaveTypes[0] || "Annual Leave",
@@ -67,7 +74,20 @@ export function HRAppComposer({
     id: draft?.id,
   }));
   const [claim, setClaim] = useState<any>({
-    employeeId: session.userId, claimDate: today(), category: "General", amount: "", description: "", receiptAssetId: "",
+    employeeId: session.userId,
+    claimDate: today(),
+    category: claimTypeNames(toClaimRules(settings?.claimTypes))[0] || "General",
+    amount: "",
+    currency: "MYR",
+    claimingFor: "Self",
+    claimingForName: "",
+    incurredAt: "",
+    // The date on the bill, which is usually not today and is what decides
+    // which year's allowance this comes out of.
+    receiptDate: "",
+    receiptNumber: "",
+    description: "",
+    receiptAssetId: "",
   });
   const [task, setTask] = useState<any>(() => ({
     employeeId: session.userId,
@@ -77,6 +97,7 @@ export function HRAppComposer({
     endTime: draft?.endTime || "10:00",
     project: draft?.project || "",
     notes: draft?.notes || "",
+    attachmentId: draft?.attachmentId || "",
     billable: Boolean(draft?.billable),
     id: draft?.id,
   }));
@@ -84,36 +105,62 @@ export function HRAppComposer({
   const [error, setError] = useState("");
   /** What was read off an attached certificate, for the checks below the form. */
   const [certificate, setCertificate] = useState<any>(null);
+  /** The same for a clinic receipt on a medical claim. */
+  const [receipt, setReceipt] = useState<any>(null);
   /**
    * Whether the dates are the employee's rather than the defaults. A
    * certificate fills an untouched form; it never argues with somebody who has
    * already chosen the days they are asking for.
    */
   const [datesTouched, setDatesTouched] = useState(false);
+  const [showProblems, setShowProblems] = useState(false);
 
   const needs = attachmentRequirementFor(rules, leave.type);
   const coverage = certificateCoverage(certificate, leave);
   const nameMismatch = certificateNameMismatch(certificate, session.name);
+
+  /*
+   * Everything a clinic receipt disagreed with, in one list. The name check
+   * runs here rather than on the server because the server does not know who
+   * is filling the form in — only that somebody uploaded a file.
+   */
+  const receiptNotes: string[] = receipt?.kind === "medical_receipt"
+    ? [
+      receipt.amountNote,
+      ...(receipt.warnings ?? []),
+      receiptPatient(receipt, session.name).message,
+    ].filter(Boolean)
+    : [];
   const leaveProblems = kind === "leave"
     ? [
       ...validateLeaveRequest(leave),
       ...(needs.required && !leave.attachmentId ? [{ field: "attachment", message: `${needs.label} required` }] : []),
     ]
     : [];
-  const claimProblems = kind === "claim"
-    ? [
-      !claim.claimDate ? { field: "claimDate", message: "Choose the date of the expense." } : null,
-      !(Number(claim.amount) > 0) ? { field: "amount", message: "Enter an amount." } : null,
-      !String(claim.description).trim() ? { field: "description", message: "Say what it was for." } : null,
-      !claim.receiptAssetId ? { field: "attachment", message: "Receipt required" } : null,
-    ].filter(Boolean) as { field: string; message: string }[]
-    : [];
+  /*
+   * The same module the server validates with, so the form cannot submit
+   * something the API will refuse. The balance is only as good as the claims
+   * this session can see — the server measures it again against everything.
+   */
+  const claimRule = findClaimRule(claimRules, claim.category);
+  const balance = kind === "claim"
+    ? claimBalance(claimRules, claim.category, claims ?? [], Number((claim.receiptDate || today()).slice(0, 4)))
+    : null;
+  const claimProblems = kind === "claim" ? validateClaim(claim, claimRule, balance, today()) : [];
   const taskProblems = kind === "task" ? validateEntry(task) : [];
   const problems = kind === "leave" ? leaveProblems : kind === "claim" ? claimProblems : taskProblems;
-  const problemFor = (field: string) => problems.find((problem) => problem.field === field)?.message ?? "";
+  /*
+   * Nothing is marked wrong until somebody tries to submit. A form that opens
+   * with four fields already in red reads as broken rather than as a checklist,
+   * and none of it is the employee's fault yet.
+   */
+  const problemFor = (field: string) => showProblems ? problems.find((problem) => problem.field === field)?.message ?? "" : "";
 
   async function submit() {
-    if (problems.length || busy) return;
+    if (busy) return;
+    // Revealed rather than pre-empted by a disabled button: a button that does
+    // nothing and says nothing is worse than one that names what is missing.
+    if (problems.length) { setShowProblems(true); return; }
     setBusy(true); setError("");
     try {
       await onSubmit(kind === "leave"
@@ -154,10 +201,10 @@ export function HRAppComposer({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="From" problem={problemFor("startTime")}>
-              <Input type="time" value={task.startTime} onChange={(event) => setTask({ ...task, startTime: event.target.value })} />
+              <TimeInput value={task.startTime} onChange={(event) => setTask({ ...task, startTime: event.target.value })} />
             </Field>
             <Field label="To" problem={problemFor("endTime")}>
-              <Input type="time" value={task.endTime} onChange={(event) => setTask({ ...task, endTime: event.target.value })} />
+              <TimeInput value={task.endTime} onChange={(event) => setTask({ ...task, endTime: event.target.value })} />
             </Field>
           </div>
 
@@ -173,6 +220,21 @@ export function HRAppComposer({
           <Field label="Notes">
             <Textarea value={task.notes} onChange={(event) => setTask({ ...task, notes: event.target.value })} className="min-h-20" />
           </Field>
+
+          {/*
+            * Optional, unlike a receipt or a certificate. A photograph of the
+            * work is worth having — a storyboard frame, a set-up shot, a screen
+            * — because a timesheet is the record a client dispute over billed
+            * hours is settled from, but a day spent in meetings has nothing to
+            * photograph and must not be blocked for it.
+            */}
+          <AppUpload
+            purpose="timesheet_attachment"
+            employeeId={session.userId}
+            label="Photo (optional)"
+            value={task.attachmentId}
+            onChange={(id: string) => setTask((current: any) => ({ ...current, attachmentId: id }))}
+          />
 
           {!problems.length && <p className="text-[11px] text-muted-foreground">{formatDuration(taskMinutes(task))} on this task.</p>}
         </> : kind === "leave" ? <>
@@ -243,46 +305,104 @@ export function HRAppComposer({
           {coverage.message && <p className="rounded-xl bg-accent-tint px-3 py-2.5 text-[11px] leading-4 text-accent-tint-foreground">{coverage.message}</p>}
           {nameMismatch && <p className="rounded-xl bg-accent-tint px-3 py-2.5 text-[11px] leading-4 text-accent-tint-foreground">{nameMismatch}</p>}
         </> : <>
-          <Field label="Category">
+          <Field label="Claim type">
             <Select value={claim.category} onChange={(event) => setClaim({ ...claim, category: event.target.value })}>
-              {CLAIM_CATEGORIES.map((item) => <option key={item}>{item}</option>)}
+              {claimTypeNames(claimRules).map((item) => <option key={item}>{item}</option>)}
             </Select>
           </Field>
 
+          {/*
+            * The allowance, above the amount rather than beside it. A cap is
+            * only useful before the figure is typed — read afterwards it is a
+            * rejection.
+            */}
+          {balance?.capped && <div className="rounded-xl bg-card p-3">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[11px] text-muted-foreground">{balance.name} left this year</span>
+              <span className="text-sm font-semibold tabular-nums">RM {balance.remaining.toFixed(2)}</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${balance.entitlement ? Math.min(100, balance.remaining / balance.entitlement * 100) : 0}%` }} />
+            </div>
+            <div className="mt-1.5 text-[10px] text-muted-foreground">
+              RM {balance.claimed.toFixed(2)} claimed{balance.pending > 0 ? ` · RM ${balance.pending.toFixed(2)} pending` : ""} of RM {balance.entitlement.toFixed(2)}
+            </div>
+          </div>}
+
+          {claimRule?.allowsDependants && <div className="grid grid-cols-2 gap-3">
+            <Field label="Claiming for" problem={problemFor("claimingFor")}>
+              <Select value={claim.claimingFor} onChange={(event) => setClaim({ ...claim, claimingFor: event.target.value })}>
+                {CLAIMANT_RELATIONS.map((item) => <option key={item}>{item}</option>)}
+              </Select>
+            </Field>
+            {claim.claimingFor !== "Self" && <Field label="Their name" problem={problemFor("claimingForName")}>
+              <Input value={claim.claimingForName} onChange={(event) => setClaim({ ...claim, claimingForName: event.target.value })} placeholder="Nur Anis" />
+            </Field>}
+          </div>}
+
+          <Field label="Incurred at" problem={problemFor("incurredAt")}>
+            <Input value={claim.incurredAt} onChange={(event) => setClaim({ ...claim, incurredAt: event.target.value })} placeholder="Klinik Mediviron Seksyen 22" />
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Date" problem={problemFor("claimDate")}>
-              <DateInput value={claim.claimDate} onChange={(event) => setClaim({ ...claim, claimDate: event.target.value })} />
+            <Field label="Bill date" problem={problemFor("receiptDate")}>
+              <DateInput value={claim.receiptDate} onChange={(event) => setClaim({ ...claim, receiptDate: event.target.value })} />
             </Field>
             <Field label="Amount (RM)" problem={problemFor("amount")}>
               <Input type="number" inputMode="decimal" min="0" step="0.01" value={claim.amount} onChange={(event) => setClaim({ ...claim, amount: event.target.value })} placeholder="0.00" />
             </Field>
           </div>
 
+          <Field label="Bill or receipt number" problem={problemFor("receiptNumber")}>
+            <Input value={claim.receiptNumber} onChange={(event) => setClaim({ ...claim, receiptNumber: event.target.value })} placeholder="RCC0000125968" />
+          </Field>
+
           <Field label="What was it for" problem={problemFor("description")}>
-            <Textarea value={claim.description} onChange={(event) => setClaim({ ...claim, description: event.target.value })} className="min-h-24" placeholder="Client lunch · Chef Ammar" />
+            <Textarea value={claim.description} onChange={(event) => setClaim({ ...claim, description: event.target.value })} className="min-h-20" placeholder="Consultation and medication" />
           </Field>
 
           <AppUpload
             purpose="claim_receipt"
             employeeId={session.userId}
+            // A medical claim is read by a different extractor, because a
+            // clinic receipt stacks four amounts and the one that matters is
+            // the payment made, not the last or largest figure on the page.
+            category={claim.category}
             label="Receipt"
             required
             value={claim.receiptAssetId}
-            onChange={(id: string, suggested?: any) => setClaim((current: any) => ({
-              ...current,
-              receiptAssetId: id,
-              // Only fills what has not been typed: a read amount never
-              // overwrites a figure somebody entered deliberately.
-              ...(suggested?.total && !Number(current.amount) ? { amount: String(suggested.total) } : {}),
-              ...(suggested?.documentDate ? { claimDate: suggested.documentDate } : {}),
-              ...(suggested?.vendorName && !String(current.description).trim() ? { description: suggested.vendorName } : {}),
-            }))}
+            onChange={(id: string, suggested?: any) => {
+              setReceipt(id ? suggested ?? null : null);
+              /*
+               * The receipt carries every field the form asks for, which is the
+               * point of reading it: where it was incurred, the date and number
+               * on the bill, and the amount. Each fills only an empty field —
+               * anything typed deliberately is never overwritten.
+               */
+              setClaim((current: any) => ({
+                ...current,
+                receiptAssetId: id,
+                ...(suggested?.total && !Number(current.amount) ? { amount: String(suggested.total) } : {}),
+                ...(suggested?.documentDate && !current.receiptDate ? { receiptDate: suggested.documentDate } : {}),
+                ...(suggested?.vendorName && !current.incurredAt ? { incurredAt: suggested.vendorName } : {}),
+                ...(suggested?.reference && !current.receiptNumber ? { receiptNumber: suggested.reference } : {}),
+                ...(suggested?.treatment && !String(current.description).trim() ? { description: suggested.treatment } : {}),
+              }));
+            }}
           />
+
+          {/*
+            * What the receipt disagreed with, and who it is for. Shown rather
+            * than blocked: a part-paid bill, a claim for a dependant and a
+            * smudged figure are all legitimate things to submit, and the
+            * approver is the one who decides.
+            */}
+          {receiptNotes.map((note) => <p key={note} className="rounded-xl bg-accent-tint px-3 py-2.5 text-[11px] leading-4 text-accent-tint-foreground">{note}</p>)}
         </>}
 
         {error && <p className="rounded-xl border border-destructive/25 bg-card p-3 text-xs leading-5 text-destructive">{error}</p>}
 
-        <Button className="h-12 w-full" onClick={submit} disabled={busy || problems.length > 0}>
+        <Button className="h-12 w-full" onClick={submit} disabled={busy}>
           {busy ? "Saving…" : kind === "task" ? "Save task" : "Submit Request"}
         </Button>
       </div>
@@ -307,10 +427,15 @@ function Field({ label, problem, children }: { label: string; problem?: string; 
    * field off the right edge of the screen instead of shrinking to fit.
    */
   return <label className="block min-w-0">
-    <span className="flex items-center justify-between gap-2 text-xs font-medium text-foreground-soft">
-      {label}{problem && <span className={cn("text-[10px] font-normal text-destructive")}>{problem}</span>}
-    </span>
+    <span className="block text-xs font-medium text-foreground-soft">{label}</span>
     <div className="mt-2">{children}</div>
+    {/*
+      * Under the control rather than beside the label. Beside it, a two-column
+      * row at phone width gave the message half the space and the label the
+      * other half, and both wrapped — "Bill date" broke over two lines to make
+      * room for "Enter the date on the bill."
+      */}
+    {problem && <span className="mt-1 block text-[10px] leading-4 text-destructive">{problem}</span>}
   </label>;
 }
 
@@ -329,13 +454,16 @@ function Field({ label, problem, children }: { label: string; problem?: string; 
 function AppUpload({
   purpose,
   employeeId,
+  category,
   label,
   required,
   value,
   onChange,
 }: {
-  purpose: "claim_receipt" | "leave_attachment";
+  purpose: "claim_receipt" | "leave_attachment" | "timesheet_attachment";
   employeeId: string;
+  /** The claim category, which decides how the server reads the receipt. */
+  category?: string;
   label: string;
   required?: boolean;
   value?: string;
@@ -359,7 +487,7 @@ function AppUpload({
       const response = await fetch("/api/hr/files", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purpose, employeeId, filename: file.name, dataUrl: prepared.dataUrl }),
+        body: JSON.stringify({ purpose, employeeId, category, filename: file.name, dataUrl: prepared.dataUrl }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Upload failed.");
@@ -371,10 +499,18 @@ function AppUpload({
        * blindly after that; a line naming what was read invites the glance
        * that catches a misread date.
        */
+      // Ordered most specific first. A medical receipt also satisfies the
+      // generic claim test below it, so checking that first would mean the
+      // clinic-specific line never appeared.
       if (prepared.compressed) setNote(`Resized from ${describeSize(prepared.originalBytes)} so it would send.`);
-      else if (purpose === "claim_receipt" && result.suggested?.total) setNote("Read from the receipt — check the amount and date.");
+      else if (result.suggested?.kind === "medical_receipt") {
+        setNote(result.suggested.total
+          ? "Read from the receipt — the amount is what was paid, not the bill total."
+          : "The amount could not be read clearly, so key it in.");
+      }
       else if (purpose === "leave_attachment" && result.suggested?.prefill) setNote("Dates read from the certificate — check them before submitting.");
       else if (purpose === "leave_attachment" && result.suggested?.ok) setNote("The dates on the certificate could not be read clearly, so key them in.");
+      else if (purpose === "claim_receipt" && result.suggested?.total) setNote("Read from the receipt — check the amount and date.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Upload failed.");
     } finally {

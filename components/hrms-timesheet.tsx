@@ -23,7 +23,7 @@ import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Copy, ListChecks, Pencil, Plus, Printer, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { DateInput, MonthInput } from "@/components/date-input";
+import { DateInput, MonthInput, TimeInput } from "@/components/date-input";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -310,10 +310,10 @@ function EntryDialog({ draft, setDraft, employees, canPickEmployee, onClose, onS
             <Input value={draft.project || ""} onChange={(event) => update("project", event.target.value)} />
           </Label>
           <Label label="From" problem={problemFor("startTime")}>
-            <Input type="time" value={draft.startTime || ""} onChange={(event) => update("startTime", event.target.value)} />
+            <TimeInput value={draft.startTime || ""} onChange={(event) => update("startTime", event.target.value)} />
           </Label>
           <Label label="To" problem={problemFor("endTime")}>
-            <Input type="time" value={draft.endTime || ""} onChange={(event) => update("endTime", event.target.value)} />
+            <TimeInput value={draft.endTime || ""} onChange={(event) => update("endTime", event.target.value)} />
           </Label>
           <label className="flex items-center gap-3 rounded-xl border bg-card p-3 text-xs font-medium sm:col-span-2">
             <input type="checkbox" className="h-4 w-4" checked={Boolean(draft.billable)} onChange={(event) => update("billable", event.target.checked)} />

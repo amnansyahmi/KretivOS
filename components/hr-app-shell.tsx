@@ -50,14 +50,20 @@ export function HRAppShell({
   onBack?: () => void;
   children: ReactNode;
 }) {
-  return <div className="flex min-h-dvh flex-col bg-background">
+  return <div className="min-h-dvh bg-background">
     {/*
-      * Sticky rather than fixed: a fixed header needs the scroll container to
-      * carry matching padding, and every screen would have to remember to. The
-      * safe-area inset is what keeps the title clear of a notch when this runs
-      * installed and full-bleed.
+      * Fixed, not sticky. Sticky kept the bars in the page's flow, and on an
+      * installed iOS app that meant they scrolled away with everything else —
+      * the header disappeared under the status bar and the tab bar ended up
+      * stranded halfway down the content. Fixed takes them out of the flow
+      * entirely, and `main` below carries the matching padding so nothing
+      * starts underneath them. That padding lives here, once, rather than in
+      * every screen.
+      *
+      * The safe-area inset is what keeps the title clear of a notch when this
+      * runs full-bleed.
       */}
-    <header className="sticky top-0 z-30 bg-foreground pt-[env(safe-area-inset-top)] text-white">
+    <header className="fixed inset-x-0 top-0 z-40 bg-foreground pt-[env(safe-area-inset-top)] text-white">
       <div className="flex h-14 items-center gap-3 px-5">
         {/*
           * Installed, there is no browser chrome and therefore no back button.
@@ -90,7 +96,11 @@ export function HRAppShell({
       </div>
     </header>
 
-    <main className="flex-1 px-4 pb-4 pt-4">{children}</main>
+    {/*
+      * Padded past both fixed bars: the header is its 3.5rem row plus whatever
+      * the notch takes, the tab bar is its 3.5rem row plus the home indicator.
+      */}
+    <main className="px-4 pb-[calc(env(safe-area-inset-bottom)+4.5rem)] pt-[calc(env(safe-area-inset-top)+4.5rem)]">{children}</main>
 
     {/*
       * The tab bar sits on the safe area rather than above it, so on a phone
@@ -98,7 +108,7 @@ export function HRAppShell({
       * native one does instead of floating with a strip of page beneath it.
       */}
     <nav
-      className="sticky bottom-0 z-30 border-t bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
       aria-label="Employee app"
     >
       <div className="mx-auto grid max-w-lg grid-cols-5">

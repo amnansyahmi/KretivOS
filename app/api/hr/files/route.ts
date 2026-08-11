@@ -4,6 +4,7 @@ import { getDatabase } from "@/lib/db";
 import { HRAuthError, requireHRSession } from "@/lib/hr-auth";
 import { extractDocument } from "@/lib/ocr";
 import { extractMedicalCertificate, suggestLeaveFromCertificate } from "@/lib/medical-certificate";
+import { claimableAmount, extractMedicalReceipt } from "@/lib/medical-receipt";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,7 +17,7 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
  * little for the `data:...;base64,` prefix.
  */
 const MAX_DATA_URL_CHARACTERS = Math.ceil(MAX_UPLOAD_BYTES * 4 / 3) + 200;
-const ALLOWED_PURPOSES = new Set(["claim_receipt", "leave_attachment", "hr_document"]);
+const ALLOWED_PURPOSES = new Set(["claim_receipt", "leave_attachment", "hr_document", "timesheet_attachment"]);
 const clean = (value: unknown) => String(value ?? "").trim();
 const object = (value: unknown) => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 
@@ -99,11 +100,56 @@ async function readMedicalCertificate(dataUrl: string) {
   }
 }
 
-/** Whichever reader the purpose calls for, or none. */
-async function readUpload(purpose: string, dataUrl: string) {
-  if (purpose === "claim_receipt") return readClaimReceipt(dataUrl);
+/**
+ * Read a clinic receipt for a medical claim.
+ *
+ * The retail extractor is told the total is the last and largest amount, which
+ * is true of a till slip and wrong here: a clinic receipt stacks a bill total,
+ * a previous payment, a current payment and a balance, so the last figure is
+ * usually a zero balance. What is claimable is the payment made — see
+ * `lib/medical-receipt.ts` for why that distinction is the whole point.
+ *
+ * The patient's NRIC is read by the extractor and deliberately not passed on.
+ */
+async function readMedicalClaimReceipt(dataUrl: string) {
+  try {
+    const receipt = await extractMedicalReceipt({ imageDataUrl: dataUrl });
+    if (!receipt.ok) return null;
+    const claim = claimableAmount(receipt);
+    return {
+      kind: "medical_receipt",
+      ok: true,
+      total: claim.amount,
+      amountBasis: claim.basis,
+      amountNote: claim.note,
+      documentDate: receipt.documentDate,
+      vendorName: receipt.clinicName,
+      patientName: receipt.patientName,
+      patientConfidence: receipt.confidence.patientName ?? 0,
+      treatment: receipt.treatment,
+      billTotal: receipt.billTotal,
+      balance: receipt.balance,
+      reference: receipt.receiptNumber || receipt.billNumber,
+      confidence: receipt.confidence,
+      warnings: receipt.warnings,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whichever reader the document calls for, or none.
+ *
+ * A medical claim is routed by the category the claimant picked rather than by
+ * sniffing the image: the category is already a deliberate statement about what
+ * the document is, and guessing wrong would silently read a restaurant bill
+ * with a prompt looking for a patient.
+ */
+async function readUpload(purpose: string, category: string, dataUrl: string) {
   if (purpose === "leave_attachment") return readMedicalCertificate(dataUrl);
-  return null;
+  if (purpose !== "claim_receipt") return null;
+  return category.toLowerCase() === "medical" ? readMedicalClaimReceipt(dataUrl) : readClaimReceipt(dataUrl);
 }
 
 export async function POST(request: NextRequest) {
@@ -134,7 +180,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       id, filename, purpose, mimeType: file.mimeType, fileSize: file.size,
       url: `/api/hr/files/${id}`,
-      suggested: await readUpload(purpose, file.dataUrl),
+      suggested: await readUpload(purpose, clean(body.category), file.dataUrl),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to upload HR file.";
