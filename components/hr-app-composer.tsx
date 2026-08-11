@@ -21,6 +21,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { HALF_DAY_SESSIONS, leaveProblemFor, validateLeaveRequest } from "@/lib/leave-request";
 import { attachmentRequirementFor, leaveTypeNames, toLeaveRules } from "@/lib/leave-entitlement";
+import { certificateCoverage, certificateNameMismatch } from "@/lib/medical-certificate";
 import { prepareUpload } from "@/lib/compress-image";
 import { checkUpload, describeSize } from "@/lib/upload-limits";
 import { formatDuration, validateEntry } from "@/lib/timesheet";
@@ -81,8 +82,18 @@ export function HRAppComposer({
   }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** What was read off an attached certificate, for the checks below the form. */
+  const [certificate, setCertificate] = useState<any>(null);
+  /**
+   * Whether the dates are the employee's rather than the defaults. A
+   * certificate fills an untouched form; it never argues with somebody who has
+   * already chosen the days they are asking for.
+   */
+  const [datesTouched, setDatesTouched] = useState(false);
 
   const needs = attachmentRequirementFor(rules, leave.type);
+  const coverage = certificateCoverage(certificate, leave);
+  const nameMismatch = certificateNameMismatch(certificate, session.name);
   const leaveProblems = kind === "leave"
     ? [
       ...validateLeaveRequest(leave),
@@ -189,10 +200,10 @@ export function HRAppComposer({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="From" problem={problemFor("startDate")}>
-              <DateInput value={leave.startDate} onChange={(event) => setLeave({ ...leave, startDate: event.target.value, endDate: leave.halfDay ? event.target.value : leave.endDate })} />
+              <DateInput value={leave.startDate} onChange={(event) => { setDatesTouched(true); setLeave({ ...leave, startDate: event.target.value, endDate: leave.halfDay ? event.target.value : leave.endDate }); }} />
             </Field>
             <Field label="To" problem={problemFor("endDate")}>
-              <DateInput value={leave.endDate} disabled={leave.halfDay} min={leave.startDate} onChange={(event) => setLeave({ ...leave, endDate: event.target.value })} />
+              <DateInput value={leave.endDate} disabled={leave.halfDay} min={leave.startDate} onChange={(event) => { setDatesTouched(true); setLeave({ ...leave, endDate: event.target.value }); }} />
             </Field>
           </div>
 
@@ -206,8 +217,31 @@ export function HRAppComposer({
             label={needs.required ? needs.label : "Supporting document"}
             required={needs.required}
             value={leave.attachmentId}
-            onChange={(id: string) => setLeave({ ...leave, attachmentId: id })}
+            onChange={(id: string, suggested?: any) => {
+              setCertificate(id ? suggested ?? null : null);
+              setLeave((current: any) => ({
+                ...current,
+                attachmentId: id,
+                // The dates on the certificate are what the leave is for, so
+                // they are taken while the form is still on its defaults. A
+                // date somebody moved deliberately is never overwritten.
+                ...(suggested?.prefill && suggested.startDate && !datesTouched
+                  ? { startDate: suggested.startDate, endDate: suggested.endDate || suggested.startDate, halfDay: false }
+                  : {}),
+              }));
+            }}
           />
+
+          {/*
+            * The reason reading the certificate is worth doing. Sick leave is
+            * the one type that arrives with evidence and nothing was checking
+            * the evidence against the request, so a two-day certificate on a
+            * week off looked exactly like a valid one. Shown, not blocked: a
+            * hospitalisation followed by recovery days is legitimate, and the
+            * approver is the one who should decide.
+            */}
+          {coverage.message && <p className="rounded-xl bg-accent-tint px-3 py-2.5 text-[11px] leading-4 text-accent-tint-foreground">{coverage.message}</p>}
+          {nameMismatch && <p className="rounded-xl bg-accent-tint px-3 py-2.5 text-[11px] leading-4 text-accent-tint-foreground">{nameMismatch}</p>}
         </> : <>
           <Field label="Category">
             <Select value={claim.category} onChange={(event) => setClaim({ ...claim, category: event.target.value })}>
@@ -324,8 +358,16 @@ function AppUpload({
       if (!response.ok) throw new Error(result.error || "Upload failed.");
       setName(file.name);
       onChange(result.id, result.suggested);
+      /*
+       * Whatever was read is said out loud. Fields that fill themselves in
+       * without explanation look like a bug the first time and get trusted
+       * blindly after that; a line naming what was read invites the glance
+       * that catches a misread date.
+       */
       if (prepared.compressed) setNote(`Resized from ${describeSize(prepared.originalBytes)} so it would send.`);
       else if (purpose === "claim_receipt" && result.suggested?.total) setNote("Read from the receipt — check the amount and date.");
+      else if (purpose === "leave_attachment" && result.suggested?.prefill) setNote("Dates read from the certificate — check them before submitting.");
+      else if (purpose === "leave_attachment" && result.suggested?.ok) setNote("The dates on the certificate could not be read clearly, so key them in.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Upload failed.");
     } finally {

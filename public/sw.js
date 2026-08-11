@@ -1,4 +1,4 @@
-const CACHE = "kretivos-v8";
+const CACHE = "kretivos-v9";
 const APP_SHELL = [
   "/",
   "/business",
@@ -32,6 +32,64 @@ self.addEventListener("activate", event =>
       .then(() => self.clients.claim())
   )
 );
+
+/**
+ * A push arriving while the app is closed.
+ *
+ * `showNotification` is not optional: a browser that receives a push and shows
+ * nothing may revoke the permission, so even a payload that fails to parse gets
+ * a generic notification rather than silence.
+ *
+ * The `tag` collapses repeats — five updates about one leave request replace
+ * each other on the lock screen instead of stacking into five identical rows.
+ */
+self.addEventListener("push", event => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+
+  const title = payload.title || "Kretivco HR";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || "",
+      tag: payload.tag || "hr",
+      // Replaces the notification carrying the same tag rather than adding to
+      // it, which is the point of the tag.
+      renotify: Boolean(payload.tag),
+      icon: "/hr/app/icon",
+      badge: "/hr/app/icon",
+      data: { url: payload.url || "/hr/app", notificationId: payload.notificationId || "" }
+    })
+  );
+});
+
+/**
+ * Tapping the notification.
+ *
+ * Focuses an already-open window rather than opening a second one — an
+ * installed app that spawns a new window per notification quickly has several,
+ * all showing the same thing. `navigate` moves the focused window to the screen
+ * the notification was about.
+ */
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/hr/app";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(clients => {
+      for (const client of clients) {
+        if (client.url.includes("/hr/app") && "focus" in client) {
+          if ("navigate" in client) client.navigate(url).catch(() => undefined);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
