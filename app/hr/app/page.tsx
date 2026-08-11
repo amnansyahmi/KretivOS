@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { redirect } from "next/navigation";
 import { HREmployeeApp } from "@/components/hr-app";
 import { getHRSession, publicSession } from "@/lib/hr-auth";
+import { HR_STARTUP_IMAGES } from "./startup-images";
 
 /**
  * The employee app.
@@ -14,14 +15,21 @@ export const metadata: Metadata = {
   title: "HR Portal · Kretivco",
   description: "Clock in, apply for leave, submit claims and read your payslips",
   manifest: "/hr-app.webmanifest",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Kretivco HR" },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Kretivco HR",
+    // Launch screens, so opening the installed app shows the KretivHR mark on
+    // the app's own background rather than a white flash. Generated per device
+    // resolution — see `startup-images.ts`.
+    startupImage: HR_STARTUP_IMAGES,
+  },
   /*
-   * Stated rather than left to `icon.tsx` and `apple-icon.tsx`: the root layout
-   * sets `icons` explicitly, and an explicit parent beats a child's file
-   * convention, so without this the installed app would still wear KretivOS's
-   * mark. The URLs are those two files' routes.
+   * Stated rather than left to file convention: the root layout sets `icons`
+   * explicitly, and an explicit parent beats a child's convention, so without
+   * this the installed app would still wear KretivOS's mark.
    */
-  icons: { icon: "/hr/app/icon", apple: "/hr/app/apple-icon" },
+  icons: { icon: "/icons/hr-icon-192.png", apple: "/icons/hr-apple-touch-180.png" },
 };
 
 /** Dark, because the app header is the first thing under the status bar. */

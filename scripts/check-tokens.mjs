@@ -58,16 +58,6 @@ const ALLOWED = [
     file: "app/brands/page.tsx",
     why: "placeholder text illustrating a client's brand palette",
   },
-  {
-    // Rasterised to a PNG at build time and handed to the operating system.
-    // A home-screen icon is never themed, and Satori resolves no variables.
-    file: "app/hr/app/icon.tsx",
-    why: "generated app icon — baked into an image, not styled by the app",
-  },
-  {
-    file: "app/hr/app/apple-icon.tsx",
-    why: "generated app icon — baked into an image, not styled by the app",
-  },
 ];
 
 const isAllowed = (rel, line) =>

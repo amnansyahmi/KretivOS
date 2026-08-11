@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowLeft, KeyRound, Loader2, LockKeyhole, ShieldCheck, UsersRound } from "lucide-react";
+import { ArrowLeft, KeyRound, Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,8 +58,21 @@ export default function HRLoginPage() {
   return <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:flex sm:items-center sm:justify-center">
     <div className="w-full max-w-lg">
       <Link href="/" className="mb-5 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to KretivOS</Link>
+
+      {/*
+        * The wordmark sits here, on the page's cream, rather than inside the
+        * card's dark header. "Kretiv" is drawn in near-black, so on the dark
+        * green it reads as a hole between the mark and "HR"; on cream the whole
+        * lockup is legible. Unoptimised because it is a transparent PNG whose
+        * exact edges are the brand, and the optimiser's re-encoding is not
+        * worth the risk on a single 60px-tall image.
+        */}
+      <img src="/icons/hr-wordmark.png" alt="KretivHR" className="mb-5 h-9 w-auto" />
+
       <Card className="overflow-hidden border-black/8 bg-white/90 shadow-xl">
-        <div className="bg-foreground p-6 text-white sm:p-8"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10"><UsersRound className="h-5 w-5" /></div><div className="mt-6 text-[10px] font-semibold uppercase tracking-[.2em] text-accent-muted">Kretivco people operations</div><h1 className="mt-2 text-3xl font-semibold">{setup ? "Set up HRMS" : "Sign in to HRMS"}</h1><p className="mt-2 text-sm leading-6 text-white/55">{setup ? "Claim the first HR administrator account. This can only be completed once." : "Use your work email or team name and private PIN."}</p></div>
+        {/* The generic people glyph that used to sit here read as a second,
+            competing mark once the wordmark went in above the card. */}
+        <div className="bg-foreground p-6 text-white sm:p-8"><div className="text-[10px] font-semibold uppercase tracking-[.2em] text-accent-muted">Kretivco people operations</div><h1 className="mt-2 text-3xl font-semibold">{setup ? "Set up HRMS" : "Sign in to HRMS"}</h1><p className="mt-2 text-sm leading-6 text-white/55">{setup ? "Claim the first HR administrator account. This can only be completed once." : "Use your work email or team name and private PIN."}</p></div>
         <CardContent className="p-5 sm:p-8">
           {!status && !error && <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Checking HRMS security…</div>}
           {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
