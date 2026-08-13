@@ -33,6 +33,22 @@ const TOKENS = [
   ["{{phone}}", "Company phone"],
 ];
 
+/**
+ * What the AI writing helpers are told this template is about.
+ *
+ * Passed explicitly because the document type is a tab, not a form field, and
+ * "write the notes for a Receipt" and "for a Quotation" are different jobs.
+ */
+function templateSubject(documentType: string, company: PrintCompany | null, draft: PrintTemplate) {
+  return {
+    Document: documentType,
+    Company: company?.name || "",
+    Heading: draft.heading,
+    "Bank name": draft.bankName,
+    "Payment terms (days)": draft.paymentTermsDays,
+  };
+}
+
 export function PrintTemplateSettings() {
   const toast = useToast();
   const [templates, setTemplates] = useState<PrintTemplate[]>([]);
@@ -157,13 +173,13 @@ export function PrintTemplateSettings() {
             />
           </Label>
           <div>
-            <div className="mb-2 flex min-h-8 items-center justify-between gap-2"><Label htmlFor="print-closing-line">Closing line</Label><AIWritingButton value={draft.closingLine} field="Closing line" context="KretivOS commercial print template. Keep the sentence concise and professional; preserve names, facts and commitments." onApply={(closingLine) => setDraft({ ...draft, closingLine })} /></div>
+            <div className="mb-2 flex min-h-8 items-center justify-between gap-2"><Label htmlFor="print-closing-line">Closing line</Label><AIWritingButton value={draft.closingLine} field="Closing line" context="KretivOS commercial print template. Keep the sentence concise and professional; preserve names, facts and commitments." details={() => templateSubject(active, company, draft)} onApply={(closingLine) => setDraft({ ...draft, closingLine })} /></div>
             <Input id="print-closing-line" value={draft.closingLine} onChange={(event) => setDraft({ ...draft, closingLine: event.target.value })} />
           </div>
         </div>
 
         <div>
-          <div className="mb-2 flex min-h-8 items-center justify-between gap-2"><Label htmlFor="print-notes">Notes — one per line, numbered automatically</Label><AIWritingButton value={notesText} field="Commercial document notes" context="KretivOS quotation, invoice or receipt notes. Preserve every {{token}} exactly, keep one note per line, preserve payment/legal meaning, and do not invent bank details, amounts, dates or terms." onApply={setNotesText} /></div>
+          <div className="mb-2 flex min-h-8 items-center justify-between gap-2"><Label htmlFor="print-notes">Notes — one per line, numbered automatically</Label><AIWritingButton value={notesText} field="Commercial document notes" context="KretivOS quotation, invoice or receipt notes. Preserve every {{token}} exactly, keep one note per line, preserve payment/legal meaning, and do not invent bank details, amounts, dates or terms. Available tokens: {{bankName}}, {{bankAccountNumber}}, {{paymentTermsDays}}, {{email}}, {{phone}}." details={() => templateSubject(active, company, draft)} onApply={setNotesText} /></div>
           <Textarea
             id="print-notes"
             value={notesText}

@@ -129,6 +129,8 @@ The chatbot and every generator use the deployed `ai-nonymauz-cloud` service thr
 | `/api/prompt/generate` | A model-specific image or video prompt |
 | `/api/funnels/generate` | A four-stage TOFU/MOFU/BOFU/retention funnel |
 | `/api/funnels/content` | Grounded hooks, copy, CTA, visual direction and channel versions for funnel activities |
+| `/api/writing/improve` | A rewrite of one field, in the language the writer used |
+| `/api/writing/generate` | One field written from scratch, from the record around it |
 | `/api/ai/status` | Live Render health, model, RAG and image capability status |
 | `/api/ai/studio` | Shared AI conversations, prompt templates, outputs, feedback and usage |
 | `/api/ai/threads` | Persistent header-copilot conversations, shared with AI Studio |
@@ -147,6 +149,41 @@ If the deployment does not actually stream — a proxy in front of Render can
 buffer or strip SSE — `aiNonymauzChatStream` falls back to the buffered call and
 reports `streamed: false`. A failure *after* the first token keeps the text that
 already arrived rather than replaying a contradictory second answer.
+
+### Field writing helpers
+
+Long-form fields across Sales, Brand DNA, Funnels, Templates, Automations, HRMS
+and the print templates carry two buttons (`components/ai-writing-button.tsx`):
+
+- **Improve with AI** rewrites the draft that is already there.
+- **Generate with AI** writes the field from nothing. It first reads the record
+  the field belongs to — the customer, brand, items, dates and amounts already
+  filled in — so a description follows from what the record actually is instead
+  of being generic filler. Callers can pass that snapshot with `details`; where
+  they do not, the button reads the form it is rendered in
+  (`lib/ai-form-context.ts`). Marking a container `data-ai-subject` pins the
+  boundary, and `data-ai-ignore` keeps a control out of the snapshot.
+
+Both actions keep the previous value, so **Undo** puts the writer's own draft
+back. Neither invents facts: the shared guardrails in `lib/writing-assist.ts`
+forbid new claims, numbers, dates and client details, preserve `{{tokens}}` and
+keep one-item-per-line fields intact. When the AI service is unreachable the
+buttons still answer — improve tidies the draft offline, generate arranges the
+record's own facts — and label the result as offline rather than passing it off
+as the model's work.
+
+#### Language
+
+Malay means Malaysian Malay here. "Preserve the writer's language" alone gets
+answered in Bahasa Indonesia, which looks close enough to miss and reads as
+foreign to a Malaysian client. `lib/writing-language.ts` decides the language
+from the field and the record around it (so an empty field on a Malay record is
+not answered in English), states it to the model with Malaysian vocabulary
+spelled out, and repairs what comes back — `bisa` → `boleh`, `kualitas` →
+`kualiti`, `silakan` → `sila`. The repair is word-level and steps over
+`{{tokens}}`; words that are Indonesian in one sense but correct Malay in
+another are deliberately left alone. Malay-English mixing is kept as written,
+and English drafts are never touched by the Malay pass.
 
 ### Kretiv AI Studio
 

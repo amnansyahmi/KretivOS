@@ -163,6 +163,28 @@ export function SalesDocumentEditor({
     return buildPrintModel(printable, printSetup?.company || fallbackCompany, template);
   }, [customer, grandTotal, printSetup, record, state, template, totals]);
 
+  /**
+   * What the AI writing helpers are told this document is about.
+   *
+   * Passed rather than left to the form-reading fallback because the notes field
+   * sits down in the totals block: read from the page it would see discount and
+   * tax rate, and none of the customer, title or line items that actually decide
+   * what the notes should say.
+   */
+  const aiSubject = useMemo(() => ({
+    Document: record.type,
+    Customer: customer?.name || "",
+    Title: record.title,
+    Reference: record.reference,
+    "Issue date": record.issueDate,
+    "Due date": record.dueDate,
+    Items: state.items
+      .map((item) => [item.description, item.quantity ? `× ${item.quantity} ${item.unit || ""}`.trim() : ""].filter(Boolean).join(" "))
+      .filter(Boolean)
+      .join("; "),
+    "Total (MYR)": money(grandTotal),
+  }), [customer, grandTotal, record, state.items]);
+
   return <>
     <style>{PRINT_STYLES}</style>
 
@@ -196,7 +218,7 @@ export function SalesDocumentEditor({
           <SalesField label="Reference">
             <input value={record.reference} onChange={(event) => setField("reference", event.target.value)} className={inputClass} placeholder="Auto or enter reference" />
           </SalesField>
-          <SalesField label="Title" wide improveValue={record.title} onImprove={(value) => setField("title", value)}>
+          <SalesField label="Title" wide improveValue={record.title} subject={aiSubject} onImprove={(value) => setField("title", value)}>
             <input value={record.title} onChange={(event) => setField("title", event.target.value)} className={inputClass} placeholder="Project or job title" />
           </SalesField>
           <SalesField label="Issue date"><DateInput value={record.issueDate} onChange={(event) => setField("issueDate", event.target.value)} /></SalesField>
@@ -233,7 +255,7 @@ export function SalesDocumentEditor({
           <SalesField label="Delivery charge (RM)"><input type="number" min="0" step="0.01" value={record.deliveryAmount || ""} onChange={(event) => setDelivery(event.target.value)} className={inputClass} placeholder="0.00" /></SalesField>
           <SalesField label="Tax label"><input value={state.settings.taxLabel} onChange={(event) => setState({ ...state, settings: { ...state.settings, taxLabel: event.target.value } })} className={inputClass} placeholder="SST" /></SalesField>
           <SalesField label="Tax rate (%)"><input type="number" min="0" max="100" step="0.01" value={state.settings.taxRate || ""} onChange={(event) => setState({ ...state, settings: { ...state.settings, taxRate: Number(event.target.value) } })} className={inputClass} placeholder="0" /></SalesField>
-          <SalesField label="Notes" wide improveValue={record.notes} onImprove={(value) => setField("notes", value)}><textarea value={record.notes} onChange={(event) => setField("notes", event.target.value)} className={textareaClass} placeholder="Payment terms, delivery notes or customer-facing remarks" /></SalesField>
+          <SalesField label="Notes" wide improveValue={record.notes} subject={aiSubject} onImprove={(value) => setField("notes", value)}><textarea value={record.notes} onChange={(event) => setField("notes", event.target.value)} className={textareaClass} placeholder="Payment terms, delivery notes or customer-facing remarks" /></SalesField>
           <div className="sm:col-span-2 rounded-xl bg-foreground p-4 text-white">
             <TotalRow label="Subtotal" value={totals.subtotal} />
             {totals.discountAmount > 0 && <TotalRow label="Discount" value={-totals.discountAmount} />}
@@ -256,8 +278,8 @@ export function SalesDocumentEditor({
   </>;
 }
 
-function SalesField({ label, wide, improveValue, onImprove, children }: { label: string; wide?: boolean; improveValue?: string; onImprove?: (value: string) => void; children: React.ReactNode }) {
-  return <label className={cn("block text-sm font-medium", wide && "sm:col-span-2")}><span className="mb-2 flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{onImprove && <AIWritingButton value={improveValue || ""} field={label} context="KretivOS customer-facing commercial document. Preserve names, quantities, prices, dates, references, commitments and legal meaning. Keep it concise and professional." onApply={onImprove} />}</span>{children}</label>;
+function SalesField({ label, wide, improveValue, onImprove, subject, children }: { label: string; wide?: boolean; improveValue?: string; onImprove?: (value: string) => void; subject?: Record<string, unknown>; children: React.ReactNode }) {
+  return <label className={cn("block text-sm font-medium", wide && "sm:col-span-2")}><span className="mb-2 flex min-h-8 items-center justify-between gap-2"><span>{label}</span>{onImprove && <AIWritingButton value={improveValue || ""} field={label} context="KretivOS customer-facing commercial document. Preserve names, quantities, prices, dates, references, commitments and legal meaning. Keep it concise and professional." details={subject} onApply={onImprove} />}</span>{children}</label>;
 }
 
 function TotalRow({ label, value }: { label: string; value: number }) {
