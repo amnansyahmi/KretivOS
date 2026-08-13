@@ -135,6 +135,7 @@ The chatbot and every generator use the deployed `ai-nonymauz-cloud` service thr
 | `/api/ai/studio` | Shared AI conversations, prompt templates, outputs, feedback and usage |
 | `/api/ai/threads` | Persistent header-copilot conversations, shared with AI Studio |
 | `/api/ai/image` | Pollinations Flux image generation through ai-nonymauz-cloud |
+| `/api/mcp` | The MCP endpoint other assistants read the workspace through — see [docs/MCP.md](docs/MCP.md) |
 | `/api/search` | Cross-workspace record search behind the ⌘K command palette |
 | `/api/notifications` | Shared automation reminders for the header bell |
 
@@ -149,6 +150,24 @@ If the deployment does not actually stream — a proxy in front of Render can
 buffer or strip SSE — `aiNonymauzChatStream` falls back to the buffered call and
 reports `streamed: false`. A failure *after* the first token keeps the text that
 already arrived rather than replaying a contradictory second answer.
+
+### MCP: reading KretivOS from Claude, ChatGPT and other assistants
+
+`/api/mcp` speaks the Model Context Protocol, so any MCP client — Claude Code,
+claude.ai, ChatGPT, Cursor — can read the workspace directly: pipeline,
+receivables, customers, sales documents, projects, the knowledge library and
+Brand DNA. The team asks about the business from whichever assistant is already
+open, and gets the same figures the workspace shows.
+
+It is **read-only and fails closed**. No tool creates, edits, approves, sends or
+deletes anything; approval and issuing stay in KretivOS, done by a person. With
+`KRETIVOS_MCP_TOKEN` unset the endpoint refuses every request, including its own
+tool list, so a forgotten environment variable cannot expose customer or
+financial records.
+
+Full setup for each client, the tool list and troubleshooting live in
+[docs/MCP.md](docs/MCP.md). `scripts/mcp-stdio.mjs` bridges clients that only
+speak stdio, without putting a third-party proxy in front of the data.
 
 ### Field writing helpers
 

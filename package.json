@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "tsc --noEmit && node scripts/check-tokens.mjs",
     "check:tokens": "node scripts/check-tokens.mjs",
-    "test": "node --test --experimental-strip-types lib/*.test.ts"
+    "test": "node --test --experimental-strip-types lib/*.test.ts lib/*/*.test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "1.1.0",
