@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Bot, Building2, Check,
+  Activity, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Bot, Building2, Check,
   ChevronRight, CircleDollarSign, Clapperboard, ClipboardCheck, ClipboardList, Cloud, Code2,
   Calculator, Database, FileText, Film, GitBranch,
   HandCoins, LayoutDashboard, Library, Megaphone, Menu, MessageSquareText,
   MonitorSmartphone, Palette, PanelLeftClose, PanelLeftOpen,
-  Plus, Presentation, Receipt, RefreshCw, Search, Send, Settings2, ShoppingCart,
+  Plus, Presentation, Receipt, RefreshCw, Search, Send, Settings2, ShieldCheck, ShoppingCart,
   Sparkles, TrendingUp, UsersRound, WandSparkles, Workflow, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -764,9 +764,12 @@ function StoryboardStudio() {
   </div>;
 }
 
-type PromptResult = { prompt: string; negativePrompt: string; notes: string; generationSettings?: string };
+type PromptResult = {
+  prompt: string; negativePrompt: string; notes: string; generationSettings?: string;
+  brandDna?: { brandId: string; brandName: string; reviewed: boolean; note: string } | null;
+};
 type PromptForm = {
-  model: string; clientId: string; client: string; brand: string; assetType: string;
+  model: string; clientId: string; client: string; brand: string; brandId: string; assetType: string;
   product: string; platform: string; objective: string; brief: string; ratio: string;
   resolution: string; quality: string; composition: string; lighting: string;
   camera: string; style: string; audience: string; textInstruction: string;
@@ -775,7 +778,7 @@ type PromptForm = {
 };
 
 const promptDefaults: PromptForm = {
-  model: "GPT Image 2", clientId: "", client: "", brand: "", assetType: "Food photography",
+  model: "GPT Image 2", clientId: "", client: "", brand: "", brandId: "", assetType: "Food photography",
   product: "", platform: "Instagram / Facebook", objective: "Create demand and drive action", brief: "", ratio: "2:3",
   resolution: "2K", quality: "High", composition: "", lighting: "", camera: "", style: "",
   audience: "", textInstruction: "No generated text unless explicitly requested", mustInclude: "", avoid: "",
@@ -853,7 +856,12 @@ function PromptLab() {
 
   const chooseClient = (clientId: string) => {
     const client = business.customers.find((item) => item.id === clientId);
-    setSavedForm({ ...form, clientId, client: client?.name || "", brand: "" });
+    setSavedForm({ ...form, clientId, client: client?.name || "", brand: "", brandId: "" });
+  };
+
+  const chooseBrand = (brandId: string) => {
+    const selected = linkedBrands.find((item) => item.id === brandId);
+    setSavedForm({ ...form, brandId, brand: selected?.name || "" });
   };
 
   const applyPreset = (preset: "food" | "product" | "poster") => {
@@ -919,7 +927,7 @@ function PromptLab() {
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-xs font-medium">Client<select value={form.clientId} onChange={e => chooseClient(e.target.value)} className={cn(inputClass, "mt-2")}><option value="">Custom client</option>{business.customers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label className="block text-xs font-medium">Brand<select value={form.brand} onChange={e => set("brand", e.target.value)} className={cn(inputClass, "mt-2")}><option value="">No brand selected</option>{linkedBrands.map(item => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
+            <label className="block text-xs font-medium">Brand<select value={form.brandId} onChange={e => chooseBrand(e.target.value)} className={cn(inputClass, "mt-2")}><option value="">No brand selected</option>{linkedBrands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           </div>
           {!form.clientId && <label className="block text-xs font-medium">Client name<input value={form.client} onChange={e => set("client", e.target.value)} className={cn(inputClass, "mt-2")} placeholder="Chef Ammar" /></label>}
 
@@ -966,6 +974,13 @@ function PromptLab() {
         <CardHeader className="flex-row items-start justify-between space-y-0 border-b border-white/10 p-4 sm:p-5"><div><div className="text-[10px] font-semibold uppercase tracking-[.16em] text-accent-muted">02 · Generated output</div><CardTitle className="mt-1">{form.model} prompt</CardTitle></div>{result && <Badge tone="green">Ready</Badge>}</CardHeader>
         <CardContent className="p-4 sm:p-5">
           {result ? <>
+            {result.brandDna && <div className={cn(
+              "mb-3 flex items-start gap-2 rounded-xl border p-3 text-xs leading-5",
+              result.brandDna.reviewed ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200" : "border-amber-400/25 bg-amber-400/10 text-amber-200",
+            )}>
+              {result.brandDna.reviewed ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+              <span>{result.brandDna.note}</span>
+            </div>}
             <textarea value={draftPrompt} onChange={e => setDraftPrompt(e.target.value)} className="min-h-[280px] w-full resize-y rounded-xl border border-white/10 bg-black/10 p-4 font-mono text-xs leading-7 text-white/80 outline-none focus:border-white/25 sm:min-h-[360px]" />
             <div className="mt-2 text-right text-[9px] text-white/35">{draftPrompt.length.toLocaleString()} characters · editable</div>
             {result.generationSettings && <div className="mt-3 rounded-xl border border-accent-muted/25 bg-accent-muted/10 p-4 text-xs leading-6 text-accent-faint"><div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-accent-muted">Generation settings</div>{result.generationSettings}</div>}

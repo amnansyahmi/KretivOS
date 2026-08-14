@@ -13,6 +13,7 @@
  */
 
 import { operationsSnapshot, searchKnowledge, snapshotLines } from "@/lib/ai-context";
+import { findBrandDna } from "@/lib/brand-dna";
 import { getDatabase } from "@/lib/db";
 import { isoDate } from "@/lib/dates";
 import type { McpTool, McpToolResult } from "@/lib/mcp/protocol";
@@ -477,59 +478,18 @@ export const kretivosTools: McpTool[] = [
       required: ["brand"],
     },
     async run(args) {
-      const sql = getDatabase();
       const asked = text(args.brand, 160);
-      const pattern = `%${asked}%`;
-      const brands = await sql`
-        select b.*, c.name as customer_name
-        from brands b join customers c on c.id = b.customer_id
-        where c.organization_id = ${ORGANIZATION_ID}
-          and (b.id = ${asked} or b.name ilike ${asked} or b.name ilike ${pattern} or c.name ilike ${pattern})
-        order by (b.id = ${asked}) desc, (b.name ilike ${asked}) desc, b.name
-        limit 1
-      `;
-      const brand = brands[0] as any;
-      if (!brand) return { data: null, failed: `No brand matched "${asked}".` };
+      const found = await findBrandDna(getDatabase(), asked);
+      if (!found) return { data: null, failed: `No brand matched "${asked}", or it has no Brand DNA profile yet. Ask the team to complete it in the Brand DNA workspace.` };
 
-      // Approved wins over a newer draft: the point of Brand DNA is that only
-      // human-reviewed values speak for the client.
-      const profiles = await sql`
-        select * from brand_dna_profiles
-        where brand_id = ${brand.id}
-        order by (status = 'Approved') desc, updated_at desc
-        limit 1
-      `;
-      const profile = profiles[0] as any;
-      if (!profile) {
-        return {
-          data: null,
-          failed: `${brand.name} has no Brand DNA profile yet. Ask the team to complete it in the Brand DNA workspace.`,
-        };
-      }
-
+      const { brand, profile } = found;
       return ok({
         brand: {
-          id: brand.id, name: brand.name, customer: brand.customer_name,
-          description: brand.description ?? "", websiteUrl: brand.website_url ?? "",
+          id: brand.id, name: brand.name, customer: brand.customerName,
+          description: brand.description, websiteUrl: brand.websiteUrl,
         },
-        profile: {
-          status: profile.status,
-          reviewed: profile.status === "Approved",
-          completenessScore: Number(profile.completeness_score || 0),
-          positioning: profile.positioning ?? "",
-          audience: profile.audience ?? "",
-          personality: profile.personality ?? "",
-          voice: profile.voice ?? "",
-          messaging: profile.messaging ?? {},
-          colours: Array.isArray(profile.colours) ? profile.colours : [],
-          typography: profile.typography ?? {},
-          photographyDirection: profile.photography_direction ?? "",
-          approvedClaims: Array.isArray(profile.approved_claims) ? profile.approved_claims : [],
-          avoidList: Array.isArray(profile.avoid_list) ? profile.avoid_list : [],
-          approvedAt: profile.approved_at ?? "",
-          updatedAt: profile.updated_at,
-        },
-        guardrail: profile.status === "Approved"
+        profile,
+        guardrail: profile.reviewed
           ? "This profile is approved. Stay inside the approved claims and respect the avoid list."
           : "This profile is still a draft and has not been reviewed. Treat it as provisional and say so.",
       });

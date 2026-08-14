@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { field, generateJson } from "@/lib/ai-generation";
+import { brandDirectives, brandOfflineNote, describeBrandDna, findBrandDna, type BrandDnaResult } from "@/lib/brand-dna";
+import { getDatabase } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -64,7 +66,7 @@ function midjourneyNoList(avoid: string, food: boolean) {
   return [...new Set([...defaults, ...safeUserTerms])].join(", ");
 }
 
-function starterPrompt(input: Record<string, string>): PromptResult {
+function starterPrompt(input: Record<string, string>, brandDna: BrandDnaResult | null): PromptResult {
   const {
     model, client, brand, assetType, brief, ratio, platform, objective,
     product, audience, style, mustInclude, avoid, duration, motion,
@@ -81,7 +83,10 @@ function starterPrompt(input: Record<string, string>): PromptResult {
     ? ` Duration ${duration || "10 seconds"}. Motion: ${motion || "controlled subject movement with a deliberate camera move"}.`
     : "";
   const identity = [client, brand].filter(Boolean).join(" · ");
-  const basePrompt = `${assetType} for ${identity || "Kretivco client"}. Subject: ${product || "the supplied product or subject"}. Objective: ${objective || "create a clear, premium brand asset"}. Audience: ${audience || "the client's intended customer"}. Platform: ${platform || "digital campaign"}. ${brief} Composition: ${composition || "clear visual hierarchy with intentional negative space"}. Lighting: ${lighting || "controlled natural-looking light"}. Camera and lens: ${camera || "commercial photography perspective with believable optical depth"}. Visual direction: ${style || "realistic, refined and commercially usable"}. Preserve true-to-life colour and natural imperfection. ${textInstruction ? `Text handling: ${textInstruction}. ` : ""}${mustInclude ? `Must include: ${mustInclude}. ` : ""}Keep the subject unmistakably identifiable.${videoDirection} Aspect ratio ${ratio}. Output target: ${resolution || "model default"}, ${quality || "high quality"}.${suffix}`;
+  // The AI service composes the same facts through the model; this is the
+  // offline path, so the brand still has to reach the prompt without one.
+  const brandLine = brandDna ? ` ${brandOfflineNote(brandDna)}` : "";
+  const basePrompt = `${assetType} for ${identity || "Kretivco client"}. Subject: ${product || "the supplied product or subject"}. Objective: ${objective || "create a clear, premium brand asset"}. Audience: ${audience || "the client's intended customer"}. Platform: ${platform || "digital campaign"}. ${brief} Composition: ${composition || "clear visual hierarchy with intentional negative space"}. Lighting: ${lighting || "controlled natural-looking light"}. Camera and lens: ${camera || "commercial photography perspective with believable optical depth"}. Visual direction: ${style || "realistic, refined and commercially usable"}. Preserve true-to-life colour and natural imperfection. ${textInstruction ? `Text handling: ${textInstruction}. ` : ""}${mustInclude ? `Must include: ${mustInclude}. ` : ""}Keep the subject unmistakably identifiable.${brandLine}${videoDirection} Aspect ratio ${ratio}. Output target: ${resolution || "model default"}, ${quality || "high quality"}.${suffix}`;
   return {
     prompt: VIDEO_MODELS.has(model) ? cleanSlopLanguage(basePrompt) : insertBeforeModelParameters(cleanSlopLanguage(basePrompt), realismGuardrail(input, food)),
     negativePrompt: [BASE_NEGATIVE, food ? FOOD_NEGATIVE : "", avoid].filter(Boolean).join(", "),
@@ -93,6 +98,23 @@ export async function POST(request: NextRequest) {
   try {
     const raw = await request.json();
     const model = field(raw.model, "Kling", 40);
+
+    // A brand picked from the dropdown gives a reliable id; a client who only
+    // typed a name gives text to match against. Either way, a database outage
+    // must not turn "generate a prompt" into a hard failure — it only means
+    // the prompt goes out ungrounded, same as before this existed.
+    const brandId = field(raw.brandId, "", 80);
+    const brandNameInput = field(raw.brand, "", 120);
+    const brandLookupKey = brandId || brandNameInput;
+    let brandDna: BrandDnaResult | null = null;
+    if (brandLookupKey) {
+      try {
+        brandDna = await findBrandDna(getDatabase(), brandLookupKey);
+      } catch (error) {
+        console.error("Brand DNA lookup failed for prompt generation", error);
+      }
+    }
+
     const input = {
       model,
       client: field(raw.client, "Kretivco client", 120),
@@ -106,7 +128,10 @@ export async function POST(request: NextRequest) {
       audience: field(raw.audience, "", 400),
       style: field(raw.style, "", 500),
       mustInclude: field(raw.mustInclude, "", 500),
-      avoid: field(raw.avoid, "", 500),
+      // The brand's own avoid list is folded in here, so it reaches the
+      // negative prompt and the Midjourney --no list the same way a
+      // hand-typed exclusion would, with no separate code path to keep in sync.
+      avoid: [field(raw.avoid, "", 500), ...(brandDna?.profile.avoidList || [])].filter(Boolean).join(", ").slice(0, 500),
       duration: field(raw.duration, "10 seconds", 40),
       motion: field(raw.motion, "", 500),
       resolution: field(raw.resolution, "Model default", 120),
@@ -125,11 +150,12 @@ export async function POST(request: NextRequest) {
     const outcome = await generateJson<PromptResult>({
       input,
       temperature: 0.45,
-      fallback: () => starterPrompt(input),
+      fallback: () => starterPrompt(input, brandDna),
       system: [
         "You are the KretivOS prompt engineer for a Malaysian creative agency.",
         `Write a production-ready prompt for the ${model} model.`,
         MODEL_GUIDANCE[model] || "Match the prompt style to the named model.",
+        ...(brandDna ? brandDirectives(brandDna) : []),
         "Return JSON only. Do not use markdown fences.",
         "The prompt must preserve real product identity and avoid an artificial, over-rendered look.",
         "Never use empty prestige tokens such as masterpiece, best quality, ultra-detailed, hyperrealistic, 8K, 16K, award-winning, Unreal Engine, Octane render or trending on ArtStation. Pixel resolution belongs only in the output setting.",
@@ -173,7 +199,18 @@ export async function POST(request: NextRequest) {
       ? `Prompt parameters: --ar ${input.ratio}${input.mjRaw === "No" ? "" : " --raw"} --q ${input.mjQuality} --s ${input.mjStylize}${["2K", "4K delivery"].includes(input.resolutionMode) ? " --hd" : ""} --v 8.2 --no …. Aspect ratio controls shape; --hd requests the current 2K generation mode, while 4K delivery still requires an upscale/export step.`
       : `${model} settings: aspect ratio ${input.ratio}; output ${input.resolution}; quality ${input.quality}. Apply these in the target tool together with the prompt.`;
 
-    return NextResponse.json({ source: outcome.source, ...outcome.value, generationSettings });
+    const brandDnaInfo = brandDna
+      ? {
+          brandId: brandDna.brand.id,
+          brandName: brandDna.brand.name,
+          reviewed: brandDna.profile.reviewed,
+          note: describeBrandDna({ found: true, result: brandDna }),
+        }
+      : brandLookupKey
+        ? { brandId: brandId || "", brandName: brandNameInput || brandId, reviewed: false, note: describeBrandDna({ found: false, label: brandNameInput || brandId }) }
+        : null;
+
+    return NextResponse.json({ source: outcome.source, ...outcome.value, generationSettings, brandDna: brandDnaInfo });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to generate a prompt." },
