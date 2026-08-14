@@ -115,6 +115,38 @@ The prototype includes the supplied 12-month internal scenario:
 
 The projection is stored as an editable scenario, separate from actual sales and from the latest MoU rule configuration. This prevents forecast assumptions from overwriting contractual or actual figures.
 
+## Department subdomains
+
+`next.config.mjs` rewrites each department's subdomain root to the page it
+should open on, so `hr.kretivco.com` lands on the HR workspace instead of the
+internal Command Centre — without deploying anything separately. All five
+domains are the same Vercel project, the same database, the same environment
+variables; only what "/" resolves to changes per host.
+
+| Domain | Opens |
+| --- | --- |
+| `os.kretivco.com` | Command Centre (the main app; no rewrite — this already is the root) |
+| `sales.kretivco.com` | `/sales` |
+| `marketing.kretivco.com` | Marketing Studio (`/?view=Marketing Studio` — it has no route of its own) |
+| `hr.kretivco.com` | `/hr`, the HR team's admin workspace |
+| `staff.kretivco.com` | `/hr/app`, the employee self-service app |
+
+These are front doors, not access boundaries: every other path still resolves
+normally under any of these hosts (`sales.kretivco.com/hr` opens HR too).
+Actual access is whatever the page itself already checks — HR's session
+redirect to `/hr/login`, `HRMS_AUTH_ENABLED`. The HR session cookie
+(`lib/hr-auth.ts`) has no explicit `domain`, so it is scoped to the exact host
+that issued it: signing in on `hr.kretivco.com` does not sign a person in on
+`staff.kretivco.com`, or vice versa. That is usually correct — admins and
+staff are typically different people — but if the same person needs both
+without logging in twice, set `domain: ".kretivco.com"` in
+`sessionCookieOptions` in `lib/hr-auth.ts`.
+
+To add each domain: Vercel project → Settings → Domains → add the subdomain,
+then create the CNAME record Vercel shows you at the DNS provider for
+kretivco.com. Vercel issues SSL automatically once DNS resolves; no separate
+certificate purchase or upload is needed.
+
 ## AI connection
 
 The chatbot and every generator use the deployed `ai-nonymauz-cloud` service through a shared server-side client. The current Render deployment is the code default, so an API key is only needed if the service is protected later.
