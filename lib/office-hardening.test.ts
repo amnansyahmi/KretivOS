@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractOfficeEvidenceUrls, isTransientOfficeError, parseOfficeSseTerminalState, retryOfficeOperation, validateOfficePlan } from "./office-hardening.ts";
+import { extractOfficeEvidenceUrls, isTransientOfficeError, parseOfficeSseTerminalState, retryOfficeOperation, validateOfficePlan } from "./office-hardening-core.ts";
 import type { OfficePlan } from "./office-agents.ts";
 
 function plan(tasks: OfficePlan["tasks"]): OfficePlan {
