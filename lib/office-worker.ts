@@ -1,3 +1,4 @@
+import { parseOfficeSseTerminalState, recoverStaleOfficeJobs } from "@/lib/office-hardening";
 import { claimOfficeJobs, finishOfficeJob } from "@/lib/office-store";
 
 /**
@@ -6,8 +7,12 @@ import { claimOfficeJobs, finishOfficeJob } from "@/lib/office-store";
  * grounding, artifacts, approvals and quality loop stay identical.
  */
 export async function processOfficeJobs(origin: string, limit = 1) {
+  // A serverless invocation can disappear after claiming work. Reclaim expired
+  // leases before taking new jobs so the queue cannot remain stuck forever.
+  try { await recoverStaleOfficeJobs(20); } catch (error) { console.warn("AI Office stale-job recovery unavailable", error); }
+
   const jobs = await claimOfficeJobs(limit);
-  const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+  const results: Array<{ id: string; ok: boolean; terminal?: "done" | "paused"; error?: string }> = [];
   for (const job of jobs as any[]) {
     try {
       if (job.job_type !== "mission") throw new Error(`Unsupported AI Office job type: ${job.job_type}`);
@@ -21,9 +26,14 @@ export async function processOfficeJobs(origin: string, limit = 1) {
       // Mission endpoint is SSE. Draining the body keeps the server-side mission
       // alive to completion even though nobody is watching it in a browser.
       const body = await response.text();
-      if (!response.ok || body.includes('"type":"error"')) throw new Error(`Background mission failed (${response.status}).`);
+      const terminal = parseOfficeSseTerminalState(body);
+      if (!response.ok || terminal === "error") throw new Error(`Background mission failed (${response.status}).`);
+      if (terminal === "unknown") throw new Error("Background mission stream ended without a terminal event.");
+
+      // A paused mission is a successful worker run: the durable mission itself
+      // is waiting for human input and a notification has already been emitted.
       await finishOfficeJob(String(job.id));
-      results.push({ id: String(job.id), ok: true });
+      results.push({ id: String(job.id), ok: true, terminal });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Background AI Office job failed.";
       await finishOfficeJob(String(job.id), message);
