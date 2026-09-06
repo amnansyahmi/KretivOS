@@ -30,6 +30,7 @@ create table if not exists ai_office_tasks (
   output text,
   input_request text,
   human_input text,
+  created_at timestamptz not null default now(),
   started_at timestamptz,
   completed_at timestamptz,
   updated_at timestamptz not null default now(),
