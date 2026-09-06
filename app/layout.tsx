@@ -5,6 +5,7 @@ import { GlobalCommandPalette } from "@/components/command-palette";
 import { ToastProvider } from "@/components/toast";
 import { ConfirmProvider } from "@/components/confirm";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { OfficeNavLink } from "@/components/office-nav-link";
 
 export const metadata: Metadata = {
   title: "KretivOS",
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <ConfirmProvider>
               {children}
               <AttendanceTestSession />
+              <OfficeNavLink />
               {/* Mounted at the root so ⌘K reaches every workspace. */}
               <GlobalCommandPalette />
             </ConfirmProvider>
