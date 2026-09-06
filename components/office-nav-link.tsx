@@ -4,9 +4,8 @@ import { useEffect } from "react";
 
 /**
  * Adds AI Office beside AI Studio in the existing dashboard navigation without
- * duplicating the large dashboard shell. The shell is currently inline in
- * app/page.tsx; this small bridge can be removed once navigation is extracted
- * into a shared component.
+ * duplicating the large dashboard shell. It keeps working on desktop/mobile and
+ * after client-side navigation because the observer waits for the sidebar.
  */
 export function OfficeNavLink() {
   useEffect(() => {
@@ -24,6 +23,15 @@ export function OfficeNavLink() {
       link.title = aiStudio.title ? "AI Office" : "";
       const label = Array.from(link.querySelectorAll("span")).find((node) => node.textContent?.trim() === "AI Studio");
       if (label) label.textContent = "AI Office";
+      // The cloned icon stays visually consistent with AI Studio; a small live
+      // dot distinguishes the autonomous office without pulling another icon into the shell.
+      if (!link.querySelector('[data-office-live-dot="true"]')) {
+        const dot = document.createElement("span");
+        dot.setAttribute("data-office-live-dot", "true");
+        dot.setAttribute("aria-hidden", "true");
+        dot.className = "ml-auto h-1.5 w-1.5 rounded-full bg-lime-300 shadow-[0_0_8px_rgba(190,242,100,.75)]";
+        link.appendChild(dot);
+      }
       aiStudio.insertAdjacentElement("afterend", link);
       return true;
     };
