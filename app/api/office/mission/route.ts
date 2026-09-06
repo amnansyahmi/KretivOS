@@ -13,6 +13,7 @@ import { evaluateOfficeMission } from "@/lib/office-evaluator";
 import { dispatchAutomationEvent } from "@/lib/automation-server";
 import { notifyOffice } from "@/lib/office-notifications";
 import {
+  enrichOfficeArtifactEvidence,
   getOfficeLearningContext,
   retryOfficeOperation,
   validateOfficePlan,
@@ -267,7 +268,10 @@ export async function POST(request: NextRequest) {
         let evaluation: Record<string, unknown> | null = null;
         if (missionId) {
           await persist(() => completeOfficeMission(missionId, qa, final));
-          try { artifacts = await createOfficeArtifacts(missionId, plan, outputs, final, qa); } catch (error) { console.warn("Artifact generation failed", error); }
+          try {
+            artifacts = await createOfficeArtifacts(missionId, plan, outputs, final, qa);
+            await enrichOfficeArtifactEvidence(missionId);
+          } catch (error) { console.warn("Artifact generation or evidence enrichment failed", error); }
           if (budgetMode !== "economy") {
             try {
               evaluation = await evaluateOfficeMission({ mission, plan, outputs, qa, final });
