@@ -9,13 +9,19 @@ import {
   type OfficeAgentId,
   type OfficePlanTask,
 } from "@/lib/office-agents";
+import { evaluateOfficeMission } from "@/lib/office-evaluator";
+import { dispatchAutomationEvent } from "@/lib/automation-server";
 import {
   addOfficeAgentRun,
   completeOfficeMission,
+  createOfficeArtifacts,
   createOfficeMission,
   failOfficeMission,
+  getOfficeWorkspaceContext,
+  saveMissionEvaluation,
   saveOfficePlan,
   setOfficeTaskStatus,
+  type OfficeBudgetMode,
 } from "@/lib/office-store";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +31,19 @@ type MissionRequest = {
   mission?: string;
   grounded?: boolean;
   maxAgents?: number;
+  workspaceId?: string;
+  parentMissionId?: string;
+  budgetMode?: OfficeBudgetMode;
+  executionMode?: "interactive" | "background";
 };
 
 function safeMission(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 12000) : "";
+}
+
+function safeUuid(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text) ? text : "";
 }
 
 function needsInput(output: string) {
@@ -47,7 +62,13 @@ export async function POST(request: NextRequest) {
   const mission = safeMission(body.mission);
   if (!mission) return Response.json({ error: "Mission is required." }, { status: 400 });
 
-  const maxAgents = Math.max(2, Math.min(Number(body.maxAgents) || 6, 8));
+  const workspaceId = safeUuid(body.workspaceId) || null;
+  const parentMissionId = safeUuid(body.parentMissionId) || null;
+  const budgetMode: OfficeBudgetMode = ["economy", "balanced", "max_quality"].includes(String(body.budgetMode))
+    ? body.budgetMode as OfficeBudgetMode
+    : "balanced";
+  const modeAgentCap = budgetMode === "economy" ? 4 : budgetMode === "max_quality" ? 8 : 6;
+  const maxAgents = Math.max(2, Math.min(Number(body.maxAgents) || modeAgentCap, modeAgentCap));
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -62,13 +83,23 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        await persist(async () => { missionId = await createOfficeMission(mission); });
-        send({ type: "mission", missionId: missionId || null });
-        send({ type: "agent", agent: "chief", status: "working", detail: "Understanding the mission and assembling the team…" });
+        await persist(async () => {
+          missionId = await createOfficeMission(mission, {
+            workspaceId,
+            parentMissionId,
+            budgetMode,
+            executionMode: body.executionMode || "interactive",
+          });
+        });
+        send({ type: "mission", missionId: missionId || null, workspaceId, budgetMode });
+        send({ type: "agent", agent: "chief", status: "working", detail: "Understanding the mission, client memory and best team…" });
 
-        const context = body.grounded === false
-          ? { matches: [], snapshot: null, block: "" }
-          : await gatherContext(mission, { workspace: "AI Office" });
+        const [context, workspaceContext] = await Promise.all([
+          body.grounded === false
+            ? Promise.resolve({ matches: [], snapshot: null, block: "" })
+            : gatherContext(mission, { workspace: "AI Office" }),
+          getOfficeWorkspaceContext(workspaceId),
+        ]);
         const sources = context.matches.map((match, index) => ({
           index: index + 1,
           id: match.id,
@@ -76,22 +107,20 @@ export async function POST(request: NextRequest) {
           category: match.category,
           customerName: match.customerName,
         }));
-        send({ type: "context", grounded: Boolean(context.block), sources });
+        const contextBlock = [workspaceContext, context.block].filter(Boolean).join("\n\n---\n\n");
+        send({ type: "context", grounded: Boolean(contextBlock), sources, workspaceMemory: Boolean(workspaceContext) });
 
-        const plan = await planOfficeMission(mission, context.block, maxAgents);
+        const plan = await planOfficeMission(mission, contextBlock, maxAgents);
         send({ type: "plan", plan });
-        if (missionId) await persist(() => saveOfficePlan(missionId, plan, Boolean(context.block), sources.length));
+        if (missionId) await persist(() => saveOfficePlan(missionId, plan, Boolean(contextBlock), sources.length));
 
-        for (const task of plan.tasks) {
-          send({ type: "agent", agent: task.agent, taskId: task.id, status: "queued", detail: task.title });
-        }
-        send({ type: "agent", agent: "chief", status: "completed", detail: "Mission plan ready. Independent workstreams will run in parallel." });
+        for (const task of plan.tasks) send({ type: "agent", agent: task.agent, taskId: task.id, status: "queued", detail: task.title });
+        send({ type: "agent", agent: "chief", status: "completed", detail: `Mission plan ready · ${budgetMode.replace("_", " ")} mode · independent work runs in parallel.` });
 
         const pending = new Map(plan.tasks.map((task) => [task.id, task]));
         let attention: { task: OfficePlanTask; question: string } | null = null;
 
         while (pending.size && !attention) {
-          // Any task whose dependency failed can never safely run.
           for (const [id, task] of [...pending]) {
             const broken = task.dependsOn.filter((dep) => failed.has(dep));
             if (!broken.length) continue;
@@ -122,7 +151,7 @@ export async function POST(request: NextRequest) {
                   ...task,
                   instruction: `${task.instruction}\n\nIf a critical factual input is genuinely required and cannot be inferred safely, write exactly one line starting with NEEDS_INPUT: followed by the question. Do not invent the missing value.`,
                 },
-                contextBlock: context.block,
+                contextBlock,
                 dependencyOutputs,
               });
               const question = needsInput(output);
@@ -159,34 +188,43 @@ export async function POST(request: NextRequest) {
         }
 
         if (attention) {
-          send({
-            type: "attention",
-            missionId: missionId || null,
-            taskId: attention.task.id,
-            agent: attention.task.agent,
-            question: attention.question,
-            detail: "Mission paused instead of guessing a critical input.",
-          });
+          send({ type: "attention", missionId: missionId || null, taskId: attention.task.id, agent: attention.task.agent, question: attention.question, detail: "Mission paused instead of guessing a critical input." });
+          if (missionId) {
+            try { await dispatchAutomationEvent("ai-office.attention.required", "ai_office_mission", missionId, { mission, workspaceId, taskId: attention.task.id, agent: attention.task.agent, question: attention.question }, "detected", "waiting_input"); } catch {}
+          }
           send({ type: "paused", missionId: missionId || null, reason: "needs_input" });
           return;
         }
 
-        send({ type: "agent", agent: "qa", status: "working", detail: "Checking contradictions, assumptions and missing evidence…" });
-        const qa = await reviewOfficeMission(mission, plan, outputs, context.block);
+        send({ type: "agent", agent: "qa", status: "working", detail: "Checking contradictions, assumptions, evidence and execution gaps…" });
+        const qa = await reviewOfficeMission(mission, plan, outputs, contextBlock);
         send({ type: "agent", agent: "qa", status: "completed", detail: "Review complete.", output: qa });
 
-        send({ type: "agent", agent: "chief", status: "working", detail: "Synthesizing the final deliverable…" });
-        const final = await synthesizeOfficeMission({ mission, plan, outputs, qa, contextBlock: context.block });
+        send({ type: "agent", agent: "chief", status: "working", detail: "Synthesizing the final deliverable and executable artifacts…" });
+        const final = await synthesizeOfficeMission({ mission, plan, outputs, qa, contextBlock });
         send({ type: "agent", agent: "chief", status: "completed", detail: "Mission complete." });
-        if (missionId) await persist(() => completeOfficeMission(missionId, qa, final));
+
+        let artifacts: any[] = [];
+        let evaluation: Record<string, unknown> | null = null;
+        if (missionId) {
+          await persist(() => completeOfficeMission(missionId, qa, final));
+          try { artifacts = await createOfficeArtifacts(missionId, plan, outputs, final, qa); } catch (error) { console.warn("Artifact generation failed", error); }
+          if (budgetMode !== "economy") {
+            try {
+              evaluation = await evaluateOfficeMission({ mission, plan, outputs, qa, final });
+              await saveMissionEvaluation(missionId, evaluation);
+            } catch (error) { console.warn("Mission evaluation failed", error); }
+          }
+          try {
+            await dispatchAutomationEvent("ai-office.mission.completed", "ai_office_mission", missionId, {
+              mission, workspaceId, objective: plan.objective, artifacts: artifacts.length,
+              qualityScore: evaluation?.score || null,
+            }, "detected", "completed");
+          } catch (error) { console.warn("AI Office automation event failed", error); }
+        }
+
         send({
-          type: "done",
-          missionId: missionId || null,
-          mission,
-          plan,
-          outputs,
-          qa,
-          final,
+          type: "done", missionId: missionId || null, mission, plan, outputs, qa, final, artifacts, evaluation,
           agents: ["chief", ...plan.tasks.map((task) => task.agent), "qa"].map((id) => OFFICE_AGENT_MAP[id as OfficeAgentId]),
         });
       } catch (error) {
