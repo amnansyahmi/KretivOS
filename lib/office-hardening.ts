@@ -99,6 +99,33 @@ export function parseOfficeSseTerminalState(body: string): OfficeSseTerminalStat
   return terminal;
 }
 
+export function extractOfficeEvidenceUrls(content: string) {
+  const matches = String(content || "").match(/https?:\/\/[^\s<>()\[\]{}"']+/gi) || [];
+  const cleaned = matches.map((url) => url.replace(/[.,;:!?]+$/, ""));
+  return [...new Set(cleaned)].slice(0, 12);
+}
+
+export async function enrichOfficeArtifactEvidence(missionId: string) {
+  const sql = getDatabase();
+  const artifacts = await sql`
+    select id::text, content from ai_office_artifacts where mission_id = ${missionId}::uuid
+  `;
+  let enriched = 0;
+  for (const artifact of artifacts as any[]) {
+    const urls = extractOfficeEvidenceUrls(String(artifact.content || ""));
+    if (!urls.length) continue;
+    const evidence = urls.map((url) => ({ type: "url", url }));
+    await sql`
+      update ai_office_artifacts
+         set evidence = ${JSON.stringify(evidence)}::jsonb,
+             confidence = coalesce(confidence, 0.75), updated_at = now()
+       where id = ${artifact.id}::uuid
+    `;
+    enriched += 1;
+  }
+  return enriched;
+}
+
 export async function recoverStaleOfficeJobs(maxAgeMinutes = 20) {
   const sql = getDatabase();
   const age = Math.max(5, Math.min(maxAgeMinutes, 180));
