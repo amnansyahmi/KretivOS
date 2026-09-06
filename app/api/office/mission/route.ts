@@ -11,6 +11,7 @@ import {
 } from "@/lib/office-agents";
 import { evaluateOfficeMission } from "@/lib/office-evaluator";
 import { dispatchAutomationEvent } from "@/lib/automation-server";
+import { notifyOffice } from "@/lib/office-notifications";
 import {
   addOfficeAgentRun,
   completeOfficeMission,
@@ -190,7 +191,8 @@ export async function POST(request: NextRequest) {
         if (attention) {
           send({ type: "attention", missionId: missionId || null, taskId: attention.task.id, agent: attention.task.agent, question: attention.question, detail: "Mission paused instead of guessing a critical input." });
           if (missionId) {
-            try { await dispatchAutomationEvent("ai-office.attention.required", "ai_office_mission", missionId, { mission, workspaceId, taskId: attention.task.id, agent: attention.task.agent, question: attention.question }, "detected", "waiting_input"); } catch {}
+            try { await dispatchAutomationEvent("ai-office.attention.required" as any, "ai_office_mission", missionId, { mission, workspaceId, taskId: attention.task.id, agent: attention.task.agent, question: attention.question }, "detected", "waiting_input"); } catch {}
+            try { await notifyOffice({ title: "AI Office needs your input", body: attention.question, type: "warning", missionId }); } catch {}
           }
           send({ type: "paused", missionId: missionId || null, reason: "needs_input" });
           return;
@@ -216,11 +218,14 @@ export async function POST(request: NextRequest) {
             } catch (error) { console.warn("Mission evaluation failed", error); }
           }
           try {
-            await dispatchAutomationEvent("ai-office.mission.completed", "ai_office_mission", missionId, {
+            await dispatchAutomationEvent("ai-office.mission.completed" as any, "ai_office_mission", missionId, {
               mission, workspaceId, objective: plan.objective, artifacts: artifacts.length,
               qualityScore: evaluation?.score || null,
             }, "detected", "completed");
           } catch (error) { console.warn("AI Office automation event failed", error); }
+          try {
+            await notifyOffice({ title: "AI Office mission completed", body: `${plan.objective} · ${artifacts.length} deliverable${artifacts.length === 1 ? "" : "s"} ready.`, type: "success", missionId });
+          } catch {}
         }
 
         send({
