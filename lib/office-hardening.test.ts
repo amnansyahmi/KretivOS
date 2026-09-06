@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isTransientOfficeError, parseOfficeSseTerminalState, retryOfficeOperation, validateOfficePlan } from "./office-hardening.ts";
+import { extractOfficeEvidenceUrls, isTransientOfficeError, parseOfficeSseTerminalState, retryOfficeOperation, validateOfficePlan } from "./office-hardening.ts";
 import type { OfficePlan } from "./office-agents.ts";
 
 function plan(tasks: OfficePlan["tasks"]): OfficePlan {
@@ -62,4 +62,9 @@ test("parseOfficeSseTerminalState detects complete, paused, error and truncated 
   assert.equal(parseOfficeSseTerminalState('data: {"type":"attention"}\n\ndata: {"type":"paused"}\n\n'), "paused");
   assert.equal(parseOfficeSseTerminalState('data: {"type":"done"}\n\ndata: {"type":"error"}\n\n'), "error");
   assert.equal(parseOfficeSseTerminalState('data: {"type":"agent"}\n\n'), "unknown");
+});
+
+test("extractOfficeEvidenceUrls deduplicates and trims source URLs", () => {
+  const urls = extractOfficeEvidenceUrls("Sources: https://example.com/report. Also https://example.com/report and https://docs.example.org/a?b=1,");
+  assert.deepEqual(urls, ["https://example.com/report", "https://docs.example.org/a?b=1"]);
 });
