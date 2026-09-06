@@ -13,6 +13,11 @@ import { evaluateOfficeMission } from "@/lib/office-evaluator";
 import { dispatchAutomationEvent } from "@/lib/automation-server";
 import { notifyOffice } from "@/lib/office-notifications";
 import {
+  getOfficeLearningContext,
+  retryOfficeOperation,
+  validateOfficePlan,
+} from "@/lib/office-hardening";
+import {
   addOfficeAgentRun,
   completeOfficeMission,
   createOfficeArtifacts,
@@ -49,7 +54,7 @@ function safeUuid(value: unknown) {
 
 function needsInput(output: string) {
   const match = output.match(/(?:^|\n)\s*NEEDS_INPUT\s*:\s*(.+?)(?:\n|$)/i);
-  return match?.[1]?.trim() || "";
+  return match?.[1]?.trim().slice(0, 600) || "";
 }
 
 export async function POST(request: NextRequest) {
@@ -70,6 +75,7 @@ export async function POST(request: NextRequest) {
     : "balanced";
   const modeAgentCap = budgetMode === "economy" ? 4 : budgetMode === "max_quality" ? 8 : 6;
   const maxAgents = Math.max(2, Math.min(Number(body.maxAgents) || modeAgentCap, modeAgentCap));
+  const resilientAttempts = budgetMode === "economy" ? 1 : 2;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -95,11 +101,12 @@ export async function POST(request: NextRequest) {
         send({ type: "mission", missionId: missionId || null, workspaceId, budgetMode });
         send({ type: "agent", agent: "chief", status: "working", detail: "Understanding the mission, client memory and best team…" });
 
-        const [context, workspaceContext] = await Promise.all([
+        const [context, workspaceContext, learningContext] = await Promise.all([
           body.grounded === false
             ? Promise.resolve({ matches: [], snapshot: null, block: "" })
             : gatherContext(mission, { workspace: "AI Office" }),
           getOfficeWorkspaceContext(workspaceId),
+          getOfficeLearningContext(workspaceId),
         ]);
         const sources = context.matches.map((match, index) => ({
           index: index + 1,
@@ -108,10 +115,25 @@ export async function POST(request: NextRequest) {
           category: match.category,
           customerName: match.customerName,
         }));
-        const contextBlock = [workspaceContext, context.block].filter(Boolean).join("\n\n---\n\n");
-        send({ type: "context", grounded: Boolean(contextBlock), sources, workspaceMemory: Boolean(workspaceContext) });
+        const contextBlock = [workspaceContext, learningContext, context.block].filter(Boolean).join("\n\n---\n\n");
+        send({
+          type: "context",
+          grounded: Boolean(contextBlock),
+          sources,
+          workspaceMemory: Boolean(workspaceContext),
+          learnedContext: Boolean(learningContext),
+        });
 
-        const plan = await planOfficeMission(mission, contextBlock, maxAgents);
+        const plan = await retryOfficeOperation(
+          () => planOfficeMission(mission, contextBlock, maxAgents),
+          {
+            attempts: resilientAttempts,
+            onRetry: () => send({ type: "agent", agent: "chief", status: "working", detail: "Planner provider was temporarily unavailable. Retrying safely…" }),
+          },
+        );
+        const planCheck = validateOfficePlan(plan);
+        if (!planCheck.valid) throw new Error(`AI Office planner produced an unsafe task graph: ${planCheck.errors.join(" ")}`);
+
         send({ type: "plan", plan });
         if (missionId) await persist(() => saveOfficePlan(missionId, plan, Boolean(contextBlock), sources.length));
 
@@ -145,16 +167,26 @@ export async function POST(request: NextRequest) {
               .join("\n\n");
 
             try {
-              const output = await runOfficeAgent({
-                agentId: task.agent,
-                mission,
-                task: {
-                  ...task,
-                  instruction: `${task.instruction}\n\nIf a critical factual input is genuinely required and cannot be inferred safely, write exactly one line starting with NEEDS_INPUT: followed by the question. Do not invent the missing value.`,
+              const output = await retryOfficeOperation(
+                () => runOfficeAgent({
+                  agentId: task.agent,
+                  mission,
+                  task: {
+                    ...task,
+                    instruction: [
+                      task.instruction,
+                      "If a critical factual input is genuinely required and cannot be inferred safely, write exactly one line starting with NEEDS_INPUT: followed by the question. Do not invent the missing value.",
+                      "For current or externally verifiable factual claims, include a short Evidence section with source titles or URLs when the tool provides them. If evidence is unavailable, label the claim as an assumption rather than presenting it as fact.",
+                    ].join("\n\n"),
+                  },
+                  contextBlock,
+                  dependencyOutputs,
+                }),
+                {
+                  attempts: resilientAttempts,
+                  onRetry: () => send({ type: "agent", agent: task.agent, taskId: task.id, status: "working", detail: `${task.title} · temporary provider issue, retrying…` }),
                 },
-                contextBlock,
-                dependencyOutputs,
-              });
+              );
               const question = needsInput(output);
               if (question) {
                 send({ type: "agent", agent: task.agent, taskId: task.id, status: "blocked", detail: question, output });
@@ -165,6 +197,7 @@ export async function POST(request: NextRequest) {
                 return { task, output, question };
               }
 
+              if (!output.trim()) throw new Error("Specialist returned an empty output.");
               outputs[task.id] = output;
               send({ type: "agent", agent: task.agent, taskId: task.id, status: "completed", detail: task.title, output });
               if (missionId) {
@@ -175,7 +208,7 @@ export async function POST(request: NextRequest) {
             } catch (error) {
               console.error(`AI Office agent ${task.agent} failed`, error);
               failed.add(task.id);
-              send({ type: "agent", agent: task.agent, taskId: task.id, status: "failed", detail: `${task.title} failed.` });
+              send({ type: "agent", agent: task.agent, taskId: task.id, status: "failed", detail: `${task.title} failed after safe retry.` });
               if (missionId) {
                 await persist(() => setOfficeTaskStatus(missionId, task.id, "failed"));
                 await persist(() => addOfficeAgentRun(missionId, task.agent, "failed", task.title, task.id, undefined, Date.now() - started));
@@ -198,12 +231,36 @@ export async function POST(request: NextRequest) {
           return;
         }
 
+        if (pending.size) {
+          const unresolved = [...pending.values()];
+          for (const task of unresolved) {
+            send({ type: "agent", agent: task.agent, taskId: task.id, status: "blocked", detail: "Task graph stalled because dependencies could not be resolved." });
+            if (missionId) await persist(() => setOfficeTaskStatus(missionId, task.id, "blocked"));
+          }
+          throw new Error(`Mission task graph stalled with unresolved tasks: ${unresolved.map((task) => task.id).join(", ")}.`);
+        }
+
+        if (!Object.keys(outputs).length) throw new Error("All specialist tasks failed; AI Office will not synthesize an unsupported final answer.");
+
         send({ type: "agent", agent: "qa", status: "working", detail: "Checking contradictions, assumptions, evidence and execution gaps…" });
-        const qa = await reviewOfficeMission(mission, plan, outputs, contextBlock);
+        const qa = await retryOfficeOperation(
+          () => reviewOfficeMission(mission, plan, outputs, contextBlock),
+          {
+            attempts: resilientAttempts,
+            onRetry: () => send({ type: "agent", agent: "qa", status: "working", detail: "QA provider was temporarily unavailable. Retrying…" }),
+          },
+        );
         send({ type: "agent", agent: "qa", status: "completed", detail: "Review complete.", output: qa });
 
         send({ type: "agent", agent: "chief", status: "working", detail: "Synthesizing the final deliverable and executable artifacts…" });
-        const final = await synthesizeOfficeMission({ mission, plan, outputs, qa, contextBlock });
+        const final = await retryOfficeOperation(
+          () => synthesizeOfficeMission({ mission, plan, outputs, qa, contextBlock }),
+          {
+            attempts: resilientAttempts,
+            onRetry: () => send({ type: "agent", agent: "chief", status: "working", detail: "Chief synthesis was interrupted by a temporary provider issue. Retrying…" }),
+          },
+        );
+        if (!final.trim()) throw new Error("Chief returned an empty final deliverable.");
         send({ type: "agent", agent: "chief", status: "completed", detail: "Mission complete." });
 
         let artifacts: any[] = [];
