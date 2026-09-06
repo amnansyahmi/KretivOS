@@ -3,6 +3,7 @@ import { getDatabase } from "@/lib/db";
 import { retryOfficeOperation } from "@/lib/office-hardening";
 import {
   addOfficeAgentRun,
+  addOfficeEvent,
   getOfficeMission,
   getOfficeWorkspaceContext,
   setOfficeTaskHumanFeedback,
@@ -77,7 +78,47 @@ export async function POST(request: Request) {
         order by created_at desc limit 1
       )
     `;
-    return Response.json({ ok: true, output });
+
+    const staleTasks = await sql`
+      with recursive downstream(task_key, agent_id) as (
+        select task_key, agent_id from ai_office_tasks
+         where mission_id = ${missionId}::uuid and depends_on ? ${taskKey}
+        union
+        select t.task_key, t.agent_id from ai_office_tasks t
+        join downstream d on t.depends_on ? d.task_key
+         where t.mission_id = ${missionId}::uuid
+      )
+      update ai_office_tasks set stale = true, updated_at = now()
+       where mission_id = ${missionId}::uuid and task_key in (select task_key from downstream)
+      returning task_key, agent_id
+    `;
+
+    const staleAgents = [...new Set((staleTasks as any[]).map((row) => String(row.agent_id)).filter(Boolean))];
+    if (staleAgents.length) {
+      const staleArtifacts = await sql`
+        update ai_office_artifacts set status = 'stale', updated_at = now()
+         where mission_id = ${missionId}::uuid and agent_id = any(${staleAgents}::text[])
+           and status not in ('rejected')
+        returning id::text
+      `;
+      const staleArtifactIds = (staleArtifacts as any[]).map((row) => String(row.id));
+      if (staleArtifactIds.length) {
+        await sql`
+          update ai_office_approvals set status = 'superseded', decision_note = 'Upstream agent work changed; regenerate dependent work before approval.',
+            resolved_at = now(), updated_at = now()
+           where artifact_id = any(${staleArtifactIds}::uuid[]) and status = 'pending'
+        `;
+      }
+    }
+
+    await addOfficeEvent(missionId, detail.mission.workspace_id || null, "agent.revised", {
+      taskKey,
+      agentId: task.agent_id,
+      feedback: feedback.slice(0, 500),
+      staleTasks: (staleTasks as any[]).map((row) => row.task_key),
+    }, "Kretivco Team");
+
+    return Response.json({ ok: true, output, staleTasks: (staleTasks as any[]).map((row) => row.task_key) });
   } catch (error) {
     console.error("AI Office retry error", error);
     const message = error instanceof Error ? error.message : "Unable to retry agent.";
@@ -86,6 +127,7 @@ export async function POST(request: Request) {
       if (agentId) {
         try { await addOfficeAgentRun(missionId, agentId, "failed", "Targeted revision failed after safe retry.", taskKey, undefined, started ? Date.now() - started : undefined); } catch {}
       }
+      try { await addOfficeEvent(missionId, null, "agent.revision_failed", { taskKey, agentId, error: message.slice(0, 500) }, "Kretivco Team"); } catch {}
     }
     return Response.json({ error: message }, { status: 500 });
   }
