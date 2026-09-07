@@ -7,7 +7,6 @@ type Props = {
 };
 
 const common = {
-  fill: "none",
   stroke: "currentColor",
   strokeWidth: 2.6,
   strokeLinecap: "round" as const,
@@ -24,6 +23,7 @@ export default function AgentGlyph({ agentId, active = false, className = "" }: 
       aria-hidden="true"
       className={className}
       style={{ color: accent }}
+      fill="none"
     >
       <ellipse cx="32" cy="54" rx="17" ry="4.5" fill="rgba(0,0,0,.28)" />
       {glyph(agentId, accent, muted)}
