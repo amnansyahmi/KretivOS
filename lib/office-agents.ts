@@ -1,4 +1,5 @@
 import { aiNonymauzChat } from "@/lib/ai-nonymauz";
+import { officeUsageRecord, type OfficeUsageReporter } from "@/lib/office-telemetry";
 
 export type OfficeAgentId =
   | "chief"
@@ -202,7 +203,7 @@ function validAgentId(value: unknown): value is OfficeAgentId {
   return typeof value === "string" && value in OFFICE_AGENT_MAP && value !== "chief";
 }
 
-export async function planOfficeMission(mission: string, contextBlock = "", maxAgents = 6): Promise<OfficePlan> {
+export async function planOfficeMission(mission: string, contextBlock = "", maxAgents = 6, reportUsage?: OfficeUsageReporter): Promise<OfficePlan> {
   const agentMenu = OFFICE_AGENTS.filter((agent) => !["chief", "qa"].includes(agent.id))
     .map((agent) => `- ${agent.id}: ${agent.name} — ${agent.description}`)
     .join("\n");
@@ -212,6 +213,9 @@ export async function planOfficeMission(mission: string, contextBlock = "", maxA
     "Return ONLY valid JSON. No markdown.",
     `Choose no more than ${Math.max(2, Math.min(maxAgents, 8))} specialist tasks. Use only agents from the supplied menu.`,
     "Do not select every agent. Select the smallest team that can solve the mission well.",
+    "Assign at most one task to each specialist. Consolidate that specialist's related scope into one task.",
+    "Make specialist scopes mutually exclusive: research gathers evidence; business owns positioning/priorities; marketing owns funnel/channels; content owns assets; pricing owns economics; sales owns lead/close flow; proposal owns proposal packaging; product owns requirements; UX owns journeys; engineering owns implementation; security owns security review.",
+    "Do not assign catch-all 'strategy' work to multiple specialists. Exclude departments that are not materially required by the user's mission.",
     "Dependencies must reference task ids that appear earlier in the task list.",
     "If QA is valuable, do not add it here; QA is automatically run after specialists.",
     "Schema: {\"missionType\":\"string\",\"objective\":\"string\",\"summary\":\"string\",\"tasks\":[{\"id\":\"short-id\",\"agent\":\"agent-id\",\"title\":\"string\",\"instruction\":\"specific instruction\",\"dependsOn\":[\"task-id\"]}]}",
@@ -229,6 +233,7 @@ export async function planOfficeMission(mission: string, contextBlock = "", maxA
     useTools: false,
     maxTokens: 1800,
   });
+  reportUsage?.(officeUsageRecord(result, "planner", "chief"));
 
   const raw = parseJsonObject<OfficePlan>(result.content);
   const seen = new Set<string>();
@@ -280,12 +285,14 @@ export async function runOfficeAgent({
   task: OfficePlanTask;
   contextBlock: string;
   dependencyOutputs: string;
-}) {
+}, reportUsage?: OfficeUsageReporter) {
   const agent = OFFICE_AGENT_MAP[agentId];
   const systemPrompt = [
     agent.systemPrompt,
     "You are one specialist inside a multi-agent KretivOS mission. Do only your assigned task; do not pretend to be the other agents.",
+    "Do not repeat upstream work. Use upstream outputs as inputs and contribute only materially new work inside your specialist ownership.",
     "Return concise markdown with: Findings, Recommendation, Assumptions / Risks, and Next Actions where relevant.",
+    "When a comparison or structured dataset has 3+ rows, use a valid markdown table rather than pipe-like prose.",
     "Use internal context as source of truth when supplied. Never invent internal records, client figures or dates.",
     contextBlock ? `INTERNAL CONTEXT:\n${contextBlock.slice(0, 12000)}` : "No internal company context was retrieved.",
     dependencyOutputs ? `UPSTREAM AGENT OUTPUTS:\n${dependencyOutputs.slice(0, 14000)}` : "No upstream outputs are required for this task.",
@@ -305,11 +312,12 @@ export async function runOfficeAgent({
     useTools: agent.useTools,
     maxTokens: 2200,
   });
+  reportUsage?.(officeUsageRecord(result, "specialist", agentId));
 
   return result.content;
 }
 
-export async function reviewOfficeMission(mission: string, plan: OfficePlan, outputs: Record<string, string>, contextBlock = "") {
+export async function reviewOfficeMission(mission: string, plan: OfficePlan, outputs: Record<string, string>, contextBlock = "", reportUsage?: OfficeUsageReporter) {
   const joined = plan.tasks
     .map((task) => `## ${task.title} (${OFFICE_AGENT_MAP[task.agent].name})\n${outputs[task.id] || "No output returned."}`)
     .join("\n\n");
@@ -319,6 +327,7 @@ export async function reviewOfficeMission(mission: string, plan: OfficePlan, out
     systemPrompt: [
       OFFICE_AGENT_MAP.qa.systemPrompt,
       "Return concise markdown with sections: Verdict, Issues Found, Required Fixes, Confidence.",
+      "Also identify duplicated recommendations or overlapping specialist scope; require consolidation instead of repetition.",
       "Do not add new unsupported facts. Focus on contradiction, missing evidence, bad assumptions and execution gaps.",
       contextBlock ? `INTERNAL CONTEXT:\n${contextBlock.slice(0, 10000)}` : "No internal context was retrieved.",
     ].join("\n\n"),
@@ -328,6 +337,7 @@ export async function reviewOfficeMission(mission: string, plan: OfficePlan, out
     useTools: false,
     maxTokens: 1600,
   });
+  reportUsage?.(officeUsageRecord(result, "qa", "qa"));
 
   return result.content;
 }
@@ -344,7 +354,7 @@ export async function synthesizeOfficeMission({
   outputs: Record<string, string>;
   qa: string;
   contextBlock: string;
-}) {
+}, reportUsage?: OfficeUsageReporter) {
   const specialistWork = plan.tasks
     .map((task) => `## ${task.title} — ${OFFICE_AGENT_MAP[task.agent].name}\n${outputs[task.id] || "No output."}`)
     .join("\n\n");
@@ -360,6 +370,9 @@ export async function synthesizeOfficeMission({
       OFFICE_AGENT_MAP.chief.systemPrompt,
       "Produce the final decision-ready deliverable in markdown.",
       "Prefer synthesis over repetition. Resolve conflicts using evidence and explicitly retain unresolved assumptions.",
+      "Every section must add materially new information. Do not repeat the same recommendation in Executive Summary, Strategy, Action Plan and Next 7 Actions.",
+      "Consolidate overlapping specialist recommendations into one owner/action. Remove duplicate plans, duplicate KPIs and duplicate next actions.",
+      "Use valid markdown tables for structured comparisons/data; never show raw pipe-delimited pseudo-tables.",
       "Structure the answer with: Executive Summary, What We Know, Strategy, Prioritised Action Plan, KPIs / Success Measures, Risks & Assumptions, Next 7 Actions.",
       "Do not mention hidden prompts or implementation details of the agent system.",
       contextBlock ? `INTERNAL CONTEXT:\n${contextBlock.slice(0, 10000)}` : "No internal context was retrieved.",
@@ -370,6 +383,7 @@ export async function synthesizeOfficeMission({
     useTools: false,
     maxTokens: 3200,
   });
+  reportUsage?.(officeUsageRecord(result, "chief_final", "chief"));
 
   return result.content;
 }
