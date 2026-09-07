@@ -2,6 +2,7 @@ import { getDatabase } from "@/lib/db";
 import { extractOfficeEvidenceUrls } from "@/lib/office-hardening-core";
 
 export {
+  compactOfficePlan,
   extractOfficeEvidenceUrls,
   isTransientOfficeError,
   parseOfficeSseTerminalState,
