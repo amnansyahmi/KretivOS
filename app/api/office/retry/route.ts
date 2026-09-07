@@ -1,11 +1,12 @@
 import { runOfficeAgent, type OfficeAgentId } from "@/lib/office-agents";
 import { getDatabase } from "@/lib/db";
 import { retryOfficeOperation } from "@/lib/office-hardening";
+import { getRelevantOfficeWorkspaceContext } from "@/lib/office-memory";
+import { persistOfficeTelemetry, type OfficeUsageRecord } from "@/lib/office-telemetry";
 import {
   addOfficeAgentRun,
   addOfficeEvent,
   getOfficeMission,
-  getOfficeWorkspaceContext,
   setOfficeTaskHumanFeedback,
   setOfficeTaskStatus,
 } from "@/lib/office-store";
@@ -18,6 +19,8 @@ export async function POST(request: Request) {
   let taskKey = "";
   let agentId = "";
   let started = 0;
+  const usageRecords: OfficeUsageRecord[] = [];
+  const reportUsage = (record: OfficeUsageRecord) => usageRecords.push(record);
   try {
     const body = await request.json();
     missionId = String(body.missionId || "").trim();
@@ -33,7 +36,8 @@ export async function POST(request: Request) {
 
     await setOfficeTaskHumanFeedback(missionId, taskKey, feedback);
     await setOfficeTaskStatus(missionId, taskKey, "working");
-    const contextBlock = await getOfficeWorkspaceContext(detail.mission.workspace_id || null);
+    const query = `${detail.mission.mission || ""}\nRevision feedback: ${feedback}`;
+    const contextBlock = await getRelevantOfficeWorkspaceContext(detail.mission.workspace_id || null, query);
     const dependencyOutputs = (Array.isArray(task.depends_on) ? task.depends_on : [])
       .map((id: string) => {
         const upstream = detail.tasks.find((item: any) => item.task_key === id);
@@ -55,13 +59,14 @@ export async function POST(request: Request) {
             task.instruction,
             `HUMAN FEEDBACK FOR THIS REVISION:\n${feedback}`,
             "Revise the work directly. Preserve correct evidence and do not defend the previous answer.",
+            "Remove duplicated recommendations and stay strictly inside this specialist's ownership.",
             "For externally verifiable factual claims, preserve or improve the Evidence section. Do not introduce unsupported facts during a revision.",
           ].join("\n\n"),
           dependsOn: Array.isArray(task.depends_on) ? task.depends_on : [],
         },
         contextBlock,
         dependencyOutputs,
-      }),
+      }, reportUsage),
       { attempts: 2 },
     );
     if (!output.trim()) throw new Error("Agent revision returned an empty output.");
@@ -118,10 +123,14 @@ export async function POST(request: Request) {
       staleTasks: (staleTasks as any[]).map((row) => row.task_key),
     }, "Kretivco Team");
 
+    if (usageRecords.length) await persistOfficeTelemetry(missionId, usageRecords);
     return Response.json({ ok: true, output, staleTasks: (staleTasks as any[]).map((row) => row.task_key) });
   } catch (error) {
     console.error("AI Office retry error", error);
     const message = error instanceof Error ? error.message : "Unable to retry agent.";
+    if (missionId && usageRecords.length) {
+      try { await persistOfficeTelemetry(missionId, usageRecords); } catch {}
+    }
     if (missionId && taskKey) {
       try { await setOfficeTaskStatus(missionId, taskKey, "failed"); } catch {}
       if (agentId) {
