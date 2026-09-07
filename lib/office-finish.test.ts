@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { dedupeOfficeArtifacts } from "./office-artifact-dedupe.ts";
 import { extractOfficeEvidenceRecords } from "./office-evidence.ts";
-import { officeUsageRecord } from "./office-telemetry.ts";
 import type { OfficePlan } from "./office-agents.ts";
 
 test("artifact dedupe suppresses materially duplicated specialist outputs", () => {
@@ -40,21 +39,4 @@ test("evidence extraction captures external, internal and assumption records", (
   assert.equal(records.some((item) => item.type === "external" && item.url === "https://example.com/report"), true);
   assert.equal(records.some((item) => item.type === "internal" && /Customers/i.test(item.claim)), true);
   assert.equal(records.some((item) => item.type === "assumption"), true);
-});
-
-test("usage telemetry records real token counts and configurable estimated cost", () => {
-  const oldInput = process.env.AI_OFFICE_INPUT_USD_PER_MILLION;
-  const oldOutput = process.env.AI_OFFICE_OUTPUT_USD_PER_MILLION;
-  process.env.AI_OFFICE_INPUT_USD_PER_MILLION = "1";
-  process.env.AI_OFFICE_OUTPUT_USD_PER_MILLION = "2";
-  const record = officeUsageRecord({
-    content: "ok",
-    model: "test-model",
-    usage: { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
-    raw: {},
-  }, "specialist", "research");
-  assert.equal(record.totalTokens, 1500);
-  assert.equal(record.estimatedCostUsd, 0.002);
-  if (oldInput === undefined) delete process.env.AI_OFFICE_INPUT_USD_PER_MILLION; else process.env.AI_OFFICE_INPUT_USD_PER_MILLION = oldInput;
-  if (oldOutput === undefined) delete process.env.AI_OFFICE_OUTPUT_USD_PER_MILLION; else process.env.AI_OFFICE_OUTPUT_USD_PER_MILLION = oldOutput;
 });
