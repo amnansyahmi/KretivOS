@@ -146,7 +146,7 @@ export function compactOfficePlan(plan: PlanLike) {
 
   const originalCount = plan.tasks.length;
   const aliases = new Map<string, string>();
-  let tasks = plan.tasks.map((task) => ({ ...task, dependsOn: [...(task.dependsOn || [])] }));
+  let tasks: PlanTaskLike[] = plan.tasks.map((task) => ({ ...task, dependsOn: [...(task.dependsOn || [])] }));
 
   // One consolidated assignment per agent, retaining genuinely different scope in a single task.
   const byAgent: PlanTaskLike[] = [];
