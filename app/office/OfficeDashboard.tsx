@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity, Archive, ArrowLeft, ArrowRight, BarChart3, Bell, BookOpen, Building2,
@@ -81,7 +80,6 @@ function EmptyState({ children }: { children: ReactNode }) {
 }
 
 export default function OfficeDashboard() {
-  const searchParams = useSearchParams();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [workspaceId, setWorkspaceId] = useState("");
@@ -105,11 +103,12 @@ export default function OfficeDashboard() {
   const [motion, setMotion] = useState(true);
 
   useEffect(() => {
-    const incomingWorkspace = searchParams.get("workspace") || "";
-    const incomingMission = searchParams.get("mission") || "";
+    const params = new URLSearchParams(window.location.search);
+    const incomingWorkspace = params.get("workspace") || "";
+    const incomingMission = params.get("mission") || "";
     if (incomingWorkspace) setWorkspaceId(incomingWorkspace);
     if (incomingMission) setMission(incomingMission);
-  }, [searchParams]);
+  }, []);
 
   const activeAgents = useMemo(() => Object.values(agents).filter((agent) => agent.status !== "standby"), [agents]);
   const workingCount = activeAgents.filter((agent) => agent.status === "working").length;
