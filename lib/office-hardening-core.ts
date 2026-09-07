@@ -88,6 +88,50 @@ function resolveAlias(id: string, aliases: Map<string, string>) {
   return value;
 }
 
+function structuralPlanErrors(tasks: PlanTaskLike[]) {
+  const errors: string[] = [];
+  const ids = new Set<string>();
+  for (const task of tasks) {
+    const id = String(task.id || "").trim();
+    if (!id) errors.push("A task is missing an id.");
+    else if (ids.has(id)) errors.push(`Duplicate task id: ${id}.`);
+    else ids.add(id);
+  }
+
+  for (const task of tasks) {
+    for (const dependency of task.dependsOn || []) {
+      if (dependency === task.id) errors.push(`Task ${task.id} depends on itself.`);
+      else if (!ids.has(dependency)) errors.push(`Task ${task.id} depends on missing task ${dependency}.`);
+    }
+  }
+
+  if (!errors.length) {
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const walk = (id: string): boolean => {
+      if (visiting.has(id)) return true;
+      if (visited.has(id)) return false;
+      visiting.add(id);
+      const task = byId.get(id);
+      for (const dependency of task?.dependsOn || []) {
+        if (byId.has(dependency) && walk(dependency)) return true;
+      }
+      visiting.delete(id);
+      visited.add(id);
+      return false;
+    };
+    for (const id of ids) {
+      if (walk(id)) {
+        errors.push("Task graph contains a dependency cycle.");
+        break;
+      }
+    }
+  }
+
+  return errors;
+}
+
 /**
  * Compacts semantic duplicates in-place so every downstream consumer sees the same lean task graph.
  * Rules:
@@ -104,7 +148,7 @@ export function compactOfficePlan(plan: PlanLike) {
   const aliases = new Map<string, string>();
   let tasks = plan.tasks.map((task) => ({ ...task, dependsOn: [...(task.dependsOn || [])] }));
 
-  // Pass 1: one task per agent. Preserve all genuinely different scope inside one consolidated assignment.
+  // One consolidated assignment per agent, retaining genuinely different scope in a single task.
   const byAgent: PlanTaskLike[] = [];
   for (const task of tasks) {
     const existingIndex = task.agent ? byAgent.findIndex((item) => item.agent === task.agent) : -1;
@@ -122,7 +166,7 @@ export function compactOfficePlan(plan: PlanLike) {
   }
   tasks = byAgent;
 
-  // Pass 2: collapse only very-high-confidence semantic duplicates across different agents.
+  // Across different agents, collapse only very-high-confidence semantic duplicates.
   const semantic: PlanTaskLike[] = [];
   for (const task of tasks) {
     const duplicateIndex = semantic.findIndex((item) => taskSimilarity(item, task) >= 0.84);
@@ -149,7 +193,7 @@ export function compactOfficePlan(plan: PlanLike) {
   }
   tasks = semantic;
 
-  // Pass 3: a cross-agent merge may have changed ownership and created a duplicate agent; consolidate again.
+  // A cross-agent merge can change ownership and create a duplicate agent; consolidate once more.
   const finalTasks: PlanTaskLike[] = [];
   for (const task of tasks) {
     const existingIndex = task.agent ? finalTasks.findIndex((item) => item.agent === task.agent) : -1;
@@ -182,52 +226,22 @@ export function compactOfficePlan(plan: PlanLike) {
 }
 
 export function validateOfficePlan(plan: PlanLike) {
-  const errors: string[] = [];
   if (!plan || !Array.isArray(plan.tasks) || plan.tasks.length === 0) {
     return { valid: false, errors: ["Plan has no executable specialist tasks."], redundancy: { originalCount: 0, finalCount: 0, removedTaskIds: [] as string[] } };
   }
 
-  const ids = new Set<string>();
-  for (const task of plan.tasks) {
-    const id = String(task.id || "").trim();
-    if (!id) errors.push("A task is missing an id.");
-    else if (ids.has(id)) errors.push(`Duplicate task id: ${id}.`);
-    else ids.add(id);
+  // Structural safety is checked before compaction so malformed dependencies can never be silently discarded.
+  const originalErrors = structuralPlanErrors(plan.tasks);
+  if (originalErrors.length) {
+    return {
+      valid: false,
+      errors: originalErrors,
+      redundancy: { originalCount: plan.tasks.length, finalCount: plan.tasks.length, removedTaskIds: [] as string[] },
+    };
   }
 
-  // Never hide malformed ids behind compaction; structural errors must remain visible.
-  const redundancy = errors.length ? { originalCount: plan.tasks.length, finalCount: plan.tasks.length, removedTaskIds: [] as string[] } : compactOfficePlan(plan);
-
-  const compactIds = new Set(plan.tasks.map((task) => task.id));
-  for (const task of plan.tasks) {
-    for (const dependency of task.dependsOn || []) {
-      if (dependency === task.id) errors.push(`Task ${task.id} depends on itself.`);
-      else if (!compactIds.has(dependency)) errors.push(`Task ${task.id} depends on missing task ${dependency}.`);
-    }
-  }
-
-  const byId = new Map(plan.tasks.map((task) => [task.id, task]));
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const walk = (id: string): boolean => {
-    if (visiting.has(id)) return true;
-    if (visited.has(id)) return false;
-    visiting.add(id);
-    const task = byId.get(id);
-    for (const dependency of task?.dependsOn || []) {
-      if (byId.has(dependency) && walk(dependency)) return true;
-    }
-    visiting.delete(id);
-    visited.add(id);
-    return false;
-  };
-  for (const id of compactIds) {
-    if (walk(id)) {
-      errors.push("Task graph contains a dependency cycle.");
-      break;
-    }
-  }
-
+  const redundancy = compactOfficePlan(plan);
+  const errors = structuralPlanErrors(plan.tasks);
   return { valid: errors.length === 0, errors, redundancy };
 }
 
