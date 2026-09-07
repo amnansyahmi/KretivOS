@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { gatherContext } from "@/lib/ai-context";
+import { getDatabase } from "@/lib/db";
 import {
   OFFICE_AGENT_MAP,
   planOfficeMission,
@@ -10,6 +11,9 @@ import {
   type OfficePlanTask,
 } from "@/lib/office-agents";
 import { evaluateOfficeMission } from "@/lib/office-evaluator";
+import { dedupeOfficeArtifacts } from "@/lib/office-artifact-dedupe";
+import { getRelevantOfficeWorkspaceContext } from "@/lib/office-memory";
+import { persistOfficeTelemetry, type OfficeUsageRecord } from "@/lib/office-telemetry";
 import { dispatchAutomationEvent } from "@/lib/automation-server";
 import { notifyOffice } from "@/lib/office-notifications";
 import {
@@ -24,7 +28,6 @@ import {
   createOfficeArtifacts,
   createOfficeMission,
   failOfficeMission,
-  getOfficeWorkspaceContext,
   saveMissionEvaluation,
   saveOfficePlan,
   setOfficeTaskStatus,
@@ -79,11 +82,31 @@ export async function POST(request: NextRequest) {
   const resilientAttempts = budgetMode === "economy" ? 1 : 2;
   const encoder = new TextEncoder();
 
+  // Fast duplicate-submit guard. It deliberately targets only actively running,
+  // near-simultaneous identical missions so intentional historical reruns remain possible.
+  try {
+    const sql = getDatabase();
+    const duplicate = await sql`
+      select id::text, status from ai_office_missions
+       where organization_id = 'org-kretivco'
+         and workspace_id is not distinct from ${workspaceId}::uuid
+         and lower(trim(mission)) = lower(trim(${mission}))
+         and status in ('planning','running')
+         and created_at > now() - interval '45 seconds'
+       order by created_at desc limit 1
+    `;
+    if (duplicate[0]) return Response.json({ error: "This mission is already running.", missionId: duplicate[0].id }, { status: 409 });
+  } catch (error) {
+    console.warn("AI Office duplicate-submit guard unavailable", error);
+  }
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (payload: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       const outputs: Record<string, string> = {};
       const failed = new Set<string>();
+      const usageRecords: OfficeUsageRecord[] = [];
+      const reportUsage = (record: OfficeUsageRecord) => usageRecords.push(record);
       let missionId = "";
 
       const persist = async (work: () => Promise<unknown>) => {
@@ -100,13 +123,13 @@ export async function POST(request: NextRequest) {
           });
         });
         send({ type: "mission", missionId: missionId || null, workspaceId, budgetMode });
-        send({ type: "agent", agent: "chief", status: "working", detail: "Understanding the mission, client memory and best team…" });
+        send({ type: "agent", agent: "chief", status: "working", detail: "Understanding the mission, relevant client memory and best team…" });
 
         const [context, workspaceContext, learningContext] = await Promise.all([
           body.grounded === false
             ? Promise.resolve({ matches: [], snapshot: null, block: "" })
             : gatherContext(mission, { workspace: "AI Office" }),
-          getOfficeWorkspaceContext(workspaceId),
+          getRelevantOfficeWorkspaceContext(workspaceId, mission),
           getOfficeLearningContext(workspaceId),
         ]);
         const sources = context.matches.map((match, index) => ({
@@ -126,7 +149,7 @@ export async function POST(request: NextRequest) {
         });
 
         const plan = await retryOfficeOperation(
-          () => planOfficeMission(mission, contextBlock, maxAgents),
+          () => planOfficeMission(mission, contextBlock, maxAgents, reportUsage),
           {
             attempts: resilientAttempts,
             onRetry: () => send({ type: "agent", agent: "chief", status: "working", detail: "Planner provider was temporarily unavailable. Retrying safely…" }),
@@ -135,11 +158,11 @@ export async function POST(request: NextRequest) {
         const planCheck = validateOfficePlan(plan);
         if (!planCheck.valid) throw new Error(`AI Office planner produced an unsafe task graph: ${planCheck.errors.join(" ")}`);
 
-        send({ type: "plan", plan });
+        send({ type: "plan", plan, redundancy: planCheck.redundancy });
         if (missionId) await persist(() => saveOfficePlan(missionId, plan, Boolean(contextBlock), sources.length));
 
         for (const task of plan.tasks) send({ type: "agent", agent: task.agent, taskId: task.id, status: "queued", detail: task.title });
-        send({ type: "agent", agent: "chief", status: "completed", detail: `Mission plan ready · ${budgetMode.replace("_", " ")} mode · independent work runs in parallel.` });
+        send({ type: "agent", agent: "chief", status: "completed", detail: `Mission plan ready · ${plan.tasks.length} focused specialist${plan.tasks.length === 1 ? "" : "s"} · ${budgetMode.replace("_", " ")} mode.` });
 
         const pending = new Map(plan.tasks.map((task) => [task.id, task]));
         let attention: { task: OfficePlanTask; question: string } | null = null;
@@ -182,7 +205,7 @@ export async function POST(request: NextRequest) {
                   },
                   contextBlock,
                   dependencyOutputs,
-                }),
+                }, reportUsage),
                 {
                   attempts: resilientAttempts,
                   onRetry: () => send({ type: "agent", agent: task.agent, taskId: task.id, status: "working", detail: `${task.title} · temporary provider issue, retrying…` }),
@@ -243,9 +266,9 @@ export async function POST(request: NextRequest) {
 
         if (!Object.keys(outputs).length) throw new Error("All specialist tasks failed; AI Office will not synthesize an unsupported final answer.");
 
-        send({ type: "agent", agent: "qa", status: "working", detail: "Checking contradictions, assumptions, evidence and execution gaps…" });
-        const qa = await retryOfficeOperation(
-          () => reviewOfficeMission(mission, plan, outputs, contextBlock),
+        send({ type: "agent", agent: "qa", status: "working", detail: "Checking contradictions, assumptions, evidence, redundancy and execution gaps…" });
+        let qa = await retryOfficeOperation(
+          () => reviewOfficeMission(mission, plan, outputs, contextBlock, reportUsage),
           {
             attempts: resilientAttempts,
             onRetry: () => send({ type: "agent", agent: "qa", status: "working", detail: "QA provider was temporarily unavailable. Retrying…" }),
@@ -254,29 +277,101 @@ export async function POST(request: NextRequest) {
         send({ type: "agent", agent: "qa", status: "completed", detail: "Review complete.", output: qa });
 
         send({ type: "agent", agent: "chief", status: "working", detail: "Synthesizing the final deliverable and executable artifacts…" });
-        const final = await retryOfficeOperation(
-          () => synthesizeOfficeMission({ mission, plan, outputs, qa, contextBlock }),
+        let final = await retryOfficeOperation(
+          () => synthesizeOfficeMission({ mission, plan, outputs, qa, contextBlock }, reportUsage),
           {
             attempts: resilientAttempts,
             onRetry: () => send({ type: "agent", agent: "chief", status: "working", detail: "Chief synthesis was interrupted by a temporary provider issue. Retrying…" }),
           },
         );
         if (!final.trim()) throw new Error("Chief returned an empty final deliverable.");
+
+        let evaluation: Record<string, any> | null = null;
+        let correctiveRound: { previousScore: number; agents: string[] } | null = null;
+        if (budgetMode !== "economy") {
+          try {
+            evaluation = await evaluateOfficeMission({ mission, plan, outputs, qa, final }, reportUsage);
+            const previousScore = Number(evaluation.score || 0);
+            const requested = Array.isArray(evaluation.shouldRetryAgents) ? evaluation.shouldRetryAgents.map(String) : [];
+            const correctionLimit = budgetMode === "max_quality" ? 2 : 1;
+            const correctionTasks = plan.tasks
+              .filter((task) => requested.includes(task.agent))
+              .slice(0, correctionLimit);
+
+            if (previousScore > 0 && previousScore < 76 && correctionTasks.length) {
+              const weaknesses = Array.isArray(evaluation.weaknesses) ? evaluation.weaknesses.map(String).slice(0, 5).join("; ") : "Quality evaluator found a fixable weakness.";
+              const correctedAgents: string[] = [];
+              send({ type: "quality_loop", status: "working", score: previousScore, agents: correctionTasks.map((task) => task.agent), detail: "Quality score triggered one bounded corrective round." });
+
+              for (const task of correctionTasks) {
+                try {
+                  send({ type: "agent", agent: task.agent, taskId: task.id, status: "working", detail: `${task.title} · quality correction` });
+                  const dependencyOutputs = task.dependsOn
+                    .map((dependencyId) => outputs[dependencyId] ? `### ${dependencyId}\n${outputs[dependencyId]}` : "")
+                    .filter(Boolean)
+                    .join("\n\n");
+                  const started = Date.now();
+                  const corrected = await retryOfficeOperation(
+                    () => runOfficeAgent({
+                      agentId: task.agent,
+                      mission,
+                      task: {
+                        ...task,
+                        instruction: [
+                          task.instruction,
+                          `QUALITY CORRECTION ROUND. Evaluator weaknesses: ${weaknesses}`,
+                          "Correct only your own specialist contribution. Remove duplication, unsupported claims and generic filler. Preserve valid evidence. Do not broaden scope.",
+                        ].join("\n\n"),
+                      },
+                      contextBlock,
+                      dependencyOutputs,
+                    }, reportUsage),
+                    { attempts: resilientAttempts },
+                  );
+                  if (corrected.trim() && !needsInput(corrected)) {
+                    outputs[task.id] = corrected;
+                    correctedAgents.push(task.agent);
+                    send({ type: "agent", agent: task.agent, taskId: task.id, status: "completed", detail: `${task.title} · corrected`, output: corrected });
+                    if (missionId) {
+                      await persist(() => setOfficeTaskStatus(missionId, task.id, "completed", corrected));
+                      await persist(() => addOfficeAgentRun(missionId, task.agent, "completed", "Automatic quality correction", task.id, corrected, Date.now() - started));
+                    }
+                  }
+                } catch (error) {
+                  console.warn(`AI Office corrective rerun failed for ${task.agent}`, error);
+                }
+              }
+
+              if (correctedAgents.length) {
+                send({ type: "agent", agent: "qa", status: "working", detail: "Rechecking corrected specialist work…" });
+                qa = await retryOfficeOperation(() => reviewOfficeMission(mission, plan, outputs, contextBlock, reportUsage), { attempts: resilientAttempts });
+                send({ type: "agent", agent: "qa", status: "completed", detail: "Corrective review complete.", output: qa });
+                send({ type: "agent", agent: "chief", status: "working", detail: "Re-synthesizing after quality corrections…" });
+                final = await retryOfficeOperation(() => synthesizeOfficeMission({ mission, plan, outputs, qa, contextBlock }, reportUsage), { attempts: resilientAttempts });
+                const secondEvaluation = await evaluateOfficeMission({ mission, plan, outputs, qa, final }, reportUsage);
+                correctiveRound = { previousScore, agents: correctedAgents };
+                evaluation = { ...secondEvaluation, correctiveRound };
+                send({ type: "quality_loop", status: "completed", previousScore, score: evaluation.score, agents: correctedAgents });
+              }
+            }
+          } catch (error) {
+            console.warn("Mission evaluation/corrective loop failed", error);
+          }
+        }
+
         send({ type: "agent", agent: "chief", status: "completed", detail: "Mission complete." });
 
         let artifacts: any[] = [];
-        let evaluation: Record<string, unknown> | null = null;
+        let artifactDedupe: ReturnType<typeof dedupeOfficeArtifacts> | null = null;
         if (missionId) {
           await persist(() => completeOfficeMission(missionId, qa, final));
           try {
-            artifacts = await createOfficeArtifacts(missionId, plan, outputs, final, qa);
+            artifactDedupe = dedupeOfficeArtifacts(plan, outputs);
+            artifacts = await createOfficeArtifacts(missionId, artifactDedupe.plan, artifactDedupe.outputs, final, qa);
             await enrichOfficeArtifactEvidence(missionId);
           } catch (error) { console.warn("Artifact generation or evidence enrichment failed", error); }
-          if (budgetMode !== "economy") {
-            try {
-              evaluation = await evaluateOfficeMission({ mission, plan, outputs, qa, final });
-              await saveMissionEvaluation(missionId, evaluation);
-            } catch (error) { console.warn("Mission evaluation failed", error); }
+          if (evaluation) {
+            try { await saveMissionEvaluation(missionId, evaluation); } catch (error) { console.warn("Mission evaluation persistence failed", error); }
           }
           try {
             await dispatchAutomationEvent("ai-office.mission.completed" as any, "ai_office_mission", missionId, {
@@ -291,6 +386,8 @@ export async function POST(request: NextRequest) {
 
         send({
           type: "done", missionId: missionId || null, mission, plan, outputs, qa, final, artifacts, evaluation,
+          artifactDedupe: artifactDedupe ? { removed: artifactDedupe.removed } : null,
+          correctiveRound,
           agents: ["chief", ...plan.tasks.map((task) => task.agent), "qa"].map((id) => OFFICE_AGENT_MAP[id as OfficeAgentId]),
         });
       } catch (error) {
@@ -299,6 +396,9 @@ export async function POST(request: NextRequest) {
         if (missionId) await persist(() => failOfficeMission(missionId, message));
         send({ type: "error", missionId: missionId || null, error: message });
       } finally {
+        if (missionId && usageRecords.length) {
+          try { await persistOfficeTelemetry(missionId, usageRecords); } catch (error) { console.warn("AI Office usage telemetry unavailable", error); }
+        }
         controller.close();
       }
     },
