@@ -1,5 +1,6 @@
 import { getDatabase } from "@/lib/db";
-import { executeOfficeArtifact, listOfficeApprovals, resolveOfficeApproval } from "@/lib/office-store";
+import { executeOfficeArtifactIdempotent } from "@/lib/office-execution";
+import { listOfficeApprovals, resolveOfficeApproval } from "@/lib/office-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,8 +24,7 @@ export async function POST(request: Request) {
     let replay = false;
 
     // If approval succeeded earlier but execution failed afterwards, allow the
-    // same explicit approve action to retry execution without reopening the
-    // approval or creating a second destination record.
+    // same explicit approve action to retry execution without reopening approval.
     if (!resolved && decision === "approved" && body.execute !== false) {
       const sql = getDatabase();
       const rows = await sql`
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
          where p.id = ${id}::uuid limit 1
       `;
       const existing: any = rows[0];
-      if (existing?.status === "approved" && existing?.artifact_status === "approved") {
+      if (existing?.status === "approved" && ["approved", "ready"].includes(existing?.artifact_status)) {
         resolved = existing;
         replay = true;
       } else if (existing?.artifact_status === "executed") {
@@ -45,9 +45,11 @@ export async function POST(request: Request) {
     if (!resolved) return Response.json({ error: "Approval is no longer pending." }, { status: 409 });
 
     let execution = null;
-    if (decision === "approved" && body.execute !== false) execution = await executeOfficeArtifact(String(resolved.artifact_id));
-    return Response.json({ ok: true, decision, replay, execution });
+    if (decision === "approved" && body.execute !== false) execution = await executeOfficeArtifactIdempotent(String(resolved.artifact_id));
+    return Response.json({ ok: true, decision, replay: replay || Boolean((execution as any)?.replay), execution });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Unable to resolve approval." }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Unable to resolve approval.";
+    const status = /already in progress/i.test(message) ? 409 : 500;
+    return Response.json({ error: message }, { status });
   }
 }
