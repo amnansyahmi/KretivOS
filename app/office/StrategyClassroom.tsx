@@ -127,9 +127,9 @@ function Desk({ agent, featured = false, motion, onClick }: { agent: OfficeWorld
   return <button onClick={onClick} className={`group relative min-w-0 rounded-2xl px-1 pb-2 pt-1 text-center transition ${important ? "bg-white/[.018]" : "hover:bg-white/[.015]"}`}>
     <div className={`relative mx-auto ${featured ? "h-[82px] w-[150px] sm:h-[92px] sm:w-[172px]" : "h-[70px] w-[118px] max-w-full sm:h-[82px] sm:w-[142px]"}`}>
       <div className={`absolute left-1/2 top-1/2 h-[40%] w-[84%] -translate-x-1/2 -translate-y-[10%] -skew-x-[28deg] rounded-sm border ${active ? "border-[#d9ff62]/28 bg-[#465438]" : "border-white/[.07] bg-[#313933]"} shadow-[0_12px_20px_rgba(0,0,0,.28)]`} />
-      <div className={`absolute left-1/2 top-[35%] h-[26%] w-[30%] -translate-x-1/2 rounded-[4px] border ${active ? "border-[#d9ff62]/35 bg-[#0a100b]" : "border-white/[.08] bg-[#090d0a]"}`}><div className={`absolute inset-[22%] rounded-[2px] ${active ? "bg-[#d9ff62]/18" : "bg-white/[.035]"}`} /></div>
-      <div className={`absolute left-1/2 top-[2%] -translate-x-1/2 text-[22px] sm:text-[26px] ${motion && active ? "animate-[bounce_1.5s_ease-in-out_infinite]" : ""}`}>{agent.emoji}</div>
-      <span className={`absolute left-[61%] top-[5%] h-2 w-2 rounded-full ${dot(agent.status)}`} />
+      <div className={`absolute left-1/2 top-[35%] h-[26%] w-[30%] -translate-x-1/2 rounded-[4px] border ${active ? "border-[#d9ff62]/35 bg-[#0a100b]" : "border-white/[.08] bg-[#090d0a]"}`}><div className={`absolute inset-[22%] rounded-[2px] ${active ? `bg-[#d9ff62]/18 ${motion ? "animate-pulse" : ""}` : "bg-white/[.035]"}`} /></div>
+      <div className="absolute left-1/2 top-[2%] -translate-x-1/2 text-[22px] sm:text-[26px]">{agent.emoji}</div>
+      <span className={`absolute left-[61%] top-[5%] h-2 w-2 rounded-full ${dot(agent.status)} ${motion && active ? "animate-pulse" : ""}`} />
       <div className="absolute bottom-[1%] left-1/2 h-[16%] w-[22%] -translate-x-1/2 rounded-t-lg border border-white/[.06] bg-[#202721]" />
     </div>
     <div className={`truncate text-[9px] font-medium sm:text-[10px] ${important ? "text-white/72" : "text-white/48"}`}>{agent.name}</div>
