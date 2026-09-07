@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, RefreshCw, ShieldAlert, Sparkles, Star } from "lucide-react";
+import {
+  ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, RefreshCw, ShieldAlert,
+  Sparkles, Star, History, ArrowRight, Boxes, RotateCcw,
+} from "lucide-react";
 
 export default function MissionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -14,9 +17,13 @@ export default function MissionDetailPage({ params }: { params: Promise<{ id: st
 
   async function load() {
     setLoading(true);
-    try { const r = await fetch(`/api/office/history?id=${encodeURIComponent(id)}`, { cache: "no-store" }); const p = await r.json(); if (r.ok) setData(p); }
-    finally { setLoading(false); }
+    try {
+      const response = await fetch(`/api/office/history?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (response.ok) setData(payload);
+    } finally { setLoading(false); }
   }
+
   useEffect(() => { void load(); }, [id]);
 
   async function retry(taskKey: string) {
@@ -24,47 +31,95 @@ export default function MissionDetailPage({ params }: { params: Promise<{ id: st
     if (!note) return;
     setRetrying(taskKey);
     try {
-      await fetch("/api/office/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ missionId: id, taskKey, feedback: note }) });
+      await fetch("/api/office/retry", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ missionId: id, taskKey, feedback: note }),
+      });
       setFeedback((current) => ({ ...current, [taskKey]: "" }));
       await load();
     } finally { setRetrying(null); }
   }
 
   async function resolveApproval(approvalId: string, decision: "approve" | "reject") {
-    await fetch("/api/office/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: approvalId, decision, execute: decision === "approve" }) });
+    await fetch("/api/office/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: approvalId, decision, execute: decision === "approve" }),
+    });
     await load();
   }
 
   async function sendRating(value: number) {
     setRating(value);
-    await fetch("/api/office/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targetType: "mission", targetId: id, rating: value }) });
+    await fetch("/api/office/feedback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetType: "mission", targetId: id, rating: value }),
+    });
   }
 
-  if (loading && !data) return <main className="min-h-screen bg-[#111413] text-white"><div className="mx-auto flex max-w-6xl items-center gap-2 px-5 py-12 text-sm text-white/40"><Loader2 className="h-4 w-4 animate-spin" /> Loading mission…</div></main>;
-  if (!data) return <main className="min-h-screen bg-[#111413] p-8 text-white">Mission not found.</main>;
+  if (loading && !data) return <main className="min-h-screen bg-[#0c100d] text-white"><div className="mx-auto flex max-w-6xl items-center gap-2 px-5 py-12 text-sm text-white/40"><Loader2 className="h-4 w-4 animate-spin" /> Loading mission…</div></main>;
+  if (!data) return <main className="min-h-screen bg-[#0c100d] p-8 text-white">Mission not found.</main>;
 
   const mission = data.mission || {};
   const pending = (data.approvals || []).filter((item: any) => item.status === "pending");
-  return <main className="min-h-screen bg-[#111413] text-white">
-    <header className="border-b border-white/8 bg-[#111413]/90"><div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-7"><Link href="/office" className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white"><ArrowLeft className="h-4 w-4" /> AI Office</Link><button onClick={() => void load()} className="rounded-lg border border-white/10 p-2"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button></div></header>
-    <div className="mx-auto max-w-7xl px-4 py-7 md:px-7">
-      <section className="rounded-[28px] border border-white/8 bg-[#191d1b] p-5 md:p-7"><div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between"><div><div className="text-[10px] uppercase tracking-[.2em] text-[#d8ff53]">{mission.workspace_name || "General workspace"}</div><h1 className="mt-2 max-w-4xl text-3xl font-semibold tracking-[-.03em] md:text-5xl">{mission.objective || mission.title}</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-white/40">{mission.summary || mission.mission}</p></div><div className="grid min-w-[280px] grid-cols-2 gap-2"><Stat label="Status" value={String(mission.status || "").replaceAll("_", " ")} /><Stat label="Quality" value={mission.quality_score ? `${mission.quality_score}/100` : "—"} /><Stat label="Budget" value={String(mission.budget_mode || "balanced").replaceAll("_", " ")} /><Stat label="Artifacts" value={String(data.artifacts?.length || 0)} /></div></div></section>
+  const artifacts = data.artifacts || [];
+  const tasks = data.tasks || [];
+  const events = data.events || [];
 
-      {pending.length > 0 && <section className="mt-5 rounded-[24px] border border-amber-300/20 bg-amber-300/[.05] p-5"><div className="flex items-center gap-2"><ShieldAlert className="h-4 w-4 text-amber-300" /><h2 className="text-sm font-semibold">Approval required</h2></div><div className="mt-3 grid gap-2 md:grid-cols-2">{pending.map((item: any) => <div key={item.id} className="rounded-xl border border-white/8 bg-black/15 p-3"><div className="text-xs font-medium">{item.title}</div><div className="mt-1 text-[10px] text-white/35">{item.summary}</div><div className="mt-3 flex gap-2"><button onClick={() => void resolveApproval(item.id, "approve")} className="rounded-lg bg-[#d8ff53] px-3 py-2 text-[10px] font-semibold text-black">Approve & execute</button><button onClick={() => void resolveApproval(item.id, "reject")} className="rounded-lg border border-white/10 px-3 py-2 text-[10px] text-white/50">Reject</button></div></div>)}</div></section>}
+  return <main className="min-h-screen bg-[#0c100d] text-white">
+    <header className="sticky top-0 z-30 border-b border-white/[.07] bg-[#0c100d]/95 backdrop-blur-xl"><div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-7"><Link href="/office" className="inline-flex items-center gap-2 text-[11px] text-white/55 hover:text-white"><ArrowLeft className="h-4 w-4" /> AI Office</Link><button onClick={() => void load()} className="rounded-xl border border-white/10 bg-white/[.03] p-2"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button></div></header>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.15fr_.85fr]">
-        <section className="rounded-[24px] border border-white/8 bg-[#181c1a] p-5"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-[#d8ff53]" /><h2 className="text-lg font-semibold">Agent workstreams</h2></div><div className="mt-4 space-y-3">{(data.tasks || []).map((task: any) => <div key={task.task_key} className={`rounded-2xl border p-4 ${task.stale ? "border-amber-300/20 bg-amber-300/[.035]" : "border-white/8 bg-white/[.025]"}`}><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold">{task.title}</div><div className="mt-1 text-[10px] uppercase tracking-[.14em] text-white/25">{task.agent_id} · {task.status}{task.retry_count ? ` · revision ${task.retry_count}` : ""}</div></div>{task.status === "completed" ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Clock3 className="h-4 w-4 text-white/25" />}</div>{task.output && <div className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-black/20 p-3 text-[11px] leading-5 text-white/55">{task.output}</div>}<div className="mt-3 flex gap-2"><input value={feedback[task.task_key] || ""} onChange={(e) => setFeedback((current) => ({ ...current, [task.task_key]: e.target.value }))} placeholder="Give feedback and rerun only this agent…" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[10px] outline-none" /><button onClick={() => void retry(task.task_key)} disabled={!feedback[task.task_key]?.trim() || retrying === task.task_key} className="rounded-lg border border-[#d8ff53]/25 px-3 py-2 text-[10px] text-[#d8ff53] disabled:opacity-30">{retrying === task.task_key ? "Running…" : "Rerun"}</button></div></div>)}</div></section>
+    <div className="mx-auto max-w-7xl px-4 py-5 md:px-7 md:py-7">
+      <section className="rounded-[28px] border border-white/[.08] bg-[#141815] p-5 md:p-7">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="text-[9px] uppercase tracking-[.2em] text-[#d9ff62]">{mission.workspace_name || "General workspace"}</div>
+            <h1 className="mt-2 max-w-4xl text-3xl font-semibold tracking-[-.035em] md:text-5xl">{mission.objective || mission.title}</h1>
+            <p className="mt-3 max-w-3xl text-[11px] leading-6 text-white/38 md:text-sm">{mission.summary || mission.mission}</p>
+          </div>
+          <div className="grid min-w-0 grid-cols-2 gap-2 sm:min-w-[300px]">
+            <Stat label="Status" value={String(mission.status || "").replaceAll("_", " ")} />
+            <Stat label="Quality" value={mission.quality_score ? `${mission.quality_score}/100` : "—"} />
+            <Stat label="Budget" value={String(mission.budget_mode || "balanced").replaceAll("_", " ")} />
+            <Stat label="Deliverables" value={String(artifacts.length)} />
+          </div>
+        </div>
+      </section>
 
-        <div className="space-y-5"><section className="rounded-[24px] border border-white/8 bg-[#181c1a] p-5"><div className="flex items-center gap-2"><FileText className="h-4 w-4 text-[#d8ff53]" /><h2 className="text-lg font-semibold">Deliverables</h2></div><div className="mt-4 space-y-2">{(data.artifacts || []).map((item: any) => <div key={item.id} className="rounded-xl border border-white/8 bg-white/[.025] p-3"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-medium">{item.title}</div><div className="mt-1 text-[10px] text-white/30">{item.artifact_type.replaceAll("_", " ")} · v{item.version}</div></div><span className="rounded-full bg-white/[.05] px-2 py-1 text-[9px] text-white/40">{item.status.replaceAll("_", " ")}</span></div>{item.destination && <div className="mt-2 text-[10px] text-emerald-300">Executed → {item.destination}</div>}</div>)}</div></section>
-        <section className="rounded-[24px] border border-white/8 bg-[#181c1a] p-5"><h2 className="text-lg font-semibold">Mission timeline</h2><div className="mt-4 space-y-3">{(data.events || []).map((event: any) => <div key={event.id} className="flex gap-3"><div className="mt-1 h-2 w-2 rounded-full bg-[#d8ff53]" /><div><div className="text-xs capitalize">{String(event.event_type).replaceAll(".", " ")}</div><div className="mt-1 text-[10px] text-white/25">{new Date(event.created_at).toLocaleString("en-MY")}</div></div></div>)}</div></section>
-        <section className="rounded-[24px] border border-white/8 bg-[#181c1a] p-5"><div className="text-xs font-medium">Rate this mission</div><div className="mt-3 flex gap-1">{[1,2,3,4,5].map((value) => <button key={value} onClick={() => void sendRating(value)} className="p-1"><Star className={`h-5 w-5 ${value <= rating ? "fill-[#d8ff53] text-[#d8ff53]" : "text-white/20"}`} /></button>)}</div><p className="mt-2 text-[10px] leading-5 text-white/30">Ratings feed the Phase 5 agent-performance layer.</p></section></div>
+      {mission.final_output && <section className="mt-4 rounded-[28px] bg-[#f1f2ea] p-5 text-[#182018] md:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[9px] font-semibold uppercase tracking-[.18em] text-black/35">Chief final</div><h2 className="mt-1 text-xl font-semibold tracking-[-.02em] md:text-2xl">Decision-ready outcome</h2></div>{mission.quality_score && <div className="inline-flex items-center gap-1 rounded-full bg-black/[.06] px-2.5 py-1 text-[9px]"><Star className="h-3 w-3 fill-current" /> {mission.quality_score}/100</div>}</div>
+        <div className="mt-4 whitespace-pre-wrap text-[11px] leading-6 text-black/64 md:text-sm md:leading-7">{mission.final_output}</div>
+      </section>}
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
+        <section className="rounded-[24px] border border-white/[.07] bg-[#141815] p-4 md:p-5">
+          <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Boxes className="h-4 w-4 text-[#d9ff62]" /><div><div className="text-[8px] uppercase tracking-[.17em] text-white/25">Deliverables</div><h2 className="text-[15px] font-semibold">What the room produced</h2></div></div><span className="rounded-full bg-white/[.04] px-2 py-1 text-[8px] text-white/30">{artifacts.length}</span></div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">{artifacts.map((item: any) => <div key={item.id} className="rounded-xl border border-white/[.07] bg-white/[.018] p-3"><div className="flex items-start gap-2"><FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d9ff62]" /><div className="min-w-0 flex-1"><div className="truncate text-[10px] font-medium">{item.title}</div><div className="mt-1 text-[8px] text-white/28">{String(item.artifact_type).replaceAll("_", " ")} · v{item.version}</div><div className="mt-2 inline-flex rounded-full bg-white/[.04] px-2 py-1 text-[8px] text-white/36">{String(item.status).replaceAll("_", " ")}</div>{item.destination && <div className="mt-2 text-[8px] text-emerald-300">Executed → {item.destination}</div>}</div></div></div>)}{!artifacts.length && <Empty text="No deliverables yet." />}</div>
+        </section>
+
+        <section className="rounded-[24px] border border-white/[.07] bg-[#141815] p-4 md:p-5">
+          <div className="flex items-center gap-2"><ShieldAlert className="h-4 w-4 text-amber-300" /><div><div className="text-[8px] uppercase tracking-[.17em] text-white/25">Action center</div><h2 className="text-[15px] font-semibold">Approvals & execution</h2></div></div>
+          <div className="mt-4 space-y-2">{pending.map((item: any) => <div key={item.id} className="rounded-xl border border-amber-300/12 bg-amber-300/[.035] p-3"><div className="text-[10px] font-medium">{item.title}</div><div className="mt-1 text-[8px] leading-4 text-white/32">{item.summary}</div><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => void resolveApproval(item.id, "approve")} className="rounded-lg bg-[#d9ff62] px-3 py-2 text-[9px] font-semibold text-black">Approve & execute</button><button onClick={() => void resolveApproval(item.id, "reject")} className="rounded-lg border border-white/10 px-3 py-2 text-[9px] text-white/45">Reject</button></div></div>)}{!pending.length && <Empty text="Nothing waiting for approval." />}</div>
+          <div className="mt-4 rounded-xl border border-white/[.06] bg-black/15 p-3"><div className="text-[9px] font-medium">After approval</div><p className="mt-1 text-[8px] leading-4 text-white/30">Approved artifacts are pushed into Funnel Builder, Documents, Projects or Knowledge and stay linked back to this mission.</p></div>
+        </section>
       </div>
 
-      {mission.final_output && <section className="mt-5 rounded-[24px] bg-[#f3f3ed] p-5 text-[#20251f] md:p-7"><div className="text-[10px] font-semibold uppercase tracking-[.18em] text-black/35">Chief final</div><div className="mt-4 whitespace-pre-wrap text-sm leading-7 text-black/65">{mission.final_output}</div></section>}
+      <section className="mt-4 rounded-[24px] border border-white/[.07] bg-[#141815] p-4 md:p-5">
+        <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-[#d9ff62]" /><div><div className="text-[8px] uppercase tracking-[.17em] text-white/25">Supporting work</div><h2 className="text-[15px] font-semibold">Agent workstreams</h2></div></div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">{tasks.map((task: any) => <div key={task.task_key} className={`rounded-2xl border p-4 ${task.stale ? "border-amber-300/20 bg-amber-300/[.035]" : "border-white/[.07] bg-white/[.018]"}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-[10px] font-semibold">{task.title}</div><div className="mt-1 truncate text-[8px] uppercase tracking-[.12em] text-white/25">{task.agent_id} · {task.status}{task.retry_count ? ` · revision ${task.retry_count}` : ""}</div></div>{task.status === "completed" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> : <Clock3 className="h-4 w-4 shrink-0 text-white/25" />}</div>{task.output && <div className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-black/20 p-3 text-[9px] leading-5 text-white/52">{task.output}</div>}<div className="mt-3 flex gap-2"><input value={feedback[task.task_key] || ""} onChange={(e) => setFeedback((current) => ({ ...current, [task.task_key]: e.target.value }))} placeholder="Give feedback and rerun only this specialist…" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[9px] outline-none" /><button onClick={() => void retry(task.task_key)} disabled={!feedback[task.task_key]?.trim() || retrying === task.task_key} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#d8ff53]/25 px-3 py-2 text-[9px] text-[#d8ff53] disabled:opacity-30">{retrying === task.task_key ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}{retrying === task.task_key ? "Running" : "Rerun"}</button></div></div>)}</div>
+      </section>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_.55fr]">
+        <section className="rounded-[24px] border border-white/[.07] bg-[#141815] p-4 md:p-5"><div className="flex items-center gap-2"><History className="h-4 w-4 text-[#d9ff62]" /><h2 className="text-[15px] font-semibold">Mission timeline</h2></div><div className="mt-4 grid gap-3 sm:grid-cols-2">{events.map((event: any) => <div key={event.id} className="flex gap-3"><div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#d9ff62]" /><div><div className="text-[9px] capitalize">{String(event.event_type).replaceAll(".", " ")}</div><div className="mt-1 text-[8px] text-white/25">{new Date(event.created_at).toLocaleString("en-MY")}</div></div></div>)}</div></section>
+        <section className="rounded-[24px] border border-white/[.07] bg-[#141815] p-4 md:p-5"><div className="text-[10px] font-medium">Rate this mission</div><div className="mt-3 flex gap-1">{[1,2,3,4,5].map((value) => <button key={value} onClick={() => void sendRating(value)} className="p-1"><Star className={`h-5 w-5 ${value <= rating ? "fill-[#d8ff53] text-[#d8ff53]" : "text-white/20"}`} /></button>)}</div><p className="mt-2 text-[8px] leading-4 text-white/30">Ratings feed the AI Office learning and specialist-performance layer.</p><Link href="/office" className="mt-4 inline-flex items-center gap-1.5 text-[9px] text-[#d9ff62]">Back to classroom <ArrowRight className="h-3 w-3" /></Link></section>
+      </div>
     </div>
   </main>;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl border border-white/8 bg-white/[.025] p-3"><div className="text-[9px] uppercase tracking-[.14em] text-white/25">{label}</div><div className="mt-1 truncate text-sm font-medium capitalize">{value}</div></div>;
+  return <div className="rounded-xl border border-white/[.07] bg-white/[.025] p-3"><div className="text-[8px] uppercase tracking-[.14em] text-white/25">{label}</div><div className="mt-1 truncate text-[12px] font-medium capitalize">{value}</div></div>;
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-[9px] text-white/30">{text}</div>;
 }
