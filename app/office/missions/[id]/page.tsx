@@ -4,8 +4,9 @@ import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import {
   ArrowLeft, CheckCircle2, Clock3, FileText, Loader2, RefreshCw, ShieldAlert,
-  Sparkles, Star, History, ArrowRight, Boxes, RotateCcw,
+  Sparkles, Star, History, ArrowRight, Boxes, RotateCcw, Coins, Braces,
 } from "lucide-react";
+import OfficeRichText from "@/components/office-rich-text";
 
 export default function MissionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -64,6 +65,9 @@ export default function MissionDetailPage({ params }: { params: Promise<{ id: st
   const artifacts = data.artifacts || [];
   const tasks = data.tasks || [];
   const events = data.events || [];
+  const totalEvidence = artifacts.reduce((sum: number, item: any) => sum + (Array.isArray(item.evidence) ? item.evidence.length : 0), 0);
+  const totalTokens = Number(mission.total_tokens || 0);
+  const estimatedCost = Number(mission.estimated_cost || 0);
 
   return <main className="min-h-screen bg-[#0c100d] text-white">
     <header className="sticky top-0 z-30 border-b border-white/[.07] bg-[#0c100d]/95 backdrop-blur-xl"><div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-7"><Link href="/office" className="inline-flex items-center gap-2 text-[11px] text-white/55 hover:text-white"><ArrowLeft className="h-4 w-4" /> AI Office</Link><button onClick={() => void load()} className="rounded-xl border border-white/10 bg-white/[.03] p-2"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button></div></header>
@@ -75,25 +79,30 @@ export default function MissionDetailPage({ params }: { params: Promise<{ id: st
             <div className="text-[9px] uppercase tracking-[.2em] text-[#d9ff62]">{mission.workspace_name || "General workspace"}</div>
             <h1 className="mt-2 max-w-4xl text-3xl font-semibold tracking-[-.035em] md:text-5xl">{mission.objective || mission.title}</h1>
             <p className="mt-3 max-w-3xl text-[11px] leading-6 text-white/38 md:text-sm">{mission.summary || mission.mission}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href={`/office?workspace=${encodeURIComponent(mission.workspace_id || "")}&mission=${encodeURIComponent(`Continue from mission: ${mission.objective || mission.title}. Review what changed, preserve valid evidence, and improve the next actions.`)}`} className="inline-flex items-center gap-1.5 rounded-xl border border-[#d9ff62]/20 bg-[#d9ff62]/[.05] px-3 py-2 text-[9px] text-[#d9ff62]">Continue as new mission <ArrowRight className="h-3 w-3" /></Link>
+            </div>
           </div>
-          <div className="grid min-w-0 grid-cols-2 gap-2 sm:min-w-[300px]">
+          <div className="grid min-w-0 grid-cols-2 gap-2 sm:min-w-[320px]">
             <Stat label="Status" value={String(mission.status || "").replaceAll("_", " ")} />
             <Stat label="Quality" value={mission.quality_score ? `${mission.quality_score}/100` : "—"} />
-            <Stat label="Budget" value={String(mission.budget_mode || "balanced").replaceAll("_", " ")} />
             <Stat label="Deliverables" value={String(artifacts.length)} />
+            <Stat label="Evidence" value={String(totalEvidence)} />
+            <Stat label="Tokens" value={totalTokens ? totalTokens.toLocaleString("en-MY") : "—"} icon={<Braces className="h-3 w-3" />} />
+            <Stat label="Est. cost" value={estimatedCost > 0 ? `$${estimatedCost.toFixed(4)}` : "—"} icon={<Coins className="h-3 w-3" />} />
           </div>
         </div>
       </section>
 
-      {mission.final_output && <section className="mt-4 rounded-[28px] bg-[#f1f2ea] p-5 text-[#182018] md:p-7">
+      {mission.final_output && <section className="mt-4 overflow-hidden rounded-[28px] bg-[#f1f2ea] p-5 text-[#182018] md:p-7">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[9px] font-semibold uppercase tracking-[.18em] text-black/35">Chief final</div><h2 className="mt-1 text-xl font-semibold tracking-[-.02em] md:text-2xl">Decision-ready outcome</h2></div>{mission.quality_score && <div className="inline-flex items-center gap-1 rounded-full bg-black/[.06] px-2.5 py-1 text-[9px]"><Star className="h-3 w-3 fill-current" /> {mission.quality_score}/100</div>}</div>
-        <div className="mt-4 whitespace-pre-wrap text-[11px] leading-6 text-black/64 md:text-sm md:leading-7">{mission.final_output}</div>
+        <div className="mt-4"><OfficeRichText content={mission.final_output} tone="light" /></div>
       </section>}
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
         <section className="rounded-[24px] border border-white/[.07] bg-[#141815] p-4 md:p-5">
           <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Boxes className="h-4 w-4 text-[#d9ff62]" /><div><div className="text-[8px] uppercase tracking-[.17em] text-white/25">Deliverables</div><h2 className="text-[15px] font-semibold">What the room produced</h2></div></div><span className="rounded-full bg-white/[.04] px-2 py-1 text-[8px] text-white/30">{artifacts.length}</span></div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">{artifacts.map((item: any) => <div key={item.id} className="rounded-xl border border-white/[.07] bg-white/[.018] p-3"><div className="flex items-start gap-2"><FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d9ff62]" /><div className="min-w-0 flex-1"><div className="truncate text-[10px] font-medium">{item.title}</div><div className="mt-1 text-[8px] text-white/28">{String(item.artifact_type).replaceAll("_", " ")} · v{item.version}</div><div className="mt-2 inline-flex rounded-full bg-white/[.04] px-2 py-1 text-[8px] text-white/36">{String(item.status).replaceAll("_", " ")}</div>{item.destination && <div className="mt-2 text-[8px] text-emerald-300">Executed → {item.destination}</div>}</div></div></div>)}{!artifacts.length && <Empty text="No deliverables yet." />}</div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">{artifacts.map((item: any) => <div key={item.id} className="rounded-xl border border-white/[.07] bg-white/[.018] p-3"><div className="flex items-start gap-2"><FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d9ff62]" /><div className="min-w-0 flex-1"><div className="truncate text-[10px] font-medium">{item.title}</div><div className="mt-1 text-[8px] text-white/28">{String(item.artifact_type).replaceAll("_", " ")} · v{item.version}</div><div className="mt-2 flex flex-wrap gap-1.5"><span className="inline-flex rounded-full bg-white/[.04] px-2 py-1 text-[8px] text-white/36">{String(item.status).replaceAll("_", " ")}</span>{Array.isArray(item.evidence) && item.evidence.length > 0 && <span className="inline-flex rounded-full bg-sky-400/[.07] px-2 py-1 text-[8px] text-sky-200/70">{item.evidence.length} evidence</span>}</div>{item.destination && <div className="mt-2 text-[8px] text-emerald-300">Executed → {item.destination}</div>}</div></div></div>)}{!artifacts.length && <Empty text="No deliverables yet." />}</div>
         </section>
 
         <section className="rounded-[24px] border border-white/[.07] bg-[#141815] p-4 md:p-5">
@@ -105,7 +114,7 @@ export default function MissionDetailPage({ params }: { params: Promise<{ id: st
 
       <section className="mt-4 rounded-[24px] border border-white/[.07] bg-[#141815] p-4 md:p-5">
         <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-[#d9ff62]" /><div><div className="text-[8px] uppercase tracking-[.17em] text-white/25">Supporting work</div><h2 className="text-[15px] font-semibold">Agent workstreams</h2></div></div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">{tasks.map((task: any) => <div key={task.task_key} className={`rounded-2xl border p-4 ${task.stale ? "border-amber-300/20 bg-amber-300/[.035]" : "border-white/[.07] bg-white/[.018]"}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-[10px] font-semibold">{task.title}</div><div className="mt-1 truncate text-[8px] uppercase tracking-[.12em] text-white/25">{task.agent_id} · {task.status}{task.retry_count ? ` · revision ${task.retry_count}` : ""}</div></div>{task.status === "completed" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> : <Clock3 className="h-4 w-4 shrink-0 text-white/25" />}</div>{task.output && <div className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-black/20 p-3 text-[9px] leading-5 text-white/52">{task.output}</div>}<div className="mt-3 flex gap-2"><input value={feedback[task.task_key] || ""} onChange={(e) => setFeedback((current) => ({ ...current, [task.task_key]: e.target.value }))} placeholder="Give feedback and rerun only this specialist…" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[9px] outline-none" /><button onClick={() => void retry(task.task_key)} disabled={!feedback[task.task_key]?.trim() || retrying === task.task_key} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#d8ff53]/25 px-3 py-2 text-[9px] text-[#d8ff53] disabled:opacity-30">{retrying === task.task_key ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}{retrying === task.task_key ? "Running" : "Rerun"}</button></div></div>)}</div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">{tasks.map((task: any) => <div key={task.task_key} className={`min-w-0 rounded-2xl border p-4 ${task.stale ? "border-amber-300/20 bg-amber-300/[.035]" : "border-white/[.07] bg-white/[.018]"}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-[10px] font-semibold">{task.title}</div><div className="mt-1 truncate text-[8px] uppercase tracking-[.12em] text-white/25">{task.agent_id} · {task.status}{task.retry_count ? ` · revision ${task.retry_count}` : ""}</div></div>{task.status === "completed" ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /> : <Clock3 className="h-4 w-4 shrink-0 text-white/25" />}</div>{task.output && <div className="mt-3 max-h-72 overflow-auto rounded-xl bg-black/20 p-3"><OfficeRichText content={task.output} compact /></div>}<div className="mt-3 flex gap-2"><input value={feedback[task.task_key] || ""} onChange={(e) => setFeedback((current) => ({ ...current, [task.task_key]: e.target.value }))} placeholder="Give feedback and rerun only this specialist…" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[9px] outline-none" /><button onClick={() => void retry(task.task_key)} disabled={!feedback[task.task_key]?.trim() || retrying === task.task_key} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#d8ff53]/25 px-3 py-2 text-[9px] text-[#d8ff53] disabled:opacity-30">{retrying === task.task_key ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}{retrying === task.task_key ? "Running" : "Rerun"}</button></div></div>)}</div>
       </section>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_.55fr]">
@@ -116,8 +125,8 @@ export default function MissionDetailPage({ params }: { params: Promise<{ id: st
   </main>;
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl border border-white/[.07] bg-white/[.025] p-3"><div className="text-[8px] uppercase tracking-[.14em] text-white/25">{label}</div><div className="mt-1 truncate text-[12px] font-medium capitalize">{value}</div></div>;
+function Stat({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return <div className="rounded-xl border border-white/[.07] bg-white/[.025] p-3"><div className="flex items-center justify-between gap-2 text-[8px] uppercase tracking-[.14em] text-white/25"><span>{label}</span>{icon}</div><div className="mt-1 truncate text-[12px] font-medium capitalize">{value}</div></div>;
 }
 
 function Empty({ text }: { text: string }) {
