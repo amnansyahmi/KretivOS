@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractOfficeEvidenceUrls, isTransientOfficeError, parseOfficeSseTerminalState, retryOfficeOperation, validateOfficePlan } from "./office-hardening-core.ts";
+import { compactOfficePlan, extractOfficeEvidenceUrls, isTransientOfficeError, parseOfficeSseTerminalState, retryOfficeOperation, validateOfficePlan } from "./office-hardening-core.ts";
 import type { OfficePlan } from "./office-agents.ts";
 
 function plan(tasks: OfficePlan["tasks"]): OfficePlan {
@@ -9,8 +9,8 @@ function plan(tasks: OfficePlan["tasks"]): OfficePlan {
 
 test("validateOfficePlan accepts an acyclic dependency graph", () => {
   const result = validateOfficePlan(plan([
-    { id: "research", agent: "research", title: "Research", instruction: "Research", dependsOn: [] },
-    { id: "marketing", agent: "marketing", title: "Marketing", instruction: "Plan", dependsOn: ["research"] },
+    { id: "research", agent: "research", title: "Research", instruction: "Research market audience and competitor evidence", dependsOn: [] },
+    { id: "marketing", agent: "marketing", title: "Marketing", instruction: "Build funnel campaign channels and acquisition plan", dependsOn: ["research"] },
   ]));
   assert.equal(result.valid, true);
   assert.deepEqual(result.errors, []);
@@ -36,6 +36,75 @@ test("validateOfficePlan rejects duplicate ids, missing dependencies and cycles"
   ]));
   assert.equal(cycle.valid, false);
   assert.match(cycle.errors.join(" "), /dependency cycle/);
+});
+
+test("compactOfficePlan consolidates repeated work from the same agent", () => {
+  const value = plan([
+    {
+      id: "market",
+      agent: "research",
+      title: "Research market and audience",
+      instruction: "Research market audience segments and competitor evidence.",
+      dependsOn: [],
+    },
+    {
+      id: "competitors",
+      agent: "research",
+      title: "Competitor research",
+      instruction: "Compare competitor offers, positioning and evidence sources.",
+      dependsOn: [],
+    },
+    {
+      id: "funnel",
+      agent: "marketing",
+      title: "Build acquisition funnel",
+      instruction: "Build TOFU MOFU BOFU funnel and channel plan.",
+      dependsOn: ["competitors"],
+    },
+  ]);
+
+  const result = compactOfficePlan(value);
+  assert.equal(result.originalCount, 3);
+  assert.equal(result.finalCount, 2);
+  assert.deepEqual(result.removedTaskIds, ["competitors"]);
+  assert.equal(value.tasks.filter((task) => task.agent === "research").length, 1);
+  assert.match(value.tasks[0].instruction, /Additional non-overlapping scope/);
+  assert.deepEqual(value.tasks.find((task) => task.id === "funnel")?.dependsOn, ["market"]);
+});
+
+test("validateOfficePlan removes near-identical cross-agent plans and keeps the stronger owner", () => {
+  const value = plan([
+    {
+      id: "generic-positioning",
+      agent: "marketing",
+      title: "Define market positioning and growth priorities",
+      instruction: "Define market positioning value proposition growth priorities using evidence and customer needs.",
+      dependsOn: [],
+    },
+    {
+      id: "business-positioning",
+      agent: "business",
+      title: "Define positioning and growth priorities",
+      instruction: "Define market positioning value proposition growth priorities based on evidence and customer needs.",
+      dependsOn: [],
+    },
+    {
+      id: "sales-system",
+      agent: "sales",
+      title: "Build sales follow-up system",
+      instruction: "Build lead qualification CRM followup objection handling and closing actions.",
+      dependsOn: ["business-positioning"],
+    },
+  ]);
+
+  const result = validateOfficePlan(value);
+  assert.equal(result.valid, true);
+  assert.equal(result.redundancy.originalCount, 3);
+  assert.equal(result.redundancy.finalCount, 2);
+  assert.deepEqual(result.redundancy.removedTaskIds, ["business-positioning"]);
+  assert.equal(value.tasks[0].id, "generic-positioning");
+  assert.equal(value.tasks[0].agent, "business");
+  assert.deepEqual(value.tasks.find((task) => task.id === "sales-system")?.dependsOn, ["generic-positioning"]);
 });
 
 test("retryOfficeOperation retries transient provider failures only", async () => {
