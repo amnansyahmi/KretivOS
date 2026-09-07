@@ -1,5 +1,6 @@
 import { getDatabase } from "@/lib/db";
 import { extractOfficeEvidenceUrls } from "@/lib/office-hardening-core";
+import { extractOfficeEvidenceRecords } from "@/lib/office-evidence";
 
 export {
   compactOfficePlan,
@@ -10,6 +11,7 @@ export {
   validateOfficePlan,
   type OfficeSseTerminalState,
 } from "@/lib/office-hardening-core";
+export { extractOfficeEvidenceRecords, type OfficeEvidenceRecord } from "@/lib/office-evidence";
 
 const ORGANIZATION_ID = "org-kretivco";
 
@@ -20,13 +22,16 @@ export async function enrichOfficeArtifactEvidence(missionId: string) {
   `;
   let enriched = 0;
   for (const artifact of artifacts as any[]) {
-    const urls = extractOfficeEvidenceUrls(String(artifact.content || ""));
-    if (!urls.length) continue;
-    const evidence = urls.map((url) => ({ type: "url", url }));
+    const evidence = extractOfficeEvidenceRecords(String(artifact.content || ""));
+    if (!evidence.length) continue;
+    const external = evidence.filter((item) => item.type === "external").length;
+    const internal = evidence.filter((item) => item.type === "internal").length;
+    const assumptions = evidence.filter((item) => item.type === "assumption").length;
+    const confidence = external > 0 ? 0.86 : internal > 0 ? 0.78 : assumptions > 0 ? 0.58 : 0.65;
     await sql`
       update ai_office_artifacts
          set evidence = ${JSON.stringify(evidence)}::jsonb,
-             confidence = coalesce(confidence, 0.75), updated_at = now()
+             confidence = coalesce(confidence, ${confidence}), updated_at = now()
        where id = ${artifact.id}::uuid
     `;
     enriched += 1;
