@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import AgentGlyph from "./AgentGlyph";
 import type { OfficeAgentStatus, OfficeWorldAgent } from "./OfficeWorld";
 
 type Props = {
@@ -124,15 +125,29 @@ export default function StrategyClassroom({
 function Desk({ agent, featured = false, motion, onClick }: { agent: OfficeWorldAgent; featured?: boolean; motion: boolean; onClick: () => void }) {
   const active = agent.status === "working";
   const important = active || agent.status === "blocked" || agent.status === "failed";
-  return <button onClick={onClick} className={`group relative min-w-0 rounded-2xl px-1 pb-2 pt-1 text-center transition ${important ? "bg-white/[.018]" : "hover:bg-white/[.015]"}`}>
-    <div className={`relative mx-auto ${featured ? "h-[82px] w-[150px] sm:h-[92px] sm:w-[172px]" : "h-[70px] w-[118px] max-w-full sm:h-[82px] sm:w-[142px]"}`}>
-      <div className={`absolute left-1/2 top-1/2 h-[40%] w-[84%] -translate-x-1/2 -translate-y-[10%] -skew-x-[28deg] rounded-sm border ${active ? "border-[#d9ff62]/28 bg-[#465438]" : "border-white/[.07] bg-[#313933]"} shadow-[0_12px_20px_rgba(0,0,0,.28)]`} />
-      <div className={`absolute left-1/2 top-[35%] h-[26%] w-[30%] -translate-x-1/2 rounded-[4px] border ${active ? "border-[#d9ff62]/35 bg-[#0a100b]" : "border-white/[.08] bg-[#090d0a]"}`}><div className={`absolute inset-[22%] rounded-[2px] ${active ? `bg-[#d9ff62]/18 ${motion ? "animate-pulse" : ""}` : "bg-white/[.035]"}`} /></div>
-      <div className="absolute left-1/2 top-[2%] -translate-x-1/2 text-[22px] sm:text-[26px]">{agent.emoji}</div>
-      <span className={`absolute left-[61%] top-[5%] h-2 w-2 rounded-full ${dot(agent.status)} ${motion && active ? "animate-pulse" : ""}`} />
+
+  return <button
+    onClick={onClick}
+    aria-label={`${agent.name}: ${statusText(agent.status)}`}
+    className="group relative min-w-0 bg-transparent px-1 pb-2 pt-1 text-center outline-none [-webkit-tap-highlight-color:transparent] focus-visible:ring-1 focus-visible:ring-[#d9ff62]/45"
+  >
+    <div className={`relative mx-auto ${featured ? "h-[88px] w-[154px] sm:h-[100px] sm:w-[178px]" : "h-[74px] w-[122px] max-w-full sm:h-[86px] sm:w-[146px]"}`}>
+      {important && <div className={`pointer-events-none absolute left-1/2 top-[45%] h-[58%] w-[92%] -translate-x-1/2 rounded-full blur-xl ${active ? "bg-[#d9ff62]/[.07]" : "bg-amber-300/[.05]"}`} />}
+
+      <div className={`absolute left-1/2 top-[50%] h-[38%] w-[84%] -translate-x-1/2 -translate-y-[8%] -skew-x-[28deg] rounded-sm border ${active ? "border-[#d9ff62]/28 bg-[#465438]" : "border-white/[.07] bg-[#313933]"} shadow-[0_12px_20px_rgba(0,0,0,.28)]`} />
+      <div className={`absolute left-1/2 top-[37%] h-[25%] w-[30%] -translate-x-1/2 rounded-[4px] border ${active ? "border-[#d9ff62]/35 bg-[#0a100b]" : "border-white/[.08] bg-[#090d0a]"}`}>
+        <div className={`absolute inset-[22%] rounded-[2px] ${active ? `bg-[#d9ff62]/18 ${motion ? "animate-pulse" : ""}` : "bg-white/[.035]"}`} />
+      </div>
+
+      <div className={`absolute left-1/2 top-[-4%] -translate-x-1/2 ${featured ? "h-11 w-11 sm:h-12 sm:w-12" : "h-9 w-9 sm:h-10 sm:w-10"}`}>
+        <AgentGlyph agentId={agent.id} active={active} className="h-full w-full drop-shadow-[0_5px_8px_rgba(0,0,0,.35)]" />
+      </div>
+
+      <span className={`absolute left-[62%] top-[4%] h-2 w-2 rounded-full ${dot(agent.status)} ${motion && active ? "animate-pulse" : ""}`} />
       <div className="absolute bottom-[1%] left-1/2 h-[16%] w-[22%] -translate-x-1/2 rounded-t-lg border border-white/[.06] bg-[#202721]" />
     </div>
-    <div className={`truncate text-[9px] font-medium sm:text-[10px] ${important ? "text-white/72" : "text-white/48"}`}>{agent.name}</div>
-    <div className="mt-0.5 flex items-center justify-center gap-1 text-[7px] text-white/24"><span className={`h-1.5 w-1.5 rounded-full ${dot(agent.status)}`} />{statusText(agent.status)}</div>
+
+    <div className={`truncate text-[9px] font-medium sm:text-[10px] ${important ? "text-white/76" : "text-white/50"}`}>{agent.name}</div>
+    <div className="mt-0.5 flex items-center justify-center gap-1 text-[7px] text-white/26"><span className={`h-1.5 w-1.5 rounded-full ${dot(agent.status)}`} />{statusText(agent.status)}</div>
   </button>;
 }
