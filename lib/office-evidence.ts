@@ -1,11 +1,14 @@
-import { extractOfficeEvidenceUrls } from "@/lib/office-hardening-core";
-
 export type OfficeEvidenceRecord = {
   type: "external" | "internal" | "assumption";
   claim: string;
   url?: string;
   source?: string;
 };
+
+function extractUrls(content: string) {
+  const matches = String(content || "").match(/https?:\/\/[^\s<>()\[\]{}"']+/gi) || [];
+  return [...new Set(matches.map((url) => url.replace(/[.,;:!?]+$/, "")))].slice(0, 24);
+}
 
 function clean(value: string) {
   return String(value || "")
@@ -43,7 +46,7 @@ export function extractOfficeEvidenceRecords(content: string): OfficeEvidenceRec
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const urls = extractOfficeEvidenceUrls(line);
+    const urls = extractUrls(line);
     for (const url of urls) {
       const claim = clean(line.replace(url, "").replace(/(?:source|evidence)\s*:?\s*$/i, "")) || clean(lines[index - 1] || "External evidence");
       add({ type: "external", claim: claim.slice(0, 500), url });
@@ -63,7 +66,7 @@ export function extractOfficeEvidenceRecords(content: string): OfficeEvidenceRec
           const values = cells(lines[row]);
           const source = values[sourceIndex] || "";
           const claim = clean(values[itemIndex] || values.slice(0, sourceIndex).join(" — "));
-          const sourceUrls = extractOfficeEvidenceUrls(source);
+          const sourceUrls = extractUrls(source);
           if (sourceUrls.length) add({ type: "external", claim: claim.slice(0, 500), url: sourceUrls[0] });
           else if (internalSource(source)) add({ type: "internal", claim: claim.slice(0, 500), source: source.slice(0, 160) });
           row += 1;
@@ -73,7 +76,7 @@ export function extractOfficeEvidenceRecords(content: string): OfficeEvidenceRec
   }
 
   // Preserve URLs even when the model did not format an Evidence section cleanly.
-  for (const url of extractOfficeEvidenceUrls(text)) {
+  for (const url of extractUrls(text)) {
     if (!records.some((record) => record.url === url)) add({ type: "external", claim: "Referenced source", url });
   }
 
