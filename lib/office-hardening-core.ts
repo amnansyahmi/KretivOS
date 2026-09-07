@@ -1,13 +1,190 @@
 export type OfficeSseTerminalState = "done" | "paused" | "error" | "unknown";
 
-type PlanLike = {
-  tasks: Array<{ id: string; dependsOn?: string[] }>;
+type PlanTaskLike = {
+  id: string;
+  agent?: string;
+  title?: string;
+  instruction?: string;
+  dependsOn?: string[];
 };
+
+type PlanLike = {
+  missionType?: string;
+  objective?: string;
+  summary?: string;
+  tasks: PlanTaskLike[];
+};
+
+const REDUNDANCY_STOP_WORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "build", "by", "client", "complete", "comprehensive",
+  "create", "current", "develop", "for", "from", "in", "into", "is", "it", "mission", "new", "of", "on",
+  "plan", "provide", "recommend", "recommendation", "strategy", "task", "that", "the", "this", "to", "using",
+  "with", "work", "analyse", "analyze", "analysis",
+]);
+
+const AGENT_OWNERSHIP: Record<string, string[]> = {
+  research: ["research", "market", "competitor", "audience", "evidence", "trend", "benchmark", "segment", "survey"],
+  business: ["positioning", "business", "model", "opportunity", "priority", "priorities", "growth", "value", "proposition"],
+  marketing: ["funnel", "campaign", "channel", "acquisition", "tofu", "mofu", "bofu", "retention", "awareness", "conversion"],
+  content: ["content", "copy", "script", "scripts", "hook", "hooks", "caption", "calendar", "editorial", "creative"],
+  pricing: ["price", "pricing", "margin", "bundle", "bundles", "package", "cost", "discount", "economics"],
+  sales: ["sales", "lead", "leads", "qualification", "followup", "follow", "objection", "closing", "close", "crm", "pipeline"],
+  proposal: ["proposal", "scope", "deliverable", "deliverables", "milestone", "milestones", "quotation", "commercial"],
+  product: ["product", "requirement", "requirements", "prd", "roadmap", "story", "stories", "acceptance"],
+  ux: ["ux", "ui", "wireframe", "wireframes", "usability", "accessibility", "screen", "screens", "flow"],
+  architect: ["architecture", "architect", "integration", "integrations", "system", "boundary", "boundaries", "infrastructure"],
+  frontend: ["frontend", "component", "components", "react", "nextjs", "next", "css", "browser", "responsive"],
+  backend: ["backend", "api", "apis", "database", "schema", "queue", "worker", "server", "endpoint", "endpoints"],
+  security: ["security", "auth", "authentication", "authorization", "secret", "secrets", "threat", "abuse", "permission", "permissions"],
+};
+
+function normalizeTaskToken(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/next\.js/g, "nextjs")
+    .replace(/follow[- ]?up/g, "followup")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function taskTokens(task: PlanTaskLike) {
+  const source = normalizeTaskToken(`${task.title || ""} ${task.instruction || ""}`);
+  return new Set(source.split(/\s+/).filter((token) => token.length > 2 && !REDUNDANCY_STOP_WORDS.has(token)));
+}
+
+function taskSimilarity(a: PlanTaskLike, b: PlanTaskLike) {
+  const left = taskTokens(a);
+  const right = taskTokens(b);
+  if (Math.min(left.size, right.size) < 4) return 0;
+  let common = 0;
+  for (const token of left) if (right.has(token)) common += 1;
+  return common / Math.min(left.size, right.size);
+}
+
+function ownershipScore(task: PlanTaskLike) {
+  const tokens = taskTokens(task);
+  return (AGENT_OWNERSHIP[String(task.agent || "")] || []).reduce((score, token) => score + (tokens.has(token) ? 1 : 0), 0);
+}
+
+function uniqueDependencies(...lists: Array<string[] | undefined>) {
+  return [...new Set(lists.flatMap((list) => Array.isArray(list) ? list : []).filter(Boolean))];
+}
+
+function mergeInstructions(primary: PlanTaskLike, secondary: PlanTaskLike) {
+  const a = String(primary.instruction || "").trim();
+  const b = String(secondary.instruction || "").trim();
+  if (!b || taskSimilarity(primary, secondary) >= 0.8) return a || b;
+  if (!a) return b;
+  return `${a}\n\nAdditional non-overlapping scope:\n${b}`.slice(0, 4000);
+}
+
+function resolveAlias(id: string, aliases: Map<string, string>) {
+  let value = id;
+  const seen = new Set<string>();
+  while (aliases.has(value) && !seen.has(value)) {
+    seen.add(value);
+    value = aliases.get(value)!;
+  }
+  return value;
+}
+
+/**
+ * Compacts semantic duplicates in-place so every downstream consumer sees the same lean task graph.
+ * Rules:
+ * - one consolidated task per specialist agent;
+ * - near-identical tasks across different agents collapse to one owner;
+ * - dependencies pointing at removed tasks are rewired to the surviving task id.
+ */
+export function compactOfficePlan(plan: PlanLike) {
+  if (!plan || !Array.isArray(plan.tasks) || plan.tasks.length < 2) {
+    return { originalCount: plan?.tasks?.length || 0, finalCount: plan?.tasks?.length || 0, removedTaskIds: [] as string[] };
+  }
+
+  const originalCount = plan.tasks.length;
+  const aliases = new Map<string, string>();
+  let tasks = plan.tasks.map((task) => ({ ...task, dependsOn: [...(task.dependsOn || [])] }));
+
+  // Pass 1: one task per agent. Preserve all genuinely different scope inside one consolidated assignment.
+  const byAgent: PlanTaskLike[] = [];
+  for (const task of tasks) {
+    const existingIndex = task.agent ? byAgent.findIndex((item) => item.agent === task.agent) : -1;
+    if (existingIndex < 0) {
+      byAgent.push(task);
+      continue;
+    }
+    const existing = byAgent[existingIndex];
+    aliases.set(task.id, existing.id);
+    byAgent[existingIndex] = {
+      ...existing,
+      instruction: mergeInstructions(existing, task),
+      dependsOn: uniqueDependencies(existing.dependsOn, task.dependsOn),
+    };
+  }
+  tasks = byAgent;
+
+  // Pass 2: collapse only very-high-confidence semantic duplicates across different agents.
+  const semantic: PlanTaskLike[] = [];
+  for (const task of tasks) {
+    const duplicateIndex = semantic.findIndex((item) => taskSimilarity(item, task) >= 0.84);
+    if (duplicateIndex < 0) {
+      semantic.push(task);
+      continue;
+    }
+
+    const existing = semantic[duplicateIndex];
+    const candidateOwnsScopeBetter = ownershipScore(task) > ownershipScore(existing) + 1;
+    aliases.set(task.id, existing.id);
+    semantic[duplicateIndex] = candidateOwnsScopeBetter
+      ? {
+          ...existing,
+          agent: task.agent,
+          title: task.title || existing.title,
+          instruction: task.instruction || existing.instruction,
+          dependsOn: uniqueDependencies(existing.dependsOn, task.dependsOn),
+        }
+      : {
+          ...existing,
+          dependsOn: uniqueDependencies(existing.dependsOn, task.dependsOn),
+        };
+  }
+  tasks = semantic;
+
+  // Pass 3: a cross-agent merge may have changed ownership and created a duplicate agent; consolidate again.
+  const finalTasks: PlanTaskLike[] = [];
+  for (const task of tasks) {
+    const existingIndex = task.agent ? finalTasks.findIndex((item) => item.agent === task.agent) : -1;
+    if (existingIndex < 0) {
+      finalTasks.push(task);
+      continue;
+    }
+    const existing = finalTasks[existingIndex];
+    aliases.set(task.id, existing.id);
+    finalTasks[existingIndex] = {
+      ...existing,
+      instruction: mergeInstructions(existing, task),
+      dependsOn: uniqueDependencies(existing.dependsOn, task.dependsOn),
+    };
+  }
+
+  const survivingIds = new Set(finalTasks.map((task) => task.id));
+  plan.tasks = finalTasks.map((task) => ({
+    ...task,
+    dependsOn: [...new Set((task.dependsOn || [])
+      .map((dependency) => resolveAlias(dependency, aliases))
+      .filter((dependency) => dependency !== task.id && survivingIds.has(dependency)))],
+  }));
+
+  return {
+    originalCount,
+    finalCount: plan.tasks.length,
+    removedTaskIds: [...aliases.keys()],
+  };
+}
 
 export function validateOfficePlan(plan: PlanLike) {
   const errors: string[] = [];
   if (!plan || !Array.isArray(plan.tasks) || plan.tasks.length === 0) {
-    return { valid: false, errors: ["Plan has no executable specialist tasks."] };
+    return { valid: false, errors: ["Plan has no executable specialist tasks."], redundancy: { originalCount: 0, finalCount: 0, removedTaskIds: [] as string[] } };
   }
 
   const ids = new Set<string>();
@@ -18,10 +195,14 @@ export function validateOfficePlan(plan: PlanLike) {
     else ids.add(id);
   }
 
+  // Never hide malformed ids behind compaction; structural errors must remain visible.
+  const redundancy = errors.length ? { originalCount: plan.tasks.length, finalCount: plan.tasks.length, removedTaskIds: [] as string[] } : compactOfficePlan(plan);
+
+  const compactIds = new Set(plan.tasks.map((task) => task.id));
   for (const task of plan.tasks) {
     for (const dependency of task.dependsOn || []) {
       if (dependency === task.id) errors.push(`Task ${task.id} depends on itself.`);
-      else if (!ids.has(dependency)) errors.push(`Task ${task.id} depends on missing task ${dependency}.`);
+      else if (!compactIds.has(dependency)) errors.push(`Task ${task.id} depends on missing task ${dependency}.`);
     }
   }
 
@@ -40,14 +221,14 @@ export function validateOfficePlan(plan: PlanLike) {
     visited.add(id);
     return false;
   };
-  for (const id of ids) {
+  for (const id of compactIds) {
     if (walk(id)) {
       errors.push("Task graph contains a dependency cycle.");
       break;
     }
   }
 
-  return { valid: errors.length === 0, errors };
+  return { valid: errors.length === 0, errors, redundancy };
 }
 
 export function isTransientOfficeError(error: unknown) {
