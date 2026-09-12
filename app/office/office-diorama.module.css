@@ -1,0 +1,156 @@
+/* One scoped art palette. Office colours are intentionally independent of the
+   cream application chrome; no new global theme or rendering dependency. */
+.office, .agentDialog {
+  --lime: #d9ff62; --ink: #0a100d; --text: #eff2e8; --muted-text: #a8b4aa;
+  --surface: #131c17; --border: #344239;
+  --floor: #202e27; --floor-light: #34433a; --floor-edge: #131d18; --floor-line: #46554a;
+  --wall: #263a2e; --wall-light: #32493a; --wall-side: #23332b; --wall-edge: #526453;
+  --wood: #78634a; --wood-light: #b19a77; --wood-edge: #8b7254; --wood-dark: #493c2e;
+  --steel: #49574f; --steel-light: #92a298; --chair: #17251f; --chair-light: #34483c;
+  --trousers: #273530; --shirt: #e0dccd; --ceramic: #c5c2aa; --brass: #bfa578;
+  --screen: #1b342c; --screen-active: #334c35; --keyboard: #27342f; --glass: #4c7064;
+  --platform: #394a3c; --leaf: #748956; --leaf-dark: #456443; --mint: #84c8a7;
+  --zone-strategy: #9eb5ad; --zone-growth: #baa479; --zone-quality: #9fabc9;
+  --skin-light: #d6ac89; --skin: #b98b6d; --hair: #33302a;
+  --agent-coat: #9aaf87; --agent-coat-dark: #657b57; --state-color: #a8b4aa;
+  color: var(--text);
+}
+.office { isolation: isolate; min-width: 0; max-width: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: 22px; background: var(--surface); box-shadow: 0 24px 70px #0003; }
+.office button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.office button:disabled { cursor: default; }
+.office button:focus-visible, .office summary:focus-visible, .agentDialog button:focus-visible, .agentDialog a:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 22px 24px 18px; }
+.eyebrow { font-size: 10px; letter-spacing: .16em; color: var(--muted-text); }
+.toolbar h3 { display: flex; align-items: center; gap: 12px; margin-top: 6px; font-size: 22px; font-weight: 500; letter-spacing: -.04em; }
+.liveDot { display: inline-block; flex-shrink: 0; height: 6px; width: 6px; border-radius: 50%; background: var(--lime); }
+.occupancy { font-size: 12px; color: var(--muted-text); border: 1px solid var(--border); border-radius: 20px; padding: 7px 12px; }
+.zones { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0 24px 16px; gap: 6px; }
+.zones button { min-height: 54px; padding: 9px 12px; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 10px; color: var(--muted-text); }
+.zones button span { font-size: 13px; font-weight: 500; }
+.zones button small { display: block; font-size: 10px; margin-top: 2px; }
+.zones button[aria-pressed="true"] { background: #d9ff620b; border-color: #d9ff6240; color: var(--lime); }
+.zones button:hover { background: #ffffff08; }
+.viewport { overflow-x: auto; overflow-y: hidden; width: 100%; overscroll-behavior-x: contain; scrollbar-color: var(--steel) var(--ink); background: radial-gradient(ellipse at 50% 30%, #31413270, transparent 70%), var(--ink); }
+.scene { position: relative; min-width: 940px; width: 100%; aspect-ratio: 1000 / 780; }
+.roomArt, .connections { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.connections { z-index: 1; }
+.connectionTrack { fill: none; stroke: var(--lime); stroke-width: 1.5; opacity: .2; }
+.connectionPulse { fill: none; stroke: var(--lime); stroke-width: 2.5; stroke-dasharray: 4 24; stroke-linecap: round; opacity: .75; animation: handoff 2.5s linear 3; }
+.wallDisplay { position: absolute; z-index: 2; display: flex; flex-direction: column; text-align: left; border: 3px solid var(--steel); border-bottom-width: 6px; background: var(--ink); box-shadow: 7px 9px 0 #0003, 0 14px 24px #0004; padding: 14px; color: var(--text); border-radius: 8px !important; transition: border-color .2s; }
+.wallDisplay:hover { border-color: var(--steel-light); }
+.displayLabel { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-text); }
+.missionBoard { left: 31%; top: 6%; width: 30%; min-height: 132px; }
+.missionBoard .displayLabel { color: var(--lime); }
+.missionBoard strong { font-size: 15px; line-height: 1.4; margin: 10px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.missionBoard[data-active="true"] { border-color: #758c49; box-shadow: 7px 9px 0 #0003, 0 0 26px #d9ff620c; }
+.missionMeta { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--muted-text); }
+.boardBars { display: flex; gap: 4px; margin-top: 12px; }
+.boardBars i { height: 3px; flex: 1; background: var(--steel); }
+.boardBars i[data-lit="true"] { background: var(--lime); }
+.archive { left: 13%; top: 24%; width: 14%; }
+.archive strong { font-size: 23px; margin-top: 9px; }
+.archive strong small { font-size: 10px; margin-left: 7px; color: var(--muted-text); font-weight: 400; }
+.books { display: flex; align-items: flex-end; gap: 4px; margin-top: 10px; border-bottom: 5px solid var(--wood); padding-bottom: 3px; }
+.books i { width: 9px; height: 20px; background: var(--zone-strategy); border-top: 3px solid #fff2; }
+.books i:nth-child(2n) { height: 26px; background: var(--wood-light); }
+.books i:nth-child(3n) { height: 22px; background: var(--zone-quality); }
+.actions { left: 64%; top: 18%; width: 16%; gap: 10px; }
+.actions > span:not(:first-child) { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted-text); }
+.actions b { color: var(--lime); font-size: 15px; }
+.actions > span:last-child b { color: var(--brass); }
+.station { position: absolute; z-index: 3; width: 18%; padding: 0 0 6px; transform: translateX(-50%); background: transparent; border: none; border-radius: 16px; color: var(--text); text-align: center; pointer-events: none; }
+/* Isometric meshes overlap in depth. Transparent SVG corners must not steal
+   taps from the workstation behind them; native button keyboard focus remains. */
+.station > svg { pointer-events: visiblePainted; }
+.station > span { pointer-events: auto; }
+.workstationArt { width: 100%; height: auto; overflow: visible; filter: drop-shadow(0 6px 4px #0002); transition: transform .22s; }
+.station:hover .workstationArt, .station[data-selected="true"] .workstationArt { transform: translateY(-4px); }
+.station[data-selected="true"] .agentName { border-color: var(--lime); }
+.agentName { display: table; max-width: 100%; margin: -2px auto 0; padding: 3px 7px; border: 1px solid transparent; border-radius: 7px; background: #0a100ddd; font-size: 13px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+.agentStatus { display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; padding: 2px 6px; border-radius: 5px; background: #0a100ddd; font-size: 11px; line-height: 1.5; color: var(--state-color); }
+.agentStatus i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.office [data-state="thinking"], .office [data-state="working"], .agentDialog[data-state="working"], .agentDialog[data-state="thinking"] { --state-color: var(--lime); }
+.office [data-state="reviewing"], .agentDialog[data-state="reviewing"] { --state-color: #b4bfe5; }
+.office [data-state="queued"], .agentDialog[data-state="queued"] { --state-color: #a2c7e7; }
+.office [data-state="completed"], .agentDialog[data-state="completed"] { --state-color: var(--mint); }
+.office [data-state="attention"], .agentDialog[data-state="attention"] { --state-color: #f0c47a; }
+.office [data-agent="chief"], .agentDialog [data-character="chief"] { --agent-coat: #b3bb94; --agent-coat-dark: #7f8a62; --hair: #3b2c25; }
+.office [data-agent="research"], .agentDialog [data-character="research"] { --agent-coat: #97b4b0; --agent-coat-dark: #557973; --skin-light: #b78a6c; --skin: #94694f; --hair: #232725; }
+.office [data-agent="business"], .agentDialog [data-character="business"] { --agent-coat: #a4aebe; --agent-coat-dark: #5f6f86; --hair: #79756b; }
+.office [data-agent="sales"], .agentDialog [data-character="sales"] { --agent-coat: #c39d82; --agent-coat-dark: #916e56; --skin-light: #b58a69; --skin: #8f6145; }
+.office [data-agent="pricing"], .agentDialog [data-character="pricing"] { --agent-coat: #bfb693; --agent-coat-dark: #8b8060; --hair: #252924; }
+.office [data-agent="marketing"], .agentDialog [data-character="marketing"] { --agent-coat: #bca2b1; --agent-coat-dark: #846a7d; --hair: #583a2b; }
+.office [data-agent="qa"], .agentDialog [data-character="qa"] { --agent-coat: #b5bfcc; --agent-coat-dark: #78879f; --skin-light: #ac7f61; --skin: #7f543d; --hair: #252320; }
+.character { transform-box: fill-box; transform-origin: center bottom; animation: breathe 6s ease-in-out infinite; }
+.station:nth-of-type(2n) .character { animation-delay: -3s; }
+.screenActivity { animation: screen 3s ease-in-out infinite; }
+.station[data-state="working"] .statusLamp, .station[data-state="thinking"] .statusLamp, .station[data-state="reviewing"] .statusLamp { animation: screen 2.5s ease-in-out infinite; }
+.floorLabel { position: absolute; z-index: 1; font-size: 10px; letter-spacing: .15em; color: #d7ded3; pointer-events: none; }
+.strategyLabel { left: 12%; top: 66%; transform: rotate(28deg); }
+.growthLabel { left: 65%; top: 83%; transform: rotate(-35deg); }
+.qualityLabel { left: 82%; top: 64%; transform: rotate(-35deg); }
+.panControls { display: none; align-items: center; padding: 4px 8px; gap: 2px; background: var(--ink); border-top: 1px solid var(--border); }
+.panControls button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; color: var(--muted-text); }
+.panControls span { flex: 1; text-align: center; font-size: 11px; color: var(--muted-text); }
+.missionFlow { padding: 20px 24px; border-top: 1px solid var(--border); }
+.missionFlow p { display: flex; align-items: center; gap: 9px; margin: 0 0 16px; font-size: 13px; }
+.missionFlow ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; list-style: none; padding: 0; margin: 0; }
+.missionFlow li { border-top: 2px solid var(--steel); padding-top: 10px; font-size: 12px; color: var(--muted-text); }
+.missionFlow li > span { font-size: 10px; margin-right: 7px; opacity: .8; }
+.missionFlow li[data-current="true"], .missionFlow li[data-done="true"] { border-color: var(--lime); color: var(--lime); }
+.quickActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.quickActions button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; border: 1px solid var(--border); padding: 8px 12px; font-size: 12px; }
+.quickActions button:first-child { margin-right: auto; color: var(--lime); }
+.specialists { border-top: 1px solid var(--border); padding: 0 24px; }
+.specialists summary { cursor: pointer; min-height: 52px; padding: 16px 0; font-size: 13px; }
+.specialists summary > span { margin-left: 8px; font-size: 11px; color: var(--muted-text); }
+.specialists > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding-bottom: 20px; }
+.specialists button { min-height: 58px; border: 1px solid var(--border); padding: 8px; text-align: left; font-size: 13px; }
+.specialists small { display: block; font-size: 11px; margin-top: 4px; color: var(--state-color); }
+.agentDialog[role="dialog"] { width: calc(100% - 24px); max-width: 600px; max-height: 85dvh; overflow-y: auto; border: 1px solid var(--border); background: var(--surface); border-radius: 22px; padding: 24px; }
+.dialogHeading { display: flex; gap: 16px; align-items: center; padding-right: 32px; }
+.dialogHeading svg { width: 90px; flex-shrink: 0; }
+.dialogHeading h2 { color: var(--text); font-size: 20px; }
+.dialogHeading p { color: var(--muted-text); font-size: 13px; margin-top: 5px; }
+.dialogClose { position: absolute; top: 16px; right: 16px; display: grid; place-items: center; height: 44px; width: 44px; background: #ffffff09; }
+.dialogBody { margin-top: 22px; }
+.dialogBody h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted-text); margin: 22px 0 8px; }
+.dialogBody p { font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.output { font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--ink); }
+.dialogActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.dialogActions button, .dialogActions a { display: flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 13px; color: var(--lime); }
+.office[data-motion="off"] *, .agentDialog * { animation: none !important; transition: none !important; }
+@keyframes breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+@keyframes screen { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+@keyframes handoff { to { stroke-dashoffset: -56; } }
+@media (max-width: 1020px) { .panControls { display: flex; } }
+@media (max-width: 600px) {
+  .office { border-radius: 18px; }
+  .toolbar { padding: 16px; gap: 8px; }
+  .toolbar h3 { font-size: 19px; }
+  .eyebrow { font-size: 9px; }
+  .occupancy { max-width: 100px; font-size: 11px; padding: 6px 9px; }
+  .zones { padding: 0 12px 12px; gap: 4px; }
+  .zones button { min-height: 46px; padding: 8px 4px; text-align: center; }
+  .zones button span { font-size: 12px; }
+  .zones button small { display: none; }
+  .scene { min-width: 940px; }
+  .missionFlow { padding: 18px 14px; }
+  .missionFlow p { font-size: 12px; }
+  .missionFlow ol { gap: 5px; }
+  .missionFlow li { font-size: 11px; }
+  .missionFlow li > span { display: block; margin-bottom: 4px; }
+  .quickActions { gap: 5px; }
+  .quickActions button { flex: 1; font-size: 11px; padding: 8px; }
+  .quickActions button:first-child { margin: 0; flex: 1.4; }
+  .quickActions svg { display: none; }
+  .specialists { padding: 0 14px; }
+  .specialists > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agentDialog[role="dialog"] { padding: 18px; }
+  .dialogHeading { gap: 10px; }
+  .dialogHeading svg { width: 64px; }
+  .dialogHeading h2 { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .office *, .agentDialog * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

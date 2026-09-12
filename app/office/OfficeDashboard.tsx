@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Activity, Archive, ArrowLeft, ArrowRight, BarChart3, Bell, BookOpen, Building2,
   CheckCircle2, ChevronDown, ChevronRight, Clock3, FileText, History, LayoutDashboard,
@@ -10,6 +10,10 @@ import {
 } from "lucide-react";
 import ClassroomWorld from "./ClassroomWorld";
 import type { OfficeAgentStatus, OfficeWorldAgent } from "./OfficeWorld";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { STATE_LABELS, sceneState } from "@/lib/office-scene";
+import { WorkstationArt } from "./OfficeDioramaArt";
+import officeStyles from "./office-diorama.module.css";
 
 type AgentStatus = OfficeAgentStatus;
 type PlanTask = { id: string; agent: string; title: string; instruction: string; dependsOn: string[] };
@@ -195,7 +199,8 @@ export default function OfficeDashboard() {
               else if (event.type === "done") {
                 setFinal(String(event.final || "")); setEvaluation(event.evaluation || null);
                 if (event.missionId) setMissionId(String(event.missionId));
-                setTab("mission");
+                // Keep the live classroom visible through completion. The mission
+                // board and Full mission link still open the complete result.
               }
               else if (event.type === "error") setError(String(event.error || "Mission failed."));
             } catch {}
@@ -234,7 +239,7 @@ export default function OfficeDashboard() {
     { label: "Working", value: workingCount, icon: Users },
   ];
 
-  const missionStatus = running ? "In progress" : attention ? "Waiting for input" : final ? "Complete" : plan ? "Ready" : "Ready";
+  const missionStatus = error ? "Failed" : attention ? "Waiting for input" : final ? "Complete" : running ? "In progress" : "Ready";
   const missionTitle = plan?.objective || currentMission?.objective || currentMission?.title || mission;
 
   return (
@@ -321,12 +326,14 @@ export default function OfficeDashboard() {
           </section>
         </div>}
 
-        {tab === "classroom" && <section className="mt-4 grid min-w-0 gap-4 xl:grid-cols-[1.4fr_.6fr]">
+        {tab === "classroom" && <section className="mt-4 grid min-w-0 gap-4">
           <div className="min-w-0">
-            <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-[8px] uppercase tracking-[.2em] text-white/25">The strategy classroom</div><h2 className="mt-1 text-[18px] font-semibold">Your team, live</h2></div><div className="flex items-center gap-2"><button type="button" onClick={() => setMotion((value) => !value)} className="flex items-center gap-1.5 text-[8px] text-white/32"><span>Motion</span><span className={`relative h-4 w-7 rounded-full ${motion ? "bg-[#d9ff62]/30" : "bg-white/10"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition ${motion ? "left-3.5" : "left-0.5"}`} /></span></button>{missionId && <Link href={`/office/missions/${missionId}`} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1.5 text-[8px] text-white/38">Full mission <ChevronRight className="h-3 w-3" /></Link>}</div></div>
+            <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-[8px] uppercase tracking-[.2em] text-white/25">The strategy classroom</div><h2 className="mt-1 text-[18px] font-semibold">Your team, live</h2></div><div className="flex items-center gap-2"><button type="button" role="switch" aria-label="Office animations" aria-checked={motion} onClick={() => setMotion((value) => !value)} className="flex min-h-11 items-center gap-2 px-2 text-xs text-white/70"><span>Motion</span><span className={`relative h-4 w-7 rounded-full ${motion ? "bg-[#d9ff62]/30" : "bg-white/10"}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition ${motion ? "left-3.5" : "left-0.5"}`} /></span></button>{missionId && <Link href={`/office/missions/${missionId}`} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1.5 text-[8px] text-white/38">Full mission <ChevronRight className="h-3 w-3" /></Link>}</div></div>
             <ClassroomWorld
               agents={worldAgents}
               motion={motion}
+              hasPlan={Boolean(plan)}
+              tasks={plan?.tasks}
               missionTitle={missionTitle || "Ready for the next mission"}
               missionStatus={missionStatus}
               artifactCount={currentArtifacts.length || Number(currentMission?.artifact_count || 0)}
@@ -340,7 +347,7 @@ export default function OfficeDashboard() {
             />
           </div>
 
-          <div className="space-y-3">
+          <div className="grid min-w-0 gap-3 md:grid-cols-3">
             <div className="rounded-2xl border border-white/[.07] bg-[#141815] p-4">
               <div className="flex items-center gap-2"><span className="text-xl">👩‍💼</span><div><div className="text-[8px] uppercase tracking-[.16em] text-white/25">Chief</div><div className="text-[12px] font-semibold">Room lead</div></div></div>
               <p className="mt-3 text-[10px] leading-5 text-white/38">{agents.chief?.detail || "Chief is ready to brief the room."}</p>
@@ -406,7 +413,7 @@ export default function OfficeDashboard() {
         {tab === "autopilot" && <AutopilotPanel workspaces={overview?.workspaces || []} onCreated={loadOverview} />}
       </div>
 
-      {selectedAgent && <AgentSheet agent={selectedAgent} onClose={() => setExpanded(null)} />}
+      {selectedAgent && <AgentSheet agent={selectedAgent.id === "chief" && final ? { ...selectedAgent, output: final } : selectedAgent} hasPlan={Boolean(plan)} missionId={missionId} onClose={() => setExpanded(null)} onOpenMission={() => { setExpanded(null); setTab("mission"); }} onOpenActions={() => { setExpanded(null); setTab("overview"); }} />}
     </main>
   );
 }
@@ -458,8 +465,35 @@ function MiniMetric({ label, value }: { label: string; value: number }) {
   return <div className="flex items-center justify-between rounded-xl bg-black/20 px-3 py-2.5"><span className="text-[9px] text-white/34">{label}</span><span className="text-[12px] font-semibold">{value}</span></div>;
 }
 
-function AgentSheet({ agent, onClose }: { agent: AgentView; onClose: () => void }) {
-  return <div className="fixed inset-0 z-[70] flex items-end overflow-hidden bg-black/60 p-2 backdrop-blur-[2px] sm:items-center sm:justify-center sm:p-4" onClick={onClose}><div className="max-h-[78dvh] w-full max-w-xl overflow-hidden rounded-[24px] border border-white/10 bg-[#171c18] shadow-2xl" onClick={(e) => e.stopPropagation()}><div className="flex min-w-0 items-center justify-between border-b border-white/[.07] p-4"><div className="flex min-w-0 items-center gap-3"><div className="text-2xl">{agent.emoji}</div><div className="min-w-0"><div className="truncate text-[13px] font-semibold">{agent.name}</div><div className="truncate text-[8px] uppercase tracking-[.13em] text-white/25">{agent.department}</div></div></div><button onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/[.04] text-white/35"><X className="h-4 w-4" /></button></div><div className="max-h-[calc(78dvh-74px)] overflow-y-auto overflow-x-hidden p-4"><div className="inline-flex items-center gap-1.5 rounded-full bg-black/25 px-2.5 py-1 text-[9px] text-white/42"><span className={`h-1.5 w-1.5 rounded-full ${statusDot(agent.status)}`} />{statusLabel(agent.status)}</div><p className="mt-3 break-words text-[11px] leading-5 text-white/45">{agent.detail}</p>{agent.output ? <div className="mt-3 whitespace-pre-wrap break-words rounded-xl border border-white/[.06] bg-black/20 p-3 text-[10px] leading-5 text-white/58">{agent.output}</div> : <div className="mt-3 rounded-xl border border-dashed border-white/[.08] p-6 text-center text-[9px] text-white/25">This specialist has no deliverable yet.</div>}</div></div></div>;
+function AgentSheet({ agent, hasPlan, missionId, onClose, onOpenMission, onOpenActions }: {
+  agent: AgentView; hasPlan: boolean; missionId: string | null;
+  onClose: () => void; onOpenMission: () => void; onOpenActions: () => void;
+}) {
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const state = sceneState(agent, hasPlan);
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <DialogContent className={officeStyles.agentDialog} data-state={state} showCloseButton={false}
+      onOpenAutoFocus={() => { returnFocus.current = document.activeElement as HTMLElement | null; }}
+      onCloseAutoFocus={(event) => { event.preventDefault(); if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true }); }}>
+      <button type="button" onClick={onClose} className={officeStyles.dialogClose} aria-label="Close agent details"><X size={18} /></button>
+      <div className={officeStyles.dialogHeading}>
+        <WorkstationArt agentId={agent.id} />
+        <div><DialogTitle>{agent.name}</DialogTitle><DialogDescription>{agent.department} · AI specialist</DialogDescription></div>
+      </div>
+      <div className={officeStyles.dialogBody}>
+        <span className={officeStyles.agentStatus}><i />{STATE_LABELS[state]}{agent.status === "failed" ? " · Failed" : ""}</span>
+        <h3>Current task</h3><p>{agent.detail || "Ready when needed."}</p>
+        <h3>Latest output</h3>
+        {agent.output ? <div className={officeStyles.output}>{agent.output}</div> : <p>No deliverable yet. Output will appear when this specialist completes its work.</p>}
+        <h3>Available actions</h3>
+        <div className={officeStyles.dialogActions}>
+          <button type="button" onClick={onOpenMission}>Open mission board</button>
+          {missionId && <Link href={`/office/missions/${missionId}`}>Full mission & deliverables</Link>}
+          {(agent.status === "blocked" || agent.status === "failed") && <button type="button" onClick={onOpenActions}>Review required actions</button>}
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>;
 }
 
 function AutopilotPanel({ workspaces, onCreated }: { workspaces: Workspace[]; onCreated: () => Promise<void> }) {

@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
-import AgentGlyph from "./AgentGlyph";
-import type { OfficeAgentStatus, OfficeWorldAgent } from "./OfficeWorld";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Archive, Bell, ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
+import type { OfficeWorldAgent } from "./OfficeWorld";
+import { CORE_STATIONS, STATE_LABELS, sceneConnections, scenePhase, sceneState, type SceneTask } from "@/lib/office-scene";
+import { RoomArt, WorkstationArt } from "./OfficeDioramaArt";
+import styles from "./office-diorama.module.css";
 
 type Props = {
   agents: OfficeWorldAgent[];
@@ -13,141 +16,160 @@ type Props = {
   approvalCount?: number;
   attentionCount?: number;
   memoryCount?: number;
+  tasks?: SceneTask[];
+  hasPlan?: boolean;
   onSelectAgent?: (agent: OfficeWorldAgent) => void;
   onOpenMission?: () => void;
   onOpenArchive?: () => void;
   onOpenNotice?: () => void;
 };
 
-const defaults = ["research", "business", "sales", "pricing", "marketing", "qa"];
-
-function priority(status: OfficeAgentStatus) {
-  if (status === "working") return 0;
-  if (status === "blocked" || status === "failed") return 1;
-  if (status === "queued") return 2;
-  if (status === "completed") return 3;
-  return 4;
-}
-
-function dot(status: OfficeAgentStatus) {
-  if (status === "working") return "bg-[#d9ff62] shadow-[0_0_12px_rgba(217,255,98,.55)]";
-  if (status === "completed") return "bg-emerald-400";
-  if (status === "blocked" || status === "failed") return "bg-amber-400";
-  if (status === "queued") return "bg-sky-400";
-  return "bg-white/20";
-}
-
-function statusText(status: OfficeAgentStatus) {
-  return status === "working" ? "Working" : status === "completed" ? "Done" : status === "queued" ? "Queued" : status === "blocked" ? "Attention" : status === "failed" ? "Failed" : "Standby";
-}
+const zones = [
+  { name: "Command", x: 495, caption: "Mission control" },
+  { name: "Strategy", x: 265, caption: "Research & insight" },
+  { name: "Growth", x: 585, caption: "Commercial & content" },
+  { name: "Quality", x: 810, caption: "Evidence & review" },
+] as const;
+const phaseCopy = {
+  ready: "Ready for your next brief", brief: "Chief is shaping the mission",
+  specialists: "Specialists are executing the plan", review: "QA is checking the deliverables",
+  delivery: "Chief is assembling the final delivery", attention: "Your team needs attention",
+  completed: "Mission complete · delivery ready",
+};
+const stages = ["Brief", "Specialists", "Review", "Delivery"];
 
 export default function StrategyClassroom({
-  agents,
-  motion = true,
-  missionTitle = "Ready for the next mission",
-  missionStatus = "Ready",
-  artifactCount = 0,
-  approvalCount = 0,
-  attentionCount = 0,
-  memoryCount = 0,
-  onSelectAgent,
-  onOpenMission,
-  onOpenArchive,
-  onOpenNotice,
+  agents, motion = true, missionTitle = "Ready for the next mission", missionStatus = "Ready",
+  artifactCount = 0, approvalCount = 0, attentionCount = 0, memoryCount = 0,
+  tasks = [], hasPlan = false, onSelectAgent, onOpenMission, onOpenArchive, onOpenNotice,
 }: Props) {
-  const chief = agents.find((agent) => agent.id === "chief");
-  const specialists = useMemo(() => {
-    const active = agents
-      .filter((agent) => agent.id !== "chief" && agent.status !== "standby")
-      .sort((a, b) => priority(a.status) - priority(b.status));
-    const picked = [...active];
-    for (const id of defaults) {
-      if (picked.length >= 6) break;
-      const agent = agents.find((item) => item.id === id);
-      if (agent && !picked.some((item) => item.id === agent.id)) picked.push(agent);
-    }
-    return picked.slice(0, 6);
-  }, [agents]);
+  const viewport = useRef<HTMLDivElement>(null);
+  const scene = useRef<HTMLDivElement>(null);
+  const cameraTarget = useRef(495);
+  const inView = useRef(true);
+  const [zone, setZone] = useState("Command");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [reducedMotion, setReducedMotion] = useState(true);
+  const [visible, setVisible] = useState(true);
+  const phase = scenePhase(agents, hasPlan, missionStatus);
+  const connections = useMemo(() => sceneConnections(agents, tasks, phase), [agents, tasks, phase]);
+  const extraAgents = agents.filter(a => !CORE_STATIONS.some(s => s.id === a.id));
+  const workingCount = agents.filter(a => a.status === "working").length;
+  const phaseIndex = ["brief", "specialists", "review", "delivery"].indexOf(phase);
 
-  return (
-    <div className="relative w-full overflow-hidden rounded-[26px] border border-white/[.07] bg-[#0d120e] shadow-[0_30px_75px_rgba(0,0,0,.3)]">
-      <div className="relative border-b border-white/[.05] bg-[linear-gradient(180deg,#171d18_0%,#111612_100%)] px-3 pb-4 pt-3 sm:px-5 sm:pb-5 sm:pt-4">
-        <div className="grid grid-cols-[64px_minmax(0,1fr)_72px] items-start gap-2 sm:grid-cols-[92px_minmax(0,1fr)_102px] sm:gap-4">
-          <button onClick={onOpenArchive} className="min-w-0 rounded-xl border border-white/[.06] bg-black/20 p-2 text-left transition hover:bg-white/[.03] sm:p-3">
-            <div className="text-[7px] font-semibold uppercase tracking-[.14em] text-[#d9ff62]/65 sm:text-[8px]">Archive</div>
-            <div className="mt-1 text-[14px] font-semibold sm:text-lg">{memoryCount}</div>
-            <div className="mt-1 hidden text-[7px] text-white/24 sm:block">missions remembered</div>
-            <div className="mt-2 space-y-1">
-              {[0,1,2].map((row) => <div key={row} className="flex gap-0.5"><span className="h-2.5 w-1.5 rounded-[1px] bg-[#586642]" /><span className="h-3 w-1.5 rounded-[1px] bg-[#374a3d]" /><span className="h-2 w-1.5 rounded-[1px] bg-[#715f38]" /><span className="h-3.5 w-1.5 rounded-[1px] bg-[#454e63]" /></div>)}
-            </div>
-          </button>
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReducedMotion(preference.matches);
+    sync(); preference.addEventListener("change", sync);
+    const updateVisibility = () => setVisible(inView.current && !document.hidden);
+    document.addEventListener("visibilitychange", updateVisibility);
+    return () => { preference.removeEventListener("change", sync); document.removeEventListener("visibilitychange", updateVisibility); };
+  }, []);
 
-          <button onClick={onOpenMission} className="min-w-0 rounded-2xl border border-[#d9ff62]/16 bg-[#0b120d] p-3 text-left shadow-[0_12px_35px_rgba(0,0,0,.22)] transition hover:border-[#d9ff62]/28 sm:p-4">
-            <div className="text-[7px] font-semibold uppercase tracking-[.18em] text-[#d9ff62] sm:text-[8px]">Mission board</div>
-            <div className="mt-1.5 line-clamp-2 text-[11px] font-semibold leading-4 text-white/78 sm:text-sm sm:leading-5">{missionTitle || "Ready for the next mission"}</div>
-            <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[7px] text-white/28 sm:text-[8px]"><span>{missionStatus}</span><span>·</span><span>{artifactCount} deliverables</span></div>
-          </button>
+  useEffect(() => {
+    if (!viewport.current) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      inView.current = entry.isIntersecting;
+      setVisible(entry.isIntersecting && !document.hidden);
+    });
+    observer.observe(viewport.current);
+    return () => observer.disconnect();
+  }, []);
 
-          <button onClick={onOpenNotice} className="min-w-0 rounded-xl border border-amber-300/10 bg-amber-300/[.025] p-2 text-left transition hover:bg-amber-300/[.04] sm:p-3">
-            <div className="text-[7px] font-semibold uppercase tracking-[.12em] text-white/46 sm:text-[8px]">Actions</div>
-            <div className="mt-2 space-y-1.5">
-              <div className="flex items-center justify-between gap-1 rounded-lg bg-black/18 px-1.5 py-1.5"><span className="truncate text-[7px] text-white/28">Approve</span><span className="text-[9px] font-semibold text-[#d9ff62]">{approvalCount}</span></div>
-              <div className="flex items-center justify-between gap-1 rounded-lg bg-black/18 px-1.5 py-1.5"><span className="truncate text-[7px] text-white/28">Attention</span><span className="text-[9px] font-semibold text-amber-300">{attentionCount}</span></div>
-            </div>
-          </button>
-        </div>
-      </div>
+  function panTo(x: number, smooth = true) {
+    cameraTarget.current = x;
+    if (!viewport.current || !scene.current) return;
+    const width = scene.current.clientWidth;
+    viewport.current.scrollTo({ left: width * x / 1000 - viewport.current.clientWidth / 2, behavior: smooth && motion && !reducedMotion ? "smooth" : "instant" });
+  }
 
-      <div className="relative overflow-hidden px-3 pb-5 pt-4 sm:px-5 sm:pb-7 sm:pt-6">
-        <div className="pointer-events-none absolute inset-x-[4%] bottom-0 top-0 [clip-path:polygon(12%_0,88%_0,100%_100%,0_100%)] bg-[linear-gradient(rgba(255,255,255,.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.018)_1px,transparent_1px)] bg-[size:34px_26px] opacity-70" />
-        <div className="pointer-events-none absolute inset-x-[8%] bottom-0 top-0 bg-[radial-gradient(circle_at_50%_8%,rgba(217,255,98,.045),transparent_42%)]" />
+  useEffect(() => {
+    // Keep the chosen zone centred across rotations/resizes, without zooming labels.
+    const observer = new ResizeObserver(() => panTo(cameraTarget.current, false));
+    if (viewport.current) observer.observe(viewport.current);
+    return () => observer.disconnect();
+    // panTo reads current DOM dimensions, not React layout state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [motion, reducedMotion]);
 
-        {chief && <div className="relative z-10 mx-auto mb-5 flex max-w-[220px] justify-center sm:mb-7">
-          <Desk agent={chief} featured motion={motion} onClick={() => onSelectAgent?.(chief)} />
-        </div>}
+  function focusZone(name: string, x: number) { setZone(name); panTo(x); }
 
-        <div className="relative z-10 grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 sm:gap-x-5 sm:gap-y-7">
-          {specialists.map((agent) => <Desk key={agent.id} agent={agent} motion={motion} onClick={() => onSelectAgent?.(agent)} />)}
-        </div>
-
-        <div className="relative z-10 mt-6 grid grid-cols-3 gap-2 border-t border-white/[.045] pt-4 text-center sm:mt-8">
-          <div><div className="text-[7px] uppercase tracking-[.15em] text-white/18">Strategy</div><div className="mt-1 text-[8px] text-white/30">Research & insight</div></div>
-          <div><div className="text-[7px] uppercase tracking-[.15em] text-white/18">Growth</div><div className="mt-1 text-[8px] text-white/30">Commercial & content</div></div>
-          <div><div className="text-[7px] uppercase tracking-[.15em] text-white/18">Quality</div><div className="mt-1 text-[8px] text-white/30">Product & review</div></div>
-        </div>
-      </div>
-
-      <div className="border-t border-white/[.05] px-3 py-2.5 text-[8px] text-white/24 sm:px-5">Tap the mission board, archive shelf, action board or any specialist.</div>
-    </div>
-  );
-}
-
-function Desk({ agent, featured = false, motion, onClick }: { agent: OfficeWorldAgent; featured?: boolean; motion: boolean; onClick: () => void }) {
-  const active = agent.status === "working";
-  const important = active || agent.status === "blocked" || agent.status === "failed";
-
-  return <button
-    onClick={onClick}
-    aria-label={`${agent.name}: ${statusText(agent.status)}`}
-    className="group relative min-w-0 bg-transparent px-1 pb-2 pt-1 text-center outline-none [-webkit-tap-highlight-color:transparent] focus-visible:ring-1 focus-visible:ring-[#d9ff62]/45"
-  >
-    <div className={`relative mx-auto ${featured ? "h-[88px] w-[154px] sm:h-[100px] sm:w-[178px]" : "h-[74px] w-[122px] max-w-full sm:h-[86px] sm:w-[146px]"}`}>
-      {important && <div className={`pointer-events-none absolute left-1/2 top-[45%] h-[58%] w-[92%] -translate-x-1/2 rounded-full blur-xl ${active ? "bg-[#d9ff62]/[.07]" : "bg-amber-300/[.05]"}`} />}
-
-      <div className={`absolute left-1/2 top-[50%] h-[38%] w-[84%] -translate-x-1/2 -translate-y-[8%] -skew-x-[28deg] rounded-sm border ${active ? "border-[#d9ff62]/28 bg-[#465438]" : "border-white/[.07] bg-[#313933]"} shadow-[0_12px_20px_rgba(0,0,0,.28)]`} />
-      <div className={`absolute left-1/2 top-[37%] h-[25%] w-[30%] -translate-x-1/2 rounded-[4px] border ${active ? "border-[#d9ff62]/35 bg-[#0a100b]" : "border-white/[.08] bg-[#090d0a]"}`}>
-        <div className={`absolute inset-[22%] rounded-[2px] ${active ? `bg-[#d9ff62]/18 ${motion ? "animate-pulse" : ""}` : "bg-white/[.035]"}`} />
-      </div>
-
-      <div className={`absolute left-1/2 top-[-4%] -translate-x-1/2 ${featured ? "h-11 w-11 sm:h-12 sm:w-12" : "h-9 w-9 sm:h-10 sm:w-10"}`}>
-        <AgentGlyph agentId={agent.id} active={active} className="h-full w-full drop-shadow-[0_5px_8px_rgba(0,0,0,.35)]" />
-      </div>
-
-      <span className={`absolute left-[62%] top-[4%] h-2 w-2 rounded-full ${dot(agent.status)} ${motion && active ? "animate-pulse" : ""}`} />
-      <div className="absolute bottom-[1%] left-1/2 h-[16%] w-[22%] -translate-x-1/2 rounded-t-lg border border-white/[.06] bg-[#202721]" />
+  return <section className={styles.office} data-motion={motion && !reducedMotion && visible ? "on" : "off"} aria-label="Interactive AI office">
+    <div className={styles.toolbar}>
+      <div><span className={styles.eyebrow}>KRETIVOS / LIVE WORKSPACE</span><h3>The strategy floor<span className={styles.liveDot} /></h3></div>
+      <span className={styles.occupancy}>{workingCount ? `${workingCount} working` : "Team on standby"}</span>
     </div>
 
-    <div className={`truncate text-[9px] font-medium sm:text-[10px] ${important ? "text-white/76" : "text-white/50"}`}>{agent.name}</div>
-    <div className="mt-0.5 flex items-center justify-center gap-1 text-[7px] text-white/26"><span className={`h-1.5 w-1.5 rounded-full ${dot(agent.status)}`} />{statusText(agent.status)}</div>
-  </button>;
+    <nav className={styles.zones} aria-label="Focus office zone">
+      {zones.map(z => <button key={z.name} type="button" aria-pressed={zone === z.name} onClick={() => focusZone(z.name, z.x)}><span>{z.name}</span><small>{z.caption}</small></button>)}
+    </nav>
+
+    <div className={styles.viewport} ref={viewport} aria-label="Office panorama. Swipe horizontally or use zone controls to explore.">
+      <div ref={scene} className={styles.scene}>
+        <RoomArt />
+        <svg className={styles.connections} viewBox="0 0 1000 780" aria-hidden="true" focusable="false">
+          {connections.map(({ from, to }) => {
+            const start = CORE_STATIONS.find(s => s.id === from)!;
+            const end = CORE_STATIONS.find(s => s.id === to)!;
+            const path = `M${start.x} ${start.y + 35}Q${start.x} ${end.y + 65} ${end.x} ${end.y + 35}`;
+            return <g key={`${from}-${to}`}><path d={path} className={styles.connectionTrack} /><path d={path} className={styles.connectionPulse} /></g>;
+          })}
+        </svg>
+
+        <button type="button" onClick={onOpenArchive} disabled={!onOpenArchive} className={`${styles.wallDisplay} ${styles.archive}`} aria-label={`Open archive: ${memoryCount} missions remembered`}>
+          <span className={styles.displayLabel}><Archive size={14} /> Archive</span><strong>{memoryCount}<small>missions</small></strong>
+          <span className={styles.books} aria-hidden="true">{[0, 1, 2, 3, 4, 5].map(i => <i key={i} />)}</span>
+        </button>
+        <button type="button" onClick={onOpenMission} disabled={!onOpenMission} className={`${styles.wallDisplay} ${styles.missionBoard}`} data-active={phase !== "ready"} aria-label={`Open mission: ${missionTitle}. ${missionStatus}. ${artifactCount} deliverables.`}>
+          <span className={styles.displayLabel}>Mission control <ArrowRight size={14} /></span>
+          <strong>{missionTitle || "Ready for the next mission"}</strong>
+          <span className={styles.missionMeta}>{missionStatus}<span>{artifactCount} deliverables</span></span>
+          <span className={styles.boardBars} aria-hidden="true">{stages.map((s, i) => <i key={s} data-lit={phase === "completed" || (phaseIndex >= 0 && i <= phaseIndex)} />)}</span>
+        </button>
+        <button type="button" onClick={onOpenNotice} disabled={!onOpenNotice} className={`${styles.wallDisplay} ${styles.actions}`} aria-label={`Open actions: ${approvalCount} approvals, ${attentionCount} need attention`}>
+          <span className={styles.displayLabel}><Bell size={14} /> Actions</span>
+          <span>Approve <b>{approvalCount}</b></span><span>Attention <b>{attentionCount}</b></span>
+        </button>
+
+        {CORE_STATIONS.map(station => {
+          const agent = agents.find(a => a.id === station.id);
+          if (!agent) return null;
+          const state = sceneState(agent, hasPlan);
+          return <button type="button" key={agent.id} className={styles.station} data-state={state} data-agent={agent.id} data-selected={selected === agent.id} aria-label={`${agent.name}, ${STATE_LABELS[state]}. Open agent details.`} aria-haspopup="dialog" disabled={!onSelectAgent}
+            style={{ left: `${station.x / 10}%`, top: `${(station.y - 112) / 7.8}%` }}
+            onFocus={(event) => { if (event.currentTarget.matches(":focus-visible")) { setSelected(agent.id); setZone(station.zone); panTo(station.x); } }}
+            onClick={() => { setSelected(agent.id); setZone(station.zone); panTo(station.x); onSelectAgent?.(agent); }}>
+            <WorkstationArt agentId={agent.id} active={["thinking", "working", "reviewing"].includes(state)} />
+            <span className={styles.agentName}>{agent.name}</span>
+            <span className={styles.agentStatus}><i />{STATE_LABELS[state]}</span>
+          </button>;
+        })}
+        <span className={`${styles.floorLabel} ${styles.strategyLabel}`}>01 / STRATEGY</span>
+        <span className={`${styles.floorLabel} ${styles.growthLabel}`}>02 / GROWTH</span>
+        <span className={`${styles.floorLabel} ${styles.qualityLabel}`}>03 / QUALITY</span>
+      </div>
+    </div>
+
+    <div className={styles.panControls}>
+      <button type="button" aria-label="Pan office left" onClick={() => viewport.current?.scrollBy({ left: -230, behavior: motion && !reducedMotion ? "smooth" : "instant" })}><ChevronLeft size={18} /></button>
+      <span>Swipe to explore · tap an agent</span>
+      <button type="button" aria-label="Centre on Chief" onClick={() => focusZone("Command", 495)}><Crosshair size={18} /></button>
+      <button type="button" aria-label="Pan office right" onClick={() => viewport.current?.scrollBy({ left: 230, behavior: motion && !reducedMotion ? "smooth" : "instant" })}><ChevronRight size={18} /></button>
+    </div>
+
+    <div className={styles.missionFlow}>
+      <p role="status" aria-live="polite"><span className={styles.liveDot} />{phaseCopy[phase]}</p>
+      <ol aria-label="Mission stages">{stages.map((stage, i) => <li key={stage} data-current={i === phaseIndex} data-done={phase === "completed" || (phaseIndex >= 0 && i < phaseIndex)} aria-current={i === phaseIndex ? "step" : undefined}><span>{phase === "completed" || (phaseIndex >= 0 && i < phaseIndex) ? "✓" : `0${i + 1}`}</span>{stage}</li>)}</ol>
+      <div className={styles.quickActions}>
+        <button type="button" onClick={onOpenMission} disabled={!onOpenMission}>Mission board <ArrowRight size={14} /></button>
+        <button type="button" onClick={onOpenArchive} disabled={!onOpenArchive}>Archive · {memoryCount}</button>
+        <button type="button" onClick={onOpenNotice} disabled={!onOpenNotice}>Actions · {approvalCount + attentionCount}</button>
+      </div>
+    </div>
+
+    {extraAgents.length > 0 && <details className={styles.specialists}>
+      <summary>Extended team <span>{extraAgents.length} specialists</span></summary>
+      <div>{extraAgents.map(agent => <button type="button" key={agent.id} data-state={sceneState(agent, hasPlan)} aria-haspopup="dialog" onClick={() => onSelectAgent?.(agent)} disabled={!onSelectAgent}><span>{agent.name}</span><small>{STATE_LABELS[sceneState(agent, hasPlan)]}</small></button>)}</div>
+    </details>}
+  </section>;
 }
