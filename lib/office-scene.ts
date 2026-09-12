@@ -9,13 +9,14 @@ export type SceneTask = { id: string; agent: string; dependsOn: string[] };
 export type ScenePhase = "ready" | "brief" | "specialists" | "review" | "delivery" | "attention" | "completed";
 
 export const CORE_STATIONS = [
-  { id: "chief", x: 495, y: 300, zone: "Command" },
-  { id: "research", x: 220, y: 392, zone: "Strategy" },
-  { id: "business", x: 345, y: 513, zone: "Strategy" },
-  { id: "sales", x: 535, y: 433, zone: "Growth" },
-  { id: "pricing", x: 670, y: 542, zone: "Growth" },
-  { id: "marketing", x: 505, y: 633, zone: "Growth" },
-  { id: "qa", x: 815, y: 419, zone: "Quality" },
+  // Label anchors registered to warm-office-v2.webp, in a 1000 × 750 plane.
+  { id: "chief", x: 310, y: 535, zone: "Command" },
+  { id: "research", x: 339, y: 358, zone: "Strategy" },
+  { id: "business", x: 483, y: 296, zone: "Strategy" },
+  { id: "sales", x: 861, y: 460, zone: "Growth" },
+  { id: "pricing", x: 690, y: 529, zone: "Growth" },
+  { id: "marketing", x: 506, y: 462, zone: "Growth" },
+  { id: "qa", x: 618, y: 365, zone: "Quality" },
 ] as const;
 
 export const STATE_LABELS: Record<SceneState, string> = {

@@ -1,5 +1,27 @@
 # AI Office diorama implementation
 
+## Current artwork revision: warm miniature studio
+
+The follow-up reference changes the art direction from procedural SVG meshes to a detailed, warm, pre-rendered office illustration. The original architecture notes below describe the first revision, not the current rendering.
+
+- `public/office/warm-office-v2.webp`: 1448 × 1086, 187,422 bytes. Warm walnut flooring, blue-hour city windows, plants, pantry, six staffed desks and Chief working from the sofa lounge. Created with the built-in image-generation tool, then encoded to WebP without resizing or changing the composition.
+- The room is **pre-rendered artwork, not a real-time 3D simulation**. People/furniture do not move. Native HTML hotspots, state badges, bounded handoff paths, keyboard interaction, agent details and actual mission state remain interactive.
+- Hotspots in `lib/office-scene.ts` are registered to this exact artwork in a 1000 × 750 coordinate plane. The art and hotspot parent share a 4:3 aspect ratio, with no cover-cropping. A replacement artwork requires re-registering positions.
+- Seven character labels stay outside the baked image. Queued, Working, Reviewing, Attention and Completed are derived from the existing event stream, never from the seated poses.
+- The detail dialog uses portrait windows into the same cached artwork. Extended specialists retain a neutral placeholder because they are not depicted in the seven-person room.
+- Mission, Archive and Actions controls now sit in a compact console row above the scene, to avoid covering furniture and people. They retain their existing callbacks. Small screens retain horizontal panorama navigation at readable label sizes.
+- The generated image is only requested when the classroom or an agent portrait mounts. There are no new JavaScript dependencies or backend changes.
+
+### Generation brief
+
+Built-in imagegen; attached screenshot used as style reference only. Generate an original standalone 3D-rendered isometric cutaway office: realistic walnut floor, cream walls, warm amber lighting, blue-hour city windows, bookshelves, plants, rear-right pantry, front-left green sofa and TV, miniature adult workers with clear space for native interactive labels. Navy-black exterior background; complete room framing; no dashboard chrome, text, badges, logo or watermark. Final targeted edit: preserve all six desk workers and the entire composition; add a seventh adult leader in charcoal clothing on the green sofa using a laptop. The original generated files are preserved separately; the project consumes the WebP asset above.
+
+### Verification scope
+
+Type checks, the existing test suite and a production build are rerun for this revision. The supplied browser's local-preview access remains blocked; on-screen mobile/desktop hotspot alignment, Safari interaction and device performance still need the release checks listed below. Inspecting the generated artwork is not equivalent to testing the composed application UI.
+
+## First revision (historical audit)
+
 Branch: `feature/ai-office-mvp`  
 Audited base: `84f703e33ccbba6890ca226eaa51015fb699fb01`
 

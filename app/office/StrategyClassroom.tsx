@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Archive, Bell, ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
 import type { OfficeWorldAgent } from "./OfficeWorld";
 import { CORE_STATIONS, STATE_LABELS, sceneConnections, scenePhase, sceneState, type SceneTask } from "@/lib/office-scene";
-import { RoomArt, WorkstationArt } from "./OfficeDioramaArt";
+
 import styles from "./office-diorama.module.css";
 
 type Props = {
@@ -25,10 +25,10 @@ type Props = {
 };
 
 const zones = [
-  { name: "Command", x: 495, caption: "Mission control" },
-  { name: "Strategy", x: 265, caption: "Research & insight" },
-  { name: "Growth", x: 585, caption: "Commercial & content" },
-  { name: "Quality", x: 810, caption: "Evidence & review" },
+  { name: "Command", x: 310, caption: "Mission control" },
+  { name: "Strategy", x: 400, caption: "Research & insight" },
+  { name: "Growth", x: 735, caption: "Commercial & content" },
+  { name: "Quality", x: 618, caption: "Evidence & review" },
 ] as const;
 const phaseCopy = {
   ready: "Ready for your next brief", brief: "Chief is shaping the mission",
@@ -45,7 +45,7 @@ export default function StrategyClassroom({
 }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const scene = useRef<HTMLDivElement>(null);
-  const cameraTarget = useRef(495);
+  const cameraTarget = useRef(310);
   const inView = useRef(true);
   const [zone, setZone] = useState("Command");
   const [selected, setSelected] = useState<string | null>(null);
@@ -104,18 +104,7 @@ export default function StrategyClassroom({
       {zones.map(z => <button key={z.name} type="button" aria-pressed={zone === z.name} onClick={() => focusZone(z.name, z.x)}><span>{z.name}</span><small>{z.caption}</small></button>)}
     </nav>
 
-    <div className={styles.viewport} ref={viewport} aria-label="Office panorama. Swipe horizontally or use zone controls to explore.">
-      <div ref={scene} className={styles.scene}>
-        <RoomArt />
-        <svg className={styles.connections} viewBox="0 0 1000 780" aria-hidden="true" focusable="false">
-          {connections.map(({ from, to }) => {
-            const start = CORE_STATIONS.find(s => s.id === from)!;
-            const end = CORE_STATIONS.find(s => s.id === to)!;
-            const path = `M${start.x} ${start.y + 35}Q${start.x} ${end.y + 65} ${end.x} ${end.y + 35}`;
-            return <g key={`${from}-${to}`}><path d={path} className={styles.connectionTrack} /><path d={path} className={styles.connectionPulse} /></g>;
-          })}
-        </svg>
-
+    <div className={styles.consoleRack}>
         <button type="button" onClick={onOpenArchive} disabled={!onOpenArchive} className={`${styles.wallDisplay} ${styles.archive}`} aria-label={`Open archive: ${memoryCount} missions remembered`}>
           <span className={styles.displayLabel}><Archive size={14} /> Archive</span><strong>{memoryCount}<small>missions</small></strong>
           <span className={styles.books} aria-hidden="true">{[0, 1, 2, 3, 4, 5].map(i => <i key={i} />)}</span>
@@ -131,29 +120,42 @@ export default function StrategyClassroom({
           <span>Approve <b>{approvalCount}</b></span><span>Attention <b>{attentionCount}</b></span>
         </button>
 
+    </div>
+
+    <div className={styles.viewport} ref={viewport} aria-label="Office panorama. Swipe horizontally or use zone controls to explore.">
+      <div ref={scene} className={styles.scene}>
+        <img src="/office/warm-office-v2.webp" width={1448} height={1086} alt="" aria-hidden="true" decoding="async" className={styles.roomArt} draggable={false} />
+        <svg className={styles.connections} viewBox="0 0 1000 750" aria-hidden="true" focusable="false">
+          {connections.map(({ from, to }) => {
+            const start = CORE_STATIONS.find(s => s.id === from)!;
+            const end = CORE_STATIONS.find(s => s.id === to)!;
+            const path = `M${start.x} ${start.y - 45}Q${start.x} ${end.y - 5} ${end.x} ${end.y - 45}`;
+            return <g key={`${from}-${to}`}><path d={path} className={styles.connectionTrack} /><path d={path} className={styles.connectionPulse} /></g>;
+          })}
+        </svg>
+
+
         {CORE_STATIONS.map(station => {
           const agent = agents.find(a => a.id === station.id);
           if (!agent) return null;
           const state = sceneState(agent, hasPlan);
           return <button type="button" key={agent.id} className={styles.station} data-state={state} data-agent={agent.id} data-selected={selected === agent.id} aria-label={`${agent.name}, ${STATE_LABELS[state]}. Open agent details.`} aria-haspopup="dialog" disabled={!onSelectAgent}
-            style={{ left: `${station.x / 10}%`, top: `${(station.y - 112) / 7.8}%` }}
+            style={{ left: `${station.x / 10}%`, top: `${station.y / 7.5}%` }}
             onFocus={(event) => { if (event.currentTarget.matches(":focus-visible")) { setSelected(agent.id); setZone(station.zone); panTo(station.x); } }}
             onClick={() => { setSelected(agent.id); setZone(station.zone); panTo(station.x); onSelectAgent?.(agent); }}>
-            <WorkstationArt agentId={agent.id} active={["thinking", "working", "reviewing"].includes(state)} />
+            <span className={styles.deskHitArea} aria-hidden="true"><i className={styles.monitorSignal} /></span>
             <span className={styles.agentName}>{agent.name}</span>
             <span className={styles.agentStatus}><i />{STATE_LABELS[state]}</span>
           </button>;
         })}
-        <span className={`${styles.floorLabel} ${styles.strategyLabel}`}>01 / STRATEGY</span>
-        <span className={`${styles.floorLabel} ${styles.growthLabel}`}>02 / GROWTH</span>
-        <span className={`${styles.floorLabel} ${styles.qualityLabel}`}>03 / QUALITY</span>
+
       </div>
     </div>
 
     <div className={styles.panControls}>
       <button type="button" aria-label="Pan office left" onClick={() => viewport.current?.scrollBy({ left: -230, behavior: motion && !reducedMotion ? "smooth" : "instant" })}><ChevronLeft size={18} /></button>
       <span>Swipe to explore · tap an agent</span>
-      <button type="button" aria-label="Centre on Chief" onClick={() => focusZone("Command", 495)}><Crosshair size={18} /></button>
+      <button type="button" aria-label="Centre on Chief" onClick={() => focusZone("Command", 310)}><Crosshair size={18} /></button>
       <button type="button" aria-label="Pan office right" onClick={() => viewport.current?.scrollBy({ left: 230, behavior: motion && !reducedMotion ? "smooth" : "instant" })}><ChevronRight size={18} /></button>
     </div>
 
