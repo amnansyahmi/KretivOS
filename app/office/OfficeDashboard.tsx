@@ -15,6 +15,7 @@ import { STATE_LABELS, sceneState } from "@/lib/office-scene";
 import { WorkstationArt } from "./OfficeDioramaArt";
 import officeStyles from "./office-diorama.module.css";
 import MissionWorkboard from "./MissionWorkboard";
+import { OFFICE_BRIEF_TEMPLATE } from "./OfficeFlowGuide";
 import missionStyles from "./mission-workboard.module.css";
 import { agentTaskRun, missionBucket, updateTaskRun, validAgentStatus, type TaskRuns } from "@/lib/office-task-state";
 
@@ -366,8 +367,9 @@ export default function OfficeDashboard() {
               memoryCount={Number(overview?.stats?.missions || 0)}
               onSelectAgent={(agent) => setExpanded(agent.id)}
               onOpenMission={() => setTab("mission")}
-              onOpenArchive={() => setTab("clients")}
+              onOpenArchive={() => setTab("mission")}
               onOpenNotice={() => setTab("overview")}
+              onPrepareBrief={!running ? () => { setMission(current => current.includes("Facts / evidence we already have:") ? current : current.trim() ? `${current}\n\n${OFFICE_BRIEF_TEMPLATE}` : OFFICE_BRIEF_TEMPLATE); setTab("overview"); } : undefined}
             />
           </div>
 
