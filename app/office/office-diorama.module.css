@@ -77,8 +77,6 @@
 .workstationArt[data-character="qa"] { --agent-coat: #7d86a7; --skin: #d4a37e; --hair: #382d27; }
 .character { position: absolute; width: 4.5%; min-width: 44px; height: auto; padding: 0; transform: translate(-50%, -100%); border: 0; background: transparent; touch-action: pan-x pan-y; will-change: transform; }
 .character > svg { display: block; transform: scaleX(var(--facing, 1)); overflow: visible; }
-.characterMarker { position: absolute; bottom: 100%; left: 50%; width: 7px; height: 11px; margin-bottom: 2px; background: var(--state-color); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
-.character[data-state="working"] .characterMarker, .character[data-state="thinking"] .characterMarker { animation: screen 2s ease-in-out infinite; }
 .characterCaption { position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); width: max-content; max-width: 160px; padding: 7px 10px; border-radius: 8px; background: var(--ink); border: 1px solid var(--border); font-size: 12px; opacity: 0; pointer-events: none; color: var(--text); }
 .characterCaption b, .characterCaption span { display: block; }
 .characterCaption span { color: var(--muted-text); font-size: 11px; margin-top: 3px; }
@@ -190,3 +188,61 @@
 @media (prefers-reduced-motion: reduce) {
   .office *, .agentDialog * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Activity rigs: seated work is a different silhouette, not a standing icon. */
+.seatedLegs, .rearHead, .remoteProp { display: none; }
+.upperBody { transform-origin: 31px 65px; }
+.character[data-seated="true"] .seatedLegs { display: block; }
+.character[data-seated="true"] .leftLeg, .character[data-seated="true"] .rightLeg { display: none; }
+.character[data-seated="true"] .upperBody { transform: translate(-3px, 7px) rotate(-9deg); }
+.character[data-seated="true"] .characterRig { animation: seatedBreathe 4s ease-in-out infinite; }
+.character[data-activity="sitting"] .characterRig { animation: takeSeat .65s ease-out both; }
+.character[data-activity="standing"] .characterRig { animation: leaveSeat .65s ease-in both; }
+.character[data-activity="waiting"] .leftArm, .character[data-activity="idle"] .leftArm { transform: rotate(-45deg); }
+.character[data-activity="waiting"] .rightArm, .character[data-activity="idle"] .rightArm { transform: rotate(35deg); }
+.character[data-activity="typing"] .leftArm, .character[data-activity="reviewing"] .leftArm { animation: keyboardLeft .7s ease-in-out infinite alternate; }
+.character[data-activity="typing"] .rightArm, .character[data-activity="reviewing"] .rightArm { animation: keyboardRight .55s ease-in-out infinite alternate; }
+.character[data-back="true"] .characterHead { display: none; }
+.character[data-back="true"] .rearHead { display: block; }
+.character[data-activity="makingCoffee"] .leftArm { animation: brewReach 2.5s ease-in-out infinite; }
+.character[data-cup="true"] .coffeeProp { display: block; }
+.character[data-activity="coffee"] .coffeeProp { animation: sipCup 3.8s ease-in-out infinite; transform-origin: 42px 55px; }
+.character[data-activity="coffee"] .rightArm { animation: sipArm 3.8s ease-in-out infinite; }
+.character[data-activity="read"] .leftArm { transform: rotate(-50deg); }
+.character[data-activity="read"] .rightArm { transform: rotate(45deg); }
+.character[data-activity="read"] .characterHead { animation: thinkNod 5s ease-in-out infinite; }
+.character[data-activity="lounge"] .upperBody { transform: translate(3px, 8px) rotate(12deg); }
+.character[data-activity="lounge"] .remoteProp { display: block; }
+.character[data-activity="lounge"] .leftArm { transform: rotate(-45deg); }
+.character[data-activity="lounge"] .rightArm { transform: rotate(30deg); }
+.commandDesk { position: absolute; left: 47%; top: 70%; width: 16%; height: auto; z-index: 590; pointer-events: none; }
+.coffeeMachine { position: absolute; left: 76.5%; top: 36%; width: 3.8%; overflow: visible; pointer-events: none; z-index: 300; }
+.coffeeSteam, .coffeePour { opacity: 0; }
+.scene[data-brewing="true"] .coffeeSteam { animation: coffeeSteam 2s ease-out infinite; }
+.scene[data-brewing="true"] .coffeePour { opacity: .8; }
+.tvPicture { position: absolute; left: 8.2%; top: 40.9%; width: 10.2%; height: 10.5%; opacity: 0; pointer-events: none; }
+.scene[data-tv="true"] .tvPicture { opacity: .7; animation: screen 7s ease-in-out infinite; }
+.sceneTools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 20px 14px; }
+.sceneTools button, .guideTrigger { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 8px 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 9px; }
+.sceneTools > span { color: var(--muted-text); font-size: 11px; }
+.seatRoster { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 7px; padding: 16px; border-top: 1px solid var(--border); }
+.seatRoster button { min-height: 54px; min-width: 0; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.seatRoster span { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.seatRoster small { display: block; color: var(--state-color); font-size: 11px; margin-top: 4px; }
+.flowGuide h2 { font-size: 21px; padding-right: 24px; }
+.flowGuide > p { font-size: 13px; line-height: 1.6; color: var(--muted-text); margin-top: 8px; }
+.guideSteps { list-style: none; padding: 0; display: grid; gap: 18px; margin: 24px 0; }
+.guideSteps strong { color: var(--lime); font-size: 14px; font-weight: 500; }
+.guideSteps p, .guideDetails p { font-size: 13px; line-height: 1.7; color: var(--muted-text); margin-top: 5px; }
+.guideDetails { border-top: 1px solid var(--border); padding-bottom: 12px; }
+.guideDetails summary { min-height: 44px; padding: 14px 0 8px; font-size: 13px; cursor: pointer; }
+.flowGuide button:focus-visible, .flowGuide summary:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
+@keyframes seatedBreathe { 50% { transform: translateY(1px); } }
+@keyframes takeSeat { from { transform: translateY(-6px); } to { transform: translateY(0); } }
+@keyframes leaveSeat { from { transform: translateY(6px); } to { transform: translateY(0); } }
+@keyframes keyboardLeft { from { transform: rotate(-58deg); } to { transform: rotate(-64deg) translateY(-1px); } }
+@keyframes keyboardRight { from { transform: rotate(51deg); } to { transform: rotate(59deg) translateY(-1px); } }
+@keyframes brewReach { 20%, 60% { transform: rotate(105deg); } }
+@keyframes sipArm { 30%, 55% { transform: rotate(95deg); } }
+@keyframes sipCup { 30%, 55% { transform: translate(-9px, -23px) rotate(-18deg); } }
+@keyframes coffeeSteam { from { opacity: .4; transform: translateY(2px); } to { opacity: 0; transform: translateY(-10px); } }
