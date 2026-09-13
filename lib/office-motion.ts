@@ -4,7 +4,7 @@ export type Point = { x: number; y: number };
 // Foot positions on the empty-room artwork, normalized to 1000 × 750.
 // Navigation follows authored aisles; it never takes a direct shortcut to a desk.
 export const WALK_NODES: Record<string, Point> = {
-  chief: { x: 405, y: 491 }, research: { x: 319, y: 331 },
+  chief: { x: 554, y: 566 }, research: { x: 319, y: 331 },
   business: { x: 467, y: 261 }, marketing: { x: 535, y: 434 },
   qa: { x: 649, y: 337 }, sales: { x: 887, y: 453 }, pricing: { x: 739, y: 506 },
   west: { x: 256, y: 346 }, westTop: { x: 225, y: 290 }, back: { x: 379, y: 246 },
@@ -12,17 +12,18 @@ export const WALK_NODES: Record<string, Point> = {
   front: { x: 520, y: 546 }, mid: { x: 600, y: 472 },
   east: { x: 713, y: 421 }, eastTop: { x: 731, y: 347 },
   eastLow: { x: 801, y: 487 },
-  coffee: { x: 768, y: 324 }, read: { x: 238, y: 325 },
-  stretch: { x: 493, y: 593 }, lounge: { x: 416, y: 525 },
+  coffee: { x: 790, y: 315 }, coffeeDrink: { x: 800, y: 370 }, read: { x: 238, y: 325 },
+  stretch: { x: 493, y: 593 }, lounge: { x: 315, y: 484 }, loungeEntry: { x: 398, y: 455 },
 };
 export const WALK_EDGES: [string, string][] = [
   ["research", "west"], ["west", "westTop"], ["westTop", "back"], ["back", "business"],
-  ["west", "westLow"], ["westLow", "centre"], ["centre", "chief"],
+  ["west", "westLow"], ["westLow", "centre"], ["front", "chief"],
   ["centre", "front"], ["front", "mid"], ["mid", "marketing"],
   ["mid", "east"], ["east", "eastTop"], ["eastTop", "qa"],
   ["east", "eastLow"], ["eastLow", "pricing"], ["eastLow", "sales"],
   ["eastTop", "coffee"],
-  ["west", "read"], ["front", "stretch"], ["front", "lounge"],
+  ["coffee", "coffeeDrink"], ["coffeeDrink", "eastTop"],
+  ["west", "read"], ["front", "stretch"], ["centre", "loungeEntry"], ["loungeEntry", "lounge"],
 ];
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -52,56 +53,88 @@ export function officeRoute(from: string, to: string): string[] {
   return path;
 }
 
-export type Activity = "walking" | "typing" | "thinking" | "reviewing" | "waiting" | "celebrating" | "coffee" | "read" | "stretch" | "lounge" | "idle";
+export type Activity = "walking" | "standing" | "sitting" | "typing" | "thinking" | "reviewing" | "waiting" | "celebrating" | "makingCoffee" | "coffee" | "read" | "stretch" | "lounge" | "idle";
 export const ACTIVITY_LABELS: Record<Activity, string> = {
-  walking: "Walking", typing: "At workstation", thinking: "Planning", reviewing: "Checking work",
-  waiting: "Waiting", celebrating: "Work delivered", coffee: "Coffee break", read: "Browsing books",
-  stretch: "Stretching", lounge: "Taking a break", idle: "Available",
+  walking: "Walking", standing: "Getting up", sitting: "Taking a seat", typing: "Working at desk",
+  thinking: "Planning at desk", reviewing: "Reviewing at desk", waiting: "Seated · ready",
+  celebrating: "Work delivered", makingCoffee: "Making coffee", coffee: "Drinking coffee",
+  read: "Reading", stretch: "Stretching", lounge: "Watching TV", idle: "Seated · available",
 };
 const idleSpots = ["coffee", "read", "stretch", "lounge"] as const;
 export type Walker = Point & {
   id: string; node: string; next: string | null; destination: string; route: string[];
   activity: Activity; facing: number; wait: number; lastStatus: SceneAgent["status"];
+  activityTime: number; carryingCup: boolean;
 };
-export function createWalker(id: string, index = 0): Walker {
-  return { ...WALK_NODES[id], id, node: id, next: null, destination: id, route: [], activity: "idle", facing: 1, wait: 2 + index * 1.8, lastStatus: "standby" };
+export function seatedActivity(activity: Activity) {
+  return ["sitting", "typing", "thinking", "reviewing", "waiting", "idle", "celebrating", "lounge"].includes(activity);
 }
-export function stepWalker(w: Walker, status: SceneAgent["status"], dt: number, occupied: Set<string>, random = Math.random, hasPlan = true): Walker {
-  const n: Walker = { ...w, route: [...w.route], wait: Math.max(0, w.wait - dt) };
-  const onDuty = status === "working" || status === "queued" || status === "blocked" || status === "failed";
+export function createWalker(id: string, index = 0): Walker {
+  return { ...WALK_NODES[id], id, node: id, next: null, destination: id, route: [], activity: "idle",
+    facing: 1, wait: 2 + index * 1.8, lastStatus: "standby", activityTime: 0, carryingCup: false };
+}
+/** missionActive recalls the WHOLE room without pretending unassigned agents have work. */
+export function stepWalker(w: Walker, status: SceneAgent["status"], dt: number, occupied: Set<string>, random = Math.random, hasPlan = true, missionActive = false): Walker {
+  dt = Math.max(0, Math.min(dt, .1));
+  const n: Walker = { ...w, route: [...w.route], wait: Math.max(0, w.wait - dt), activityTime: w.activityTime + dt };
+  const onDuty = missionActive || ["working", "queued", "blocked", "failed"].includes(status);
+  const pose = (activity: Activity) => { if (n.activity !== activity) { n.activity = activity; n.activityTime = 0; } };
   if (status !== n.lastStatus) {
     n.lastStatus = status;
-    n.wait = status === "completed" ? 3 : 0;
-    if (status === "completed" && !n.next) n.activity = "celebrating";
+    if (status === "completed" && !onDuty && !n.next && !n.route.length) { pose("celebrating"); n.wait = 2; }
   }
   let target = n.destination;
-  if (onDuty) target = n.id;
-  else if (!n.next && !n.route.length && n.wait === 0) {
+  if (onDuty) { target = n.id; n.carryingCup = false; }
+  else if (!n.next && !n.route.length && n.node === "coffee" && n.activity === "makingCoffee" && n.wait === 0) {
+    // Brew first, then carry the cup away from the machine before drinking.
+    n.carryingCup = true;
+    if (!occupied.has("coffeeDrink")) target = "coffeeDrink";
+    else n.wait = 1;
+  } else if (!n.next && !n.route.length && n.wait === 0 && n.activity !== "sitting" && n.activity !== "standing") {
     const choices = idleSpots.filter(s => !occupied.has(s) && s !== n.node);
     target = choices.length ? choices[Math.min(choices.length - 1, Math.floor(random() * choices.length))] : n.id;
-    n.wait = 8 + random() * 12;
+    n.wait = 10 + random() * 12;
+    if (n.node === "coffeeDrink") n.carryingCup = false;
   }
   if (target !== n.destination) {
     n.destination = target;
-    // If interrupted mid-aisle, finish this segment then re-route. No teleporting.
     n.route = officeRoute(n.next || n.node, target);
+    if (!n.next && seatedActivity(n.activity)) { pose("standing"); n.wait = .65; }
   }
+  if (n.activity === "standing" && n.wait > 0) return n;
   if (!n.next && n.route.length) n.next = n.route.shift()!;
   if (n.next) {
     const end = WALK_NODES[n.next];
     const remaining = distance(n, end);
-    const amount = Math.min(remaining, dt * 46);
+    // Ease into each waypoint to avoid snapping direction at full stride.
+    const speed = Math.max(15, Math.min(46, remaining * 4));
+    const amount = Math.min(remaining, dt * speed);
     if (Math.abs(end.x - n.x) > 1) n.facing = end.x < n.x ? -1 : 1;
     if (remaining) { n.x += (end.x - n.x) / remaining * amount; n.y += (end.y - n.y) / remaining * amount; }
-    n.activity = "walking";
+    pose("walking");
     if (remaining <= amount) {
       n.node = n.next; n.next = null;
-      if (!n.route.length) n.wait = onDuty ? 0 : 8 + random() * 12;
+      if (!n.route.length) {
+        n.wait = 10 + random() * 12;
+        if (n.node === n.id || n.node === "lounge") { pose("sitting"); n.wait = .65; }
+        else if (n.node === "coffee") { pose("makingCoffee"); n.wait = 5; }
+        else if (n.node === "coffeeDrink") { pose("coffee"); n.wait = 9; }
+      }
     }
-  } else if (onDuty) {
-    n.activity = status !== "working" ? "waiting" : n.id === "qa" ? "reviewing" : n.id === "chief" && !hasPlan ? "thinking" : "typing";
-  } else if (!(n.activity === "celebrating" && n.wait > 0)) {
-    n.activity = idleSpots.includes(n.node as typeof idleSpots[number]) ? n.node as Activity : "idle";
+    return n;
+  }
+  if (n.activity === "sitting" && n.wait > 0) return n;
+  if (onDuty) {
+    n.facing = n.id === "research" || n.id === "business" ? 1 : -1;
+    pose(status !== "working" ? "waiting" : n.id === "qa" ? "reviewing" : n.id === "chief" && !hasPlan ? "thinking" : "typing");
+    n.wait = 3;
+  } else if (n.activity === "sitting") {
+    pose(n.node === "lounge" ? "lounge" : "idle"); n.wait = 12 + random() * 12;
+  } else if (n.node === "coffee" && n.activity === "makingCoffee") {
+    // Stay at the machine for the full brew sequence.
+  } else if (n.node === "coffeeDrink") pose("coffee");
+  else if (!(n.activity === "celebrating" && n.wait > 0)) {
+    pose(n.node === "lounge" ? "lounge" : n.node === "read" ? "read" : n.node === "stretch" ? "stretch" : "idle");
   }
   return n;
 }
