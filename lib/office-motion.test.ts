@@ -22,7 +22,7 @@ test("standby agents autonomously choose a free activity and actually arrive", (
     walker = stepWalker(walker, "standby", .05, new Set(), () => 0);
     if (walker.activity === "coffee") break;
   }
-  assert.equal(walker.node, "coffee");
+  assert.equal(walker.node, "coffeeDrink");
   assert.equal(walker.activity, "coffee");
 });
 test("new work interrupts idle travel without a positional jump and returns to the desk", () => {
@@ -63,4 +63,52 @@ test("occupied idle spots are not double-booked", () => {
 test("unknown destinations never produce invented straight-line paths", () => {
   assert.deepEqual(officeRoute("sales", "outside"), []);
   assert.deepEqual(officeRoute("sales", "sales"), []);
+});
+test("coffee is brewed before the cup is carried away and drunk", () => {
+  let walker = createWalker("sales");
+  const activities: string[] = [];
+  for (let i = 0; i < 1500; i++) {
+    walker = stepWalker(walker, "standby", .05, new Set(), () => 0);
+    if (activities.at(-1) !== walker.activity) activities.push(walker.activity);
+    if (walker.activity === "coffee") break;
+  }
+  assert.ok(activities.indexOf("makingCoffee") < activities.indexOf("coffee"));
+  assert.ok(activities.includes("standing"));
+  assert.equal(walker.carryingCup, true);
+});
+test("mission start recalls unassigned AND completed agents from every break", () => {
+  for (const status of ["standby", "completed"] as const) for (const spot of ["coffee", "coffeeDrink", "read", "stretch", "lounge"]) {
+    let walker = { ...createWalker("sales"), ...WALK_NODES[spot], node: spot, destination: spot, activity: "lounge" as const, wait: 20 };
+    for (let i = 0; i < 1800; i++) walker = stepWalker(walker, status, .05, new Set(), () => 0, true, true) as typeof walker;
+    assert.equal(walker.node, "sales");
+    assert.equal(walker.activity, "waiting");
+    assert.equal(walker.destination, "sales");
+  }
+});
+test("lounge arrival includes taking a seat before watching TV", () => {
+  let walker = createWalker("research");
+  let sat = false;
+  for (let i = 0; i < 1800; i++) {
+    walker = stepWalker(walker, "standby", .05, new Set(["coffee", "read", "stretch"]), () => 0);
+    if (walker.node === "lounge" && walker.activity === "sitting") sat = true;
+    if (walker.activity === "lounge") break;
+  }
+  assert.equal(sat, true); assert.equal(walker.activity, "lounge");
+});
+test("arrival at a desk seats the agent before typing begins", () => {
+  let walker = { ...createWalker("qa"), ...WALK_NODES.eastTop, node: "eastTop", destination: "eastTop" };
+  let sat = false;
+  for (let i = 0; i < 600; i++) {
+    walker = stepWalker(walker, "working", .05, new Set(), () => 0, true, true);
+    if (walker.activity === "sitting") sat = true;
+    if (walker.activity === "reviewing") break;
+  }
+  assert.equal(sat, true); assert.equal(walker.activity, "reviewing");
+});
+test("completed specialists stay seated until the mission ends", () => {
+  let walker = createWalker("sales");
+  for (let i = 0; i < 1000; i++) walker = stepWalker(walker, "completed", .05, new Set(), () => 0, true, true);
+  assert.equal(walker.node, "sales"); assert.equal(walker.activity, "waiting");
+  for (let i = 0; i < 160; i++) walker = stepWalker(walker, "completed", .05, new Set(), () => 0, true, false);
+  assert.equal(walker.activity, "walking");
 });
