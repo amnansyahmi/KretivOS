@@ -61,12 +61,54 @@
 .actions b { color: var(--lime); font-size: 15px; }
 .actions > span:last-child b { color: var(--brass); }
 .station { position: absolute; z-index: 3; width: 14%; padding: 0; transform: translate(-50%, -100%); background: transparent; border: none; border-radius: 12px; color: var(--text); text-align: center; }
-.deskHitArea { display: block; position: relative; height: 82px; border: 1px solid transparent; border-radius: 14px; transition: background .2s, border-color .2s; }
+.deskHitArea { display: block; position: relative; height: 20px; border: 1px solid transparent; border-radius: 14px; transition: background .2s, border-color .2s; }
 .station:hover .deskHitArea, .station:focus-visible .deskHitArea { background: #d9ff620b; border-color: #d9ff6266; }
 .monitorSignal { position: absolute; left: 35%; top: 35%; width: 35%; height: 30%; border-radius: 8px; opacity: 0; background: var(--state-color); filter: blur(12px); }
 .station[data-state="working"] .monitorSignal, .station[data-state="thinking"] .monitorSignal, .station[data-state="reviewing"] .monitorSignal { opacity: .18; animation: screen 3s ease-in-out infinite; }
 .station[data-selected="true"] .agentName { box-shadow: 0 0 0 1px var(--lime); }
 .workstationArt { width: 100%; height: auto; border-radius: 12px; overflow: hidden; }
+.workstationArt { --skin-shadow: #976548; --char-trousers: #242d30; --char-paper: #e9dfca; }
+.workstationArt[data-character="chief"] { --agent-coat: #535e58; --skin: #c79b7b; --hair: #33302c; }
+.workstationArt[data-character="research"] { --agent-coat: #dad3b7; --skin: #b47e58; --hair: #29251f; }
+.workstationArt[data-character="business"] { --agent-coat: #758b75; --skin: #c89978; --hair: #262b2a; }
+.workstationArt[data-character="sales"] { --agent-coat: #58758b; --skin: #a56d48; --hair: #202425; }
+.workstationArt[data-character="pricing"] { --agent-coat: #c3b1a1; --skin: #e0b594; --hair: #865a3b; }
+.workstationArt[data-character="marketing"] { --agent-coat: #b67d49; --skin: #c99065; --hair: #392b25; }
+.workstationArt[data-character="qa"] { --agent-coat: #7d86a7; --skin: #d4a37e; --hair: #382d27; }
+.character { position: absolute; width: 4.5%; min-width: 44px; height: auto; padding: 0; transform: translate(-50%, -100%); border: 0; background: transparent; touch-action: pan-x pan-y; will-change: transform; }
+.character > svg { display: block; transform: scaleX(var(--facing, 1)); overflow: visible; }
+.characterMarker { position: absolute; bottom: 100%; left: 50%; width: 7px; height: 11px; margin-bottom: 2px; background: var(--state-color); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.character[data-state="working"] .characterMarker, .character[data-state="thinking"] .characterMarker { animation: screen 2s ease-in-out infinite; }
+.characterCaption { position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); width: max-content; max-width: 160px; padding: 7px 10px; border-radius: 8px; background: var(--ink); border: 1px solid var(--border); font-size: 12px; opacity: 0; pointer-events: none; color: var(--text); }
+.characterCaption b, .characterCaption span { display: block; }
+.characterCaption span { color: var(--muted-text); font-size: 11px; margin-top: 3px; }
+.character:hover .characterCaption, .character:focus-visible .characterCaption { opacity: 1; }
+.character:hover, .character:focus-visible { z-index: 999 !important; }
+.leftLeg, .rightLeg { transform-origin: 31px 64px; }
+.leftArm { transform-origin: 20px 39px; }
+.rightArm { transform-origin: 40px 40px; }
+.characterHead { transform-origin: 30px 31px; }
+.coffeeProp, .bookProp { display: none; }
+.characterRig { animation: idleBreathe 4s ease-in-out infinite; transform-origin: 32px 97px; }
+.character[data-activity="walking"] .leftLeg, .character[data-activity="walking"] .rightArm { animation: walkLimb .6s ease-in-out infinite alternate; }
+.character[data-activity="walking"] .rightLeg, .character[data-activity="walking"] .leftArm { animation: walkLimb .6s ease-in-out infinite alternate-reverse; }
+.character[data-activity="walking"] .characterRig { animation: walkBob .3s ease-in-out infinite alternate; }
+.character[data-activity="typing"] .leftArm, .character[data-activity="reviewing"] .leftArm { transform: rotate(-35deg); animation: typeHands .6s ease-in-out infinite alternate; }
+.character[data-activity="typing"] .rightArm, .character[data-activity="reviewing"] .rightArm { transform: rotate(35deg); animation: typeHands .7s ease-in-out infinite alternate-reverse; }
+.character[data-activity="reviewing"] .bookProp, .character[data-activity="read"] .bookProp { display: block; }
+.character[data-activity="coffee"] .coffeeProp { display: block; }
+.character[data-activity="coffee"] .rightArm { transform: rotate(70deg); }
+.character[data-activity="thinking"] .characterHead { animation: thinkNod 3s ease-in-out infinite; }
+.character[data-activity="stretch"] .leftArm, .character[data-activity="celebrating"] .leftArm { animation: stretchArm 2s ease-in-out infinite alternate; }
+.character[data-activity="stretch"] .rightArm, .character[data-activity="celebrating"] .rightArm { animation: stretchArm 2s ease-in-out infinite alternate-reverse; }
+.character[data-activity="lounge"] .characterRig { transform: rotate(-8deg); }
+.activityNote { display: block; color: var(--muted-text); font-size: 11px; line-height: 1.6; margin-bottom: 14px; }
+@keyframes idleBreathe { 50% { transform: scaleY(1.012); } }
+@keyframes walkLimb { from { transform: rotate(-15deg); } to { transform: rotate(15deg); } }
+@keyframes walkBob { to { transform: translateY(-2px); } }
+@keyframes typeHands { to { transform: rotate(28deg) translateY(-2px); } }
+@keyframes thinkNod { 50% { transform: rotate(-8deg); } }
+@keyframes stretchArm { to { transform: rotate(130deg); } }
 .station[data-selected="true"] .agentName { border-color: var(--lime); }
 .agentName { display: table; max-width: 100%; margin: -2px auto 0; padding: 3px 7px; border: 1px solid transparent; border-radius: 7px; background: #0a100ddd; font-size: 13px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .agentStatus { display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; padding: 2px 6px; border-radius: 5px; background: #0a100ddd; font-size: 11px; line-height: 1.5; color: var(--state-color); }

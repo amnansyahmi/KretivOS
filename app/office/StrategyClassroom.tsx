@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Archive, Bell, ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
 import type { OfficeWorldAgent } from "./OfficeWorld";
+import OfficeCharacters from "./OfficeCharacters";
 import { CORE_STATIONS, STATE_LABELS, sceneConnections, scenePhase, sceneState, type SceneTask } from "@/lib/office-scene";
 
 import styles from "./office-diorama.module.css";
@@ -124,7 +125,8 @@ export default function StrategyClassroom({
 
     <div className={styles.viewport} ref={viewport} aria-label="Office panorama. Swipe horizontally or use zone controls to explore.">
       <div ref={scene} className={styles.scene}>
-        <img src="/office/warm-office-v2.webp" width={1448} height={1086} alt="" aria-hidden="true" decoding="async" className={styles.roomArt} draggable={false} />
+        <img src="/office/warm-office-empty-v3.webp" width={1448} height={1086} alt="" aria-hidden="true" decoding="async" className={styles.roomArt} draggable={false} />
+        <OfficeCharacters agents={agents} enabled={motion && !reducedMotion && visible} parked={!motion || reducedMotion} hasPlan={hasPlan} onSelect={onSelectAgent} />
         <svg className={styles.connections} viewBox="0 0 1000 750" aria-hidden="true" focusable="false">
           {connections.map(({ from, to }) => {
             const start = CORE_STATIONS.find(s => s.id === from)!;
@@ -160,6 +162,7 @@ export default function StrategyClassroom({
     </div>
 
     <div className={styles.missionFlow}>
+      <small className={styles.activityNote}>Characters roam when free. Work status comes from live mission events; break activities are visual only.</small>
       <p role="status" aria-live="polite"><span className={styles.liveDot} />{phaseCopy[phase]}</p>
       <ol aria-label="Mission stages">{stages.map((stage, i) => <li key={stage} data-current={i === phaseIndex} data-done={phase === "completed" || (phaseIndex >= 0 && i < phaseIndex)} aria-current={i === phaseIndex ? "step" : undefined}><span>{phase === "completed" || (phaseIndex >= 0 && i < phaseIndex) ? "✓" : `0${i + 1}`}</span>{stage}</li>)}</ol>
       <div className={styles.quickActions}>

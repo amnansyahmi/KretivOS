@@ -5,11 +5,11 @@ export type SceneAgent = {
   detail?: string;
 };
 export type SceneState = "standby" | "queued" | "thinking" | "working" | "reviewing" | "attention" | "completed";
-export type SceneTask = { id: string; agent: string; dependsOn: string[] };
+export type SceneTask = { id: string; agent: string; dependsOn: string[]; status?: SceneAgent["status"] };
 export type ScenePhase = "ready" | "brief" | "specialists" | "review" | "delivery" | "attention" | "completed";
 
 export const CORE_STATIONS = [
-  // Label anchors registered to warm-office-v2.webp, in a 1000 × 750 plane.
+  // Permanent labels in a 1000 × 750 plane; animated feet use office-motion.ts.
   { id: "chief", x: 310, y: 535, zone: "Command" },
   { id: "research", x: 339, y: 358, zone: "Strategy" },
   { id: "business", x: 483, y: 296, zone: "Strategy" },
@@ -34,8 +34,11 @@ export function sceneState(agent: SceneAgent, hasPlan: boolean): SceneState {
 
 export function scenePhase(agents: SceneAgent[], hasPlan: boolean, missionStatus: string): ScenePhase {
   if (missionStatus === "Complete") return "completed";
-  if (missionStatus === "Failed" || missionStatus === "Waiting for input" || agents.some(a => a.status === "blocked" || a.status === "failed")) return "attention";
+  if (missionStatus === "Failed" || missionStatus === "Needs attention" || missionStatus === "Waiting for input" || agents.some(a => a.status === "blocked" || a.status === "failed")) return "attention";
   if (agents.some(a => a.id === "qa" && a.status === "working")) return "review";
+  // During quality corrections Chief may still have its synthesis status.
+  // Active specialist work takes precedence over that retained status.
+  if (hasPlan && agents.some(a => a.id !== "chief" && a.id !== "qa" && a.status === "working")) return "specialists";
   if (agents.some(a => a.id === "chief" && a.status === "working")) return hasPlan ? "delivery" : "brief";
   if (agents.some(a => a.id !== "chief" && (a.status === "working" || a.status === "queued"))) return "specialists";
   return missionStatus === "In progress" ? (hasPlan ? "specialists" : "brief") : "ready";
@@ -53,9 +56,16 @@ export function sceneConnections(agents: SceneAgent[], tasks: SceneTask[], phase
     if (agent.id === "qa" && phase === "review") {
       agents.filter(a => a.status === "completed" && a.id !== "chief").forEach(a => add(a.id, "qa"));
     } else {
-      // Agent-level events cannot distinguish multiple tasks on one agent.
-      // Show the truthful coordinator handoff, not inferred task dependencies.
-      if (tasks.some(t => t.agent === agent.id)) add("chief", agent.id);
+      const active = tasks.filter(t => t.agent === agent.id && t.status === "working");
+      if (active.length) {
+        for (const task of active) {
+          if (!task.dependsOn.length) add("chief", agent.id);
+          for (const id of task.dependsOn) {
+            const upstream = tasks.find(t => t.id === id);
+            if (upstream?.status === "completed") add(upstream.agent, agent.id);
+          }
+        }
+      } else if (tasks.some(t => t.agent === agent.id && !t.status)) add("chief", agent.id);
     }
   }
   if (phase === "delivery") {
