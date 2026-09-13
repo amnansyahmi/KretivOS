@@ -3,16 +3,16 @@
 import { memo, useEffect, useRef } from "react";
 import type { OfficeWorldAgent } from "./OfficeWorld";
 import { CORE_STATIONS, STATE_LABELS, sceneState } from "@/lib/office-scene";
-import { ACTIVITY_LABELS, createWalker, stepWalker, type Walker } from "@/lib/office-motion";
+import { ACTIVITY_LABELS, createWalker, stepWalker, seatedActivity, type Walker } from "@/lib/office-motion";
 import { WorkstationArt } from "./OfficeDioramaArt";
 import styles from "./office-diorama.module.css";
 
-type Props = { agents: OfficeWorldAgent[]; enabled: boolean; parked?: boolean; hasPlan: boolean; onSelect?: (agent: OfficeWorldAgent) => void };
-export default memo(function OfficeCharacters({ agents, enabled, parked = false, hasPlan, onSelect }: Props) {
+type Props = { agents: OfficeWorldAgent[]; enabled: boolean; parked?: boolean; hasPlan: boolean; missionActive: boolean; onSelect?: (agent: OfficeWorldAgent) => void };
+export default memo(function OfficeCharacters({ agents, enabled, parked = false, hasPlan, missionActive, onSelect }: Props) {
   const people = useRef<Walker[]>(CORE_STATIONS.map((s, i) => createWalker(s.id, i)));
   const nodes = useRef(new Map<string, HTMLButtonElement>());
-  const latest = useRef({ agents, hasPlan });
-  useEffect(() => { latest.current = { agents, hasPlan }; }, [agents, hasPlan]);
+  const latest = useRef({ agents, hasPlan, missionActive });
+  useEffect(() => { latest.current = { agents, hasPlan, missionActive }; }, [agents, hasPlan, missionActive]);
   useEffect(() => {
     let frame = 0;
     let previous = 0;
@@ -32,13 +32,19 @@ export default memo(function OfficeCharacters({ agents, enabled, parked = false,
       node.style.zIndex = String(10 + Math.round(p.y));
       node.style.setProperty("--facing", String(p.facing));
       node.dataset.activity = p.activity;
+      node.dataset.seated = String(seatedActivity(p.activity));
+      node.dataset.cup = String(p.carryingCup);
+      node.dataset.back = String(p.activity === "makingCoffee" || p.activity === "lounge");
       const label = node.querySelector<HTMLElement>("[data-activity-label]");
       const copy = ACTIVITY_LABELS[p.activity];
       if (label && label.textContent !== copy) label.textContent = copy;
     };
     if (parent) resize.observe(parent);
     if (!enabled) {
-      if (parked) people.current = people.current.map((p, i) => createWalker(p.id, i));
+      if (parked) {
+        people.current = people.current.map((p, i) => createWalker(p.id, i));
+        if (parent) { parent.dataset.tv = "false"; parent.dataset.brewing = "false"; }
+      }
       people.current.forEach(paint);
       return () => resize.disconnect();
     }
@@ -52,9 +58,13 @@ export default memo(function OfficeCharacters({ agents, enabled, parked = false,
           if (!agent) return p;
           const node = nodes.current.get(p.id);
           if (node?.matches(":focus-visible") || (canHover && node?.matches(":hover"))) return p;
-          const next = stepWalker(p, agent.status, elapsed, occupied, Math.random, latest.current.hasPlan);
+          const next = stepWalker(p, agent.status, elapsed, occupied, Math.random, latest.current.hasPlan, latest.current.missionActive);
           occupied.add(next.destination); paint(next); return next;
         });
+        if (parent) {
+          parent.dataset.tv = String(people.current.some(p => p.activity === "lounge"));
+          parent.dataset.brewing = String(people.current.some(p => p.activity === "makingCoffee"));
+        }
         elapsed = 0;
       }
       frame = requestAnimationFrame(tick);
@@ -69,11 +79,10 @@ export default memo(function OfficeCharacters({ agents, enabled, parked = false,
     const state = sceneState(agent, hasPlan);
     const initial = createWalker(agent.id, index);
     return <button key={agent.id} type="button" ref={node => { if (node) nodes.current.set(agent.id, node); else nodes.current.delete(agent.id); }}
-      className={styles.character} data-agent={agent.id} data-state={state} data-activity="idle"
+      className={styles.character} data-agent={agent.id} data-state={state} data-activity="idle" data-seated="true"
       style={{ left: `${initial.x / 10}%`, top: `${initial.y / 7.5}%` }}
       aria-label={`${agent.name}, ${STATE_LABELS[state]}. Open agent details.`} aria-haspopup="dialog"
       disabled={!onSelect} onClick={() => onSelect?.(agent)}>
-      <span className={styles.characterMarker} aria-hidden="true" />
       <WorkstationArt agentId={agent.id} />
       <span className={styles.characterCaption} aria-hidden="true"><b>{agent.name}</b><span data-activity-label>Available</span></span>
     </button>;
