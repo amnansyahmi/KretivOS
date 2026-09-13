@@ -32,11 +32,16 @@ export default function MissionWorkboard({ title, summary, tasks, runs, agents, 
   return <section className={styles.board} aria-label="Mission execution board">
     <header className={styles.heading}><div><span className={styles.eyebrow}>MISSION / EXECUTION</span><h2>{title || "Your next mission"}</h2></div><span className={styles.status} role="status">{status}</span></header>
     {summary && <p className={styles.summary}>{summary}</p>}
+    <aside className={styles.nextStep} aria-label="What to do next">
+      <strong>{error ? "Check the saved mission before restarting" : status === "Waiting for input" ? "Your input is needed" : final ? "Review before you execute" : tasks.length ? "Follow the work, not the animation" : "Chief is preparing the plan"}</strong>
+      <p>{error ? "A disconnected stream does not prove the server stopped. Open the saved mission to avoid duplicating the same work." : status === "Waiting for input" ? "Open Actions, answer the missing question, then continue as a linked follow-up mission." : final ? "Validate the facts, offer and recommendations. Open saved deliverables to revise individual tasks or approve supported actions. A quality score is guidance, not a guarantee." : tasks.length ? "Expand a task to read its instructions and output. Dependent tasks wait until upstream work completes; QA and Chief synthesis follow specialist work." : "You can stay in the office. Tasks will appear when the plan is ready; no further action is needed yet."}</p>
+      {(error || final) && missionId && <Link href={`/office/missions/${missionId}`}>Open saved mission & deliverables →</Link>}
+      {status === "Waiting for input" && <button type="button" onClick={onOpenActions}>Provide missing input →</button>}
+    </aside>
     <div className={styles.metrics}><span><b>{completed}/{tasks.length}</b> tasks complete</span><span><b>{active}</b> working</span><span><b>{attention.length}</b> blocked / failed</span></div>
     {tasks.length > 0 && <progress className={styles.progress} value={completed} max={tasks.length} aria-label="Completed specialist tasks" />}
     <p className={styles.hint}>Task completion is separate from QA, final delivery and your approval.</p>
     {error && <div className={styles.warning} role="alert">{error}{missionId && <Link href={`/office/missions/${missionId}`}>Check saved mission state →</Link>}</div>}
-    {status === "Waiting for input" && <button type="button" className={styles.warning} onClick={onOpenActions}>Mission paused. Provide the missing input in Actions →</button>}
     <nav className={styles.filters} aria-label="Filter mission tasks">{[["all", "All tasks"], ["working", "Working"], ["queued", "Queued"], ["attention", "Attention"], ["completed", "Completed"]].map(([key, label]) => <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</nav>
     <ol className={styles.tasks}>{shown.map(task => {
       const presentation = taskPresentation(task, runs);
