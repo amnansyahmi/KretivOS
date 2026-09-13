@@ -10,7 +10,7 @@ export type ScenePhase = "ready" | "brief" | "specialists" | "review" | "deliver
 
 export const CORE_STATIONS = [
   // Permanent labels in a 1000 × 750 plane; animated feet use office-motion.ts.
-  { id: "chief", x: 310, y: 535, zone: "Command" },
+  { id: "chief", x: 554, y: 615, zone: "Command" },
   { id: "research", x: 339, y: 358, zone: "Strategy" },
   { id: "business", x: 483, y: 296, zone: "Strategy" },
   { id: "sales", x: 861, y: 460, zone: "Growth" },
