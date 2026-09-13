@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Archive, Bell, ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
 import type { OfficeWorldAgent } from "./OfficeWorld";
 import OfficeCharacters from "./OfficeCharacters";
+import OfficeFlowGuide from "./OfficeFlowGuide";
+import { OfficeActivityProps } from "./OfficeDioramaArt";
 import { CORE_STATIONS, STATE_LABELS, sceneConnections, scenePhase, sceneState, type SceneTask } from "@/lib/office-scene";
 
 import styles from "./office-diorama.module.css";
@@ -23,10 +25,11 @@ type Props = {
   onOpenMission?: () => void;
   onOpenArchive?: () => void;
   onOpenNotice?: () => void;
+  onPrepareBrief?: () => void;
 };
 
 const zones = [
-  { name: "Command", x: 310, caption: "Mission control" },
+  { name: "Command", x: 554, caption: "Mission control" },
   { name: "Strategy", x: 400, caption: "Research & insight" },
   { name: "Growth", x: 735, caption: "Commercial & content" },
   { name: "Quality", x: 618, caption: "Evidence & review" },
@@ -42,16 +45,18 @@ const stages = ["Brief", "Specialists", "Review", "Delivery"];
 export default function StrategyClassroom({
   agents, motion = true, missionTitle = "Ready for the next mission", missionStatus = "Ready",
   artifactCount = 0, approvalCount = 0, attentionCount = 0, memoryCount = 0,
-  tasks = [], hasPlan = false, onSelectAgent, onOpenMission, onOpenArchive, onOpenNotice,
+  tasks = [], hasPlan = false, onSelectAgent, onOpenMission, onOpenArchive, onOpenNotice, onPrepareBrief,
 }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const scene = useRef<HTMLDivElement>(null);
-  const cameraTarget = useRef(310);
+  const cameraTarget = useRef(554);
   const inView = useRef(true);
   const [zone, setZone] = useState("Command");
   const [selected, setSelected] = useState<string | null>(null);
   const [reducedMotion, setReducedMotion] = useState(true);
   const [visible, setVisible] = useState(true);
+  const [showLabels, setShowLabels] = useState(false);
+  const missionActive = ["In progress", "Waiting for input", "Needs attention", "Failed"].includes(missionStatus);
   const phase = scenePhase(agents, hasPlan, missionStatus);
   const connections = useMemo(() => sceneConnections(agents, tasks, phase), [agents, tasks, phase]);
   const extraAgents = agents.filter(a => !CORE_STATIONS.some(s => s.id === a.id));
@@ -100,6 +105,11 @@ export default function StrategyClassroom({
       <div><span className={styles.eyebrow}>KRETIVOS / LIVE WORKSPACE</span><h3>The strategy floor<span className={styles.liveDot} /></h3></div>
       <span className={styles.occupancy}>{workingCount ? `${workingCount} working` : "Team on standby"}</span>
     </div>
+    <div className={styles.sceneTools}>
+      <OfficeFlowGuide onPrepareBrief={onPrepareBrief} onOpenMission={onOpenMission} onOpenActions={onOpenNotice} onOpenArchive={onOpenArchive} />
+      <button type="button" aria-pressed={showLabels} onClick={() => setShowLabels(value => !value)}>Desk labels {showLabels ? "on" : "off"}</button>
+      <span>{missionActive ? "Mission mode · team at workstations" : "Free time · the office is open"}</span>
+    </div>
 
     <nav className={styles.zones} aria-label="Focus office zone">
       {zones.map(z => <button key={z.name} type="button" aria-pressed={zone === z.name} onClick={() => focusZone(z.name, z.x)}><span>{z.name}</span><small>{z.caption}</small></button>)}
@@ -126,7 +136,8 @@ export default function StrategyClassroom({
     <div className={styles.viewport} ref={viewport} aria-label="Office panorama. Swipe horizontally or use zone controls to explore.">
       <div ref={scene} className={styles.scene}>
         <img src="/office/warm-office-empty-v3.webp" width={1448} height={1086} alt="" aria-hidden="true" decoding="async" className={styles.roomArt} draggable={false} />
-        <OfficeCharacters agents={agents} enabled={motion && !reducedMotion && visible} parked={!motion || reducedMotion} hasPlan={hasPlan} onSelect={onSelectAgent} />
+        <OfficeActivityProps />
+        <OfficeCharacters agents={agents} missionActive={missionActive} enabled={motion && !reducedMotion && visible} parked={!motion || reducedMotion} hasPlan={hasPlan} onSelect={onSelectAgent} />
         <svg className={styles.connections} viewBox="0 0 1000 750" aria-hidden="true" focusable="false">
           {connections.map(({ from, to }) => {
             const start = CORE_STATIONS.find(s => s.id === from)!;
@@ -137,7 +148,7 @@ export default function StrategyClassroom({
         </svg>
 
 
-        {CORE_STATIONS.map(station => {
+        {showLabels && CORE_STATIONS.map(station => {
           const agent = agents.find(a => a.id === station.id);
           if (!agent) return null;
           const state = sceneState(agent, hasPlan);
@@ -157,9 +168,16 @@ export default function StrategyClassroom({
     <div className={styles.panControls}>
       <button type="button" aria-label="Pan office left" onClick={() => viewport.current?.scrollBy({ left: -230, behavior: motion && !reducedMotion ? "smooth" : "instant" })}><ChevronLeft size={18} /></button>
       <span>Swipe to explore · tap an agent</span>
-      <button type="button" aria-label="Centre on Chief" onClick={() => focusZone("Command", 310)}><Crosshair size={18} /></button>
+      <button type="button" aria-label="Centre on Chief" onClick={() => focusZone("Command", 554)}><Crosshair size={18} /></button>
       <button type="button" aria-label="Pan office right" onClick={() => viewport.current?.scrollBy({ left: 230, behavior: motion && !reducedMotion ? "smooth" : "instant" })}><ChevronRight size={18} /></button>
     </div>
+
+    <div className={styles.seatRoster} aria-label="Office team and live status">{CORE_STATIONS.map(station => {
+      const agent = agents.find(a => a.id === station.id);
+      if (!agent) return null;
+      const state = sceneState(agent, hasPlan);
+      return <button key={agent.id} type="button" data-state={state} aria-haspopup="dialog" disabled={!onSelectAgent} onClick={() => { setSelected(agent.id); focusZone(station.zone, station.x); onSelectAgent?.(agent); }}><span>{agent.name}</span><small>{STATE_LABELS[state]}</small></button>;
+    })}</div>
 
     <div className={styles.missionFlow}>
       <small className={styles.activityNote}>Characters roam when free. Work status comes from live mission events; break activities are visual only.</small>
