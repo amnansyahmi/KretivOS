@@ -1,5 +1,22 @@
 # AI Office diorama implementation
 
+## Current follow-up: purposeful routines and a usable mission guide
+
+- Removed overhead diamonds. Idle agents get up, walk along authored aisles, sit to watch TV, read, stretch, or make coffee before carrying and drinking it at a separate spot. Seated legs, typing arms, rear-facing poses, a remote, coffee steam and an active TV distinguish activities beyond positional movement.
+- Mission-level state now recalls **all seven agents**, including unassigned and already-completed specialists. They return to their own seats; only real assigned work receives working poses/status. Completed specialists remain seated until the mission ends. Travel is presentation-only and does not delay backend execution.
+- Added a Chief command desk so the lounge remains a break destination. Furniture and poses are lightweight SVG overlays on the existing room texture, not fully modeled 3D assets. Seat/prop alignment still needs visual validation.
+- Desk labels are optional and off by default. A stable, wrapping roster below the scene retains readable names, actual statuses and keyboard/touch access without covering characters.
+- The small **How it works** button opens a Radix dialog explaining brief → plan → dependencies → missing input → QA/synthesis → human review. It includes navigation to mission, actions and archive, plus a brief checklist appended to (not replacing) the existing draft.
+- Archive now opens the mission/history tab rather than client memory. The workboard explains the next useful action for interrupted streams, missing input and completed results. Saved missions warn that task revisions do not automatically regenerate Chief's final synthesis; a linked follow-up is the supported continuation path.
+- No dependency, database or API contract changes. Idle behavior remains local/cosmetic and never makes model calls. Motion-off/reduced-motion park characters, clear animated environment states and leave mission execution untouched.
+
+### Follow-up verification
+
+- Full suite: **549 passed, 0 failed**. Added coverage for brewing before drinking, seated arrival, recall of standby/completed agents from every break destination, and remaining seated during active missions.
+- TypeScript and production build passed. Build reports `/office` at approximately **27.3 kB route JS / 154 kB first load JS**; this is not measured device performance.
+- Preview access remains restricted. **390px/tablet/desktop visual QA, popup keyboard interactions, real-device motion performance and a live backend mission are not verified.** Do not treat unit tests or a production build as visual approval.
+- Routing has destination reservations, not full collision physics. Characters use authored SVG poses, not a realistic skeletal 3D rig. Chief desk, seated poses, TV and coffee-machine alignment require an approved browser preview before release.
+
 ## Current revision: living office and task execution board (2026-09-13)
 
 This section supersedes the static-art implementation and verification notes below.
