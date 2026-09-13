@@ -82,6 +82,7 @@ export default function MissionDetailPage({ params }: { params: Promise<{ id: st
   const pending = (data.approvals || []).filter((item: any) => item.status === "pending");
   const artifacts = data.artifacts || [];
   const tasks = data.tasks || [];
+  const hasRevisions = tasks.some((task: { retry_count?: number; stale?: boolean }) => task.stale || Number(task.retry_count) > 0);
   const events = data.events || [];
   const totalEvidence = artifacts.reduce((sum: number, item: any) => sum + (Array.isArray(item.evidence) ? item.evidence.length : 0), 0);
   const totalTokens = Number(mission.total_tokens || 0);
@@ -92,6 +93,7 @@ export default function MissionDetailPage({ params }: { params: Promise<{ id: st
 
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-7 md:py-7">
       {error && <p role="alert" className="mb-4 rounded-xl border border-amber-300/30 p-4 text-sm text-amber-200">{error}</p>}
+      {hasRevisions && <p role="status" className="mb-4 rounded-xl border border-amber-300/30 p-4 text-sm leading-6 text-amber-200">Specialist work has revisions. Check outputs marked stale before using them. Task revisions do not automatically regenerate Chief’s saved final result; use “Continue as new mission” if the overall recommendation needs updating.</p>}
       <section className="rounded-[28px] border border-white/[.08] bg-[#141815] p-5 md:p-7">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
