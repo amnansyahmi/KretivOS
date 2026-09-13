@@ -14,6 +14,10 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { STATE_LABELS, sceneState } from "@/lib/office-scene";
 import { WorkstationArt } from "./OfficeDioramaArt";
 import officeStyles from "./office-diorama.module.css";
+import MissionWorkboard from "./MissionWorkboard";
+import { OFFICE_BRIEF_TEMPLATE } from "./OfficeFlowGuide";
+import missionStyles from "./mission-workboard.module.css";
+import { agentTaskRun, missionBucket, updateTaskRun, validAgentStatus, type TaskRuns } from "@/lib/office-task-state";
 
 type AgentStatus = OfficeAgentStatus;
 type PlanTask = { id: string; agent: string; title: string; instruction: string; dependsOn: string[] };
@@ -91,6 +95,8 @@ export default function OfficeDashboard() {
   const [mission, setMission] = useState("");
   const [running, setRunning] = useState(false);
   const [plan, setPlan] = useState<OfficePlan | null>(null);
+  const [taskRuns, setTaskRuns] = useState<TaskRuns>({});
+  const taskRunsRef = useRef<TaskRuns>({});
   const [final, setFinal] = useState("");
   const [error, setError] = useState("");
   const [grounded, setGrounded] = useState(false);
@@ -146,22 +152,37 @@ export default function OfficeDashboard() {
   useEffect(() => { void loadOverview(); }, []);
 
   function resetRun() {
+    taskRunsRef.current = {}; setTaskRuns({});
     setPlan(null); setFinal(""); setError(""); setGrounded(false); setSourceCount(0); setMissionId(null);
     setAttention(null); setAttentionOpen(false); setHumanInput(""); setAgents(freshAgents()); setExpanded(null); setEvaluation(null);
   }
 
   function applyAgentEvent(event: any) {
     const id = String(event.agent || "");
-    if (!id || !roster.some((agent) => agent.id === id)) return;
+    if (!id || !roster.some((agent) => agent.id === id) || !validAgentStatus(event.status)) return;
+    let aggregate: ReturnType<typeof agentTaskRun>;
+    if (typeof event.taskId === "string") {
+      taskRunsRef.current = updateTaskRun(taskRunsRef.current, { ...event, agent: id });
+      setTaskRuns(taskRunsRef.current);
+      aggregate = agentTaskRun(taskRunsRef.current, id);
+    }
     setAgents((current) => ({
       ...current,
       [id]: {
         ...current[id],
-        status: event.status as AgentStatus,
-        detail: String(event.detail || current[id]?.detail || ""),
+        status: aggregate?.status || event.status as AgentStatus,
+        detail: String(aggregate?.detail || event.detail || current[id]?.detail || ""),
         output: typeof event.output === "string" ? event.output : current[id]?.output,
       },
     }));
+  }
+
+  function interruptRun(message: string) {
+    setError(message);
+    const detail = "Live execution stopped or disconnected. Check the saved mission for the authoritative state.";
+    setAgents(current => Object.fromEntries(Object.entries(current).map(([id, agent]) => [id, ["working", "queued"].includes(agent.status) ? { ...agent, status: "blocked" as const, detail } : agent])));
+    taskRunsRef.current = Object.fromEntries(Object.entries(taskRunsRef.current).map(([id, task]) => [id, ["working", "queued"].includes(task.status) ? { ...task, status: "blocked" as const, detail } : task]));
+    setTaskRuns(taskRunsRef.current);
   }
 
   async function runMission(text = mission, parentMissionId?: string | null) {
@@ -177,6 +198,7 @@ export default function OfficeDashboard() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let terminalReceived = false;
       while (true) {
         const { done, value: chunk } = await reader.read();
         if (done) break;
@@ -193,23 +215,26 @@ export default function OfficeDashboard() {
               else if (event.type === "context") { setGrounded(Boolean(event.grounded)); setSourceCount(Array.isArray(event.sources) ? event.sources.length : 0); }
               else if (event.type === "plan") setPlan(event.plan);
               else if (event.type === "attention") {
+                terminalReceived = true;
                 setAttention({ missionId: event.missionId, taskId: String(event.taskId), agent: String(event.agent), question: String(event.question) });
                 setAttentionOpen(true); setTab("overview");
               }
               else if (event.type === "done") {
+                terminalReceived = true;
                 setFinal(String(event.final || "")); setEvaluation(event.evaluation || null);
                 if (event.missionId) setMissionId(String(event.missionId));
                 // Keep the live classroom visible through completion. The mission
                 // board and Full mission link still open the complete result.
               }
-              else if (event.type === "error") setError(String(event.error || "Mission failed."));
+              else if (event.type === "error") { terminalReceived = true; interruptRun(String(event.error || "Mission failed.")); }
             } catch {}
           }
           boundary = buffer.indexOf("\n\n");
         }
       }
+      if (!terminalReceived) throw new Error("The live connection ended before a result was confirmed. Check the saved mission before starting another run.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Mission failed.");
+      interruptRun(cause instanceof Error ? cause.message : "Mission failed.");
       setTab("overview");
     } finally {
       setRunning(false); void loadOverview();
@@ -239,7 +264,7 @@ export default function OfficeDashboard() {
     { label: "Working", value: workingCount, icon: Users },
   ];
 
-  const missionStatus = error ? "Failed" : attention ? "Waiting for input" : final ? "Complete" : running ? "In progress" : "Ready";
+  const missionStatus = error ? "Needs attention" : attention ? "Waiting for input" : final ? "Complete" : running ? "In progress" : "Ready";
   const missionTitle = plan?.objective || currentMission?.objective || currentMission?.title || mission;
 
   return (
@@ -258,7 +283,7 @@ export default function OfficeDashboard() {
       </header>
 
       <div className="mx-auto w-full max-w-7xl px-3 pb-20 pt-4 sm:px-5 md:pt-6 lg:px-7">
-        {(final || missionId) && !running && <div className="mb-3 flex min-w-0 items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[.055] px-3 py-2 text-[10px] text-emerald-200/70"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" /><span className="truncate">Mission saved. Deliverables, decisions and memory are ready to reuse.</span></div>}
+        {final && !error && !running && <div className="mb-3 flex min-w-0 items-center gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[.055] px-3 py-2 text-[10px] text-emerald-200/70"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" /><span>Mission complete. Review the result and any pending approvals.</span></div>}
         {error && <div className="mb-3 max-w-full break-words rounded-xl border border-red-400/20 bg-red-400/[.05] p-3 text-[10px] text-red-200">{error}</div>}
 
         <nav className="grid grid-cols-3 gap-2">
@@ -333,7 +358,7 @@ export default function OfficeDashboard() {
               agents={worldAgents}
               motion={motion}
               hasPlan={Boolean(plan)}
-              tasks={plan?.tasks}
+              tasks={plan?.tasks.map(task => ({ ...task, status: taskRuns[task.id]?.status }))}
               missionTitle={missionTitle || "Ready for the next mission"}
               missionStatus={missionStatus}
               artifactCount={currentArtifacts.length || Number(currentMission?.artifact_count || 0)}
@@ -342,10 +367,13 @@ export default function OfficeDashboard() {
               memoryCount={Number(overview?.stats?.missions || 0)}
               onSelectAgent={(agent) => setExpanded(agent.id)}
               onOpenMission={() => setTab("mission")}
-              onOpenArchive={() => setTab("clients")}
+              onOpenArchive={() => setTab("mission")}
               onOpenNotice={() => setTab("overview")}
+              onPrepareBrief={!running ? () => { setMission(current => current.includes("Facts / evidence we already have:") ? current : current.trim() ? `${current}\n\n${OFFICE_BRIEF_TEMPLATE}` : OFFICE_BRIEF_TEMPLATE); setTab("overview"); } : undefined}
             />
           </div>
+
+          {(running || plan || final || error) && <MissionWorkboard title={missionTitle} summary={plan?.summary} tasks={plan?.tasks || []} runs={taskRuns} agents={worldAgents} status={missionStatus} final={final} error={error} missionId={missionId} quality={evaluation?.score} onSelectAgent={setExpanded} onOpenActions={() => setTab("overview")} />}
 
           <div className="grid min-w-0 gap-3 md:grid-cols-3">
             <div className="rounded-2xl border border-white/[.07] bg-[#141815] p-4">
@@ -374,18 +402,15 @@ export default function OfficeDashboard() {
 
         {tab === "mission" && <section className="mt-4 grid min-w-0 gap-4 xl:grid-cols-[1.15fr_.85fr]">
           <div className="min-w-0">
-            {(final || currentMission || plan) ? <>
-              <div className="rounded-[28px] bg-[#f1f2ea] p-5 text-[#182018] sm:p-6">
-                <div className="flex items-start justify-between gap-3"><div><div className="text-[9px] font-semibold uppercase tracking-[.18em] text-black/35">Chief final</div><h2 className="mt-2 text-[22px] font-semibold leading-tight tracking-[-.03em] sm:text-3xl">{plan?.objective || currentMission?.objective || currentMission?.title || "Mission outcome"}</h2></div>{evaluation?.score && <div className="inline-flex shrink-0 items-center gap-1 rounded-full bg-black/[.06] px-2.5 py-1 text-[9px]"><Star className="h-3 w-3 fill-current" /> {evaluation.score}/100</div>}</div>
-                <div className="mt-4 whitespace-pre-wrap text-[11px] leading-6 text-black/62 sm:text-sm">{final || "The mission is saved. Open the full mission to review the persisted Chief output, QA and agent workstreams."}</div>
-                {missionId && <Link href={`/office/missions/${missionId}`} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-[#182018] px-3 py-2 text-[9px] font-semibold text-white">Open full mission <ArrowRight className="h-3 w-3" /></Link>}
-              </div>
+            {(running || final || currentMission || plan || error) ? <>
+              <MissionWorkboard title={missionTitle} summary={plan?.summary} tasks={plan?.tasks || []} runs={taskRuns} agents={worldAgents} status={missionStatus} final={final} error={error} missionId={missionId} quality={evaluation?.score} onSelectAgent={setExpanded} onOpenActions={() => setTab("overview")} />
 
               <div className="mt-4 rounded-2xl border border-white/[.07] bg-[#141815] p-4">
                 <div className="flex items-center justify-between"><div><div className="text-[8px] uppercase tracking-[.18em] text-white/25">Deliverables</div><h3 className="mt-1 text-[13px] font-semibold">What the room produced</h3></div><span className="rounded-full bg-white/[.04] px-2 py-1 text-[8px] text-white/30">{currentArtifacts.length}</span></div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">{currentArtifacts.map((item) => <ArtifactCard key={item.id} artifact={item} />)}{!currentArtifacts.length && <div className="sm:col-span-2"><EmptyState>Deliverables will appear here when the mission finishes.</EmptyState></div>}</div>
               </div>
-            </> : <RecentMissions missions={(overview?.recent || []).slice(0, 12)} />}
+            </> : <EmptyState>Start a mission from Overview. Your live task plan and result will appear here.</EmptyState>}
+            <div className="mt-4"><RecentMissions missions={overview?.recent || []} /></div>
           </div>
 
           <div className="space-y-4">
@@ -454,7 +479,15 @@ function RecentDeliverables({ artifacts }: { artifacts: Artifact[] }) {
 }
 
 function RecentMissions({ missions }: { missions: MissionItem[] }) {
-  return <div className="rounded-2xl border border-white/[.07] bg-[#141815] p-4"><div className="flex items-center gap-2"><History className="h-3.5 w-3.5 text-[#d9ff62]" /><h3 className="text-[12px] font-semibold">Recent missions</h3></div><div className="mt-3 space-y-2">{missions.map((item) => <Link key={item.id} href={`/office/missions/${item.id}`} className="flex min-w-0 items-center gap-2 rounded-xl border border-white/[.06] bg-white/[.018] p-2.5"><div className="min-w-0 flex-1"><div className="truncate text-[9px] font-medium">{item.objective || item.title}</div><div className="mt-0.5 truncate text-[8px] text-white/24">{String(item.status).replaceAll("_", " ")} · {niceDate(item.created_at)}</div></div>{item.quality_score && <span className="text-[8px] text-[#d9ff62]">{item.quality_score}</span>}<ChevronRight className="h-3 w-3 text-white/18" /></Link>)}{!missions.length && <EmptyState>No mission history yet.</EmptyState>}</div></div>;
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const visible = missions.filter(item => (filter === "all" || missionBucket(item.status) === filter) && `${item.objective || ""} ${item.title} ${item.workspace_name || ""}`.toLowerCase().includes(query.toLowerCase()));
+  return <section className={missionStyles.history} aria-label="Recent mission list"><h3>Mission history <span className="text-sm text-white/60">· {missions.length}</span></h3>
+    <label className={missionStyles.search}>Search recent missions<input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Objective, title or client" /></label>
+    <nav className={missionStyles.filters} aria-label="Filter mission history">{[["all", "All"], ["active", "Active"], ["attention", "Attention"], ["completed", "Completed"]].map(([key, label]) => <button type="button" key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</nav>
+    <div className={missionStyles.missionList}>{visible.map(item => <Link key={item.id} href={`/office/missions/${item.id}`}><strong>{item.objective || item.title}</strong><small>{item.status.replaceAll("_", " ")} · {niceDate(item.created_at)}{item.workspace_name ? ` · ${item.workspace_name}` : ""}</small><small>{item.artifact_count || 0} deliverables{typeof item.quality_score === "number" ? ` · Quality ${item.quality_score}/100` : ""} · Open mission →</small></Link>)}</div>
+    {!visible.length && <p className={missionStyles.empty}>{missions.length ? "No recent missions match these filters." : "No mission history yet."}</p>}
+  </section>;
 }
 
 function ArtifactCard({ artifact }: { artifact: Artifact }) {

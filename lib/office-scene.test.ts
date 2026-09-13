@@ -15,6 +15,7 @@ test("all visual states derive from the protocol without faking queued work", ()
   for (const status of ["blocked", "failed"] as const) assert.equal(sceneState(a("sales", status), true), "attention");
 });
 test("mission stages follow real events and completion is not guessed", () => {
+  assert.equal(scenePhase([a("chief", "working"), a("sales", "working")], true, "In progress"), "specialists");
   assert.equal(scenePhase([a("chief", "completed")], true, "In progress"), "specialists");
   assert.equal(scenePhase([a("chief", "working")], false, "In progress"), "brief");
   assert.equal(scenePhase([a("qa", "working")], true, "In progress"), "review");

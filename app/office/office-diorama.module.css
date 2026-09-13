@@ -61,12 +61,52 @@
 .actions b { color: var(--lime); font-size: 15px; }
 .actions > span:last-child b { color: var(--brass); }
 .station { position: absolute; z-index: 3; width: 14%; padding: 0; transform: translate(-50%, -100%); background: transparent; border: none; border-radius: 12px; color: var(--text); text-align: center; }
-.deskHitArea { display: block; position: relative; height: 82px; border: 1px solid transparent; border-radius: 14px; transition: background .2s, border-color .2s; }
+.deskHitArea { display: block; position: relative; height: 20px; border: 1px solid transparent; border-radius: 14px; transition: background .2s, border-color .2s; }
 .station:hover .deskHitArea, .station:focus-visible .deskHitArea { background: #d9ff620b; border-color: #d9ff6266; }
 .monitorSignal { position: absolute; left: 35%; top: 35%; width: 35%; height: 30%; border-radius: 8px; opacity: 0; background: var(--state-color); filter: blur(12px); }
 .station[data-state="working"] .monitorSignal, .station[data-state="thinking"] .monitorSignal, .station[data-state="reviewing"] .monitorSignal { opacity: .18; animation: screen 3s ease-in-out infinite; }
 .station[data-selected="true"] .agentName { box-shadow: 0 0 0 1px var(--lime); }
 .workstationArt { width: 100%; height: auto; border-radius: 12px; overflow: hidden; }
+.workstationArt { --skin-shadow: #976548; --char-trousers: #242d30; --char-paper: #e9dfca; }
+.workstationArt[data-character="chief"] { --agent-coat: #535e58; --skin: #c79b7b; --hair: #33302c; }
+.workstationArt[data-character="research"] { --agent-coat: #dad3b7; --skin: #b47e58; --hair: #29251f; }
+.workstationArt[data-character="business"] { --agent-coat: #758b75; --skin: #c89978; --hair: #262b2a; }
+.workstationArt[data-character="sales"] { --agent-coat: #58758b; --skin: #a56d48; --hair: #202425; }
+.workstationArt[data-character="pricing"] { --agent-coat: #c3b1a1; --skin: #e0b594; --hair: #865a3b; }
+.workstationArt[data-character="marketing"] { --agent-coat: #b67d49; --skin: #c99065; --hair: #392b25; }
+.workstationArt[data-character="qa"] { --agent-coat: #7d86a7; --skin: #d4a37e; --hair: #382d27; }
+.character { position: absolute; width: 4.5%; min-width: 44px; height: auto; padding: 0; transform: translate(-50%, -100%); border: 0; background: transparent; touch-action: pan-x pan-y; will-change: transform; }
+.character > svg { display: block; transform: scaleX(var(--facing, 1)); overflow: visible; }
+.characterCaption { position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); width: max-content; max-width: 160px; padding: 7px 10px; border-radius: 8px; background: var(--ink); border: 1px solid var(--border); font-size: 12px; opacity: 0; pointer-events: none; color: var(--text); }
+.characterCaption b, .characterCaption span { display: block; }
+.characterCaption span { color: var(--muted-text); font-size: 11px; margin-top: 3px; }
+.character:hover .characterCaption, .character:focus-visible .characterCaption { opacity: 1; }
+.character:hover, .character:focus-visible { z-index: 999 !important; }
+.leftLeg, .rightLeg { transform-origin: 31px 64px; }
+.leftArm { transform-origin: 20px 39px; }
+.rightArm { transform-origin: 40px 40px; }
+.characterHead { transform-origin: 30px 31px; }
+.coffeeProp, .bookProp { display: none; }
+.characterRig { animation: idleBreathe 4s ease-in-out infinite; transform-origin: 32px 97px; }
+.character[data-activity="walking"] .leftLeg, .character[data-activity="walking"] .rightArm { animation: walkLimb .6s ease-in-out infinite alternate; }
+.character[data-activity="walking"] .rightLeg, .character[data-activity="walking"] .leftArm { animation: walkLimb .6s ease-in-out infinite alternate-reverse; }
+.character[data-activity="walking"] .characterRig { animation: walkBob .3s ease-in-out infinite alternate; }
+.character[data-activity="typing"] .leftArm, .character[data-activity="reviewing"] .leftArm { transform: rotate(-35deg); animation: typeHands .6s ease-in-out infinite alternate; }
+.character[data-activity="typing"] .rightArm, .character[data-activity="reviewing"] .rightArm { transform: rotate(35deg); animation: typeHands .7s ease-in-out infinite alternate-reverse; }
+.character[data-activity="reviewing"] .bookProp, .character[data-activity="read"] .bookProp { display: block; }
+.character[data-activity="coffee"] .coffeeProp { display: block; }
+.character[data-activity="coffee"] .rightArm { transform: rotate(70deg); }
+.character[data-activity="thinking"] .characterHead { animation: thinkNod 3s ease-in-out infinite; }
+.character[data-activity="stretch"] .leftArm, .character[data-activity="celebrating"] .leftArm { animation: stretchArm 2s ease-in-out infinite alternate; }
+.character[data-activity="stretch"] .rightArm, .character[data-activity="celebrating"] .rightArm { animation: stretchArm 2s ease-in-out infinite alternate-reverse; }
+.character[data-activity="lounge"] .characterRig { transform: rotate(-8deg); }
+.activityNote { display: block; color: var(--muted-text); font-size: 11px; line-height: 1.6; margin-bottom: 14px; }
+@keyframes idleBreathe { 50% { transform: scaleY(1.012); } }
+@keyframes walkLimb { from { transform: rotate(-15deg); } to { transform: rotate(15deg); } }
+@keyframes walkBob { to { transform: translateY(-2px); } }
+@keyframes typeHands { to { transform: rotate(28deg) translateY(-2px); } }
+@keyframes thinkNod { 50% { transform: rotate(-8deg); } }
+@keyframes stretchArm { to { transform: rotate(130deg); } }
 .station[data-selected="true"] .agentName { border-color: var(--lime); }
 .agentName { display: table; max-width: 100%; margin: -2px auto 0; padding: 3px 7px; border: 1px solid transparent; border-radius: 7px; background: #0a100ddd; font-size: 13px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .agentStatus { display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; padding: 2px 6px; border-radius: 5px; background: #0a100ddd; font-size: 11px; line-height: 1.5; color: var(--state-color); }
@@ -148,3 +188,61 @@
 @media (prefers-reduced-motion: reduce) {
   .office *, .agentDialog * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Activity rigs: seated work is a different silhouette, not a standing icon. */
+.seatedLegs, .rearHead, .remoteProp { display: none; }
+.upperBody { transform-origin: 31px 65px; }
+.character[data-seated="true"] .seatedLegs { display: block; }
+.character[data-seated="true"] .leftLeg, .character[data-seated="true"] .rightLeg { display: none; }
+.character[data-seated="true"] .upperBody { transform: translate(-3px, 7px) rotate(-9deg); }
+.character[data-seated="true"] .characterRig { animation: seatedBreathe 4s ease-in-out infinite; }
+.character[data-activity="sitting"] .characterRig { animation: takeSeat .65s ease-out both; }
+.character[data-activity="standing"] .characterRig { animation: leaveSeat .65s ease-in both; }
+.character[data-activity="waiting"] .leftArm, .character[data-activity="idle"] .leftArm { transform: rotate(-45deg); }
+.character[data-activity="waiting"] .rightArm, .character[data-activity="idle"] .rightArm { transform: rotate(35deg); }
+.character[data-activity="typing"] .leftArm, .character[data-activity="reviewing"] .leftArm { animation: keyboardLeft .7s ease-in-out infinite alternate; }
+.character[data-activity="typing"] .rightArm, .character[data-activity="reviewing"] .rightArm { animation: keyboardRight .55s ease-in-out infinite alternate; }
+.character[data-back="true"] .characterHead { display: none; }
+.character[data-back="true"] .rearHead { display: block; }
+.character[data-activity="makingCoffee"] .leftArm { animation: brewReach 2.5s ease-in-out infinite; }
+.character[data-cup="true"] .coffeeProp { display: block; }
+.character[data-activity="coffee"] .coffeeProp { animation: sipCup 3.8s ease-in-out infinite; transform-origin: 42px 55px; }
+.character[data-activity="coffee"] .rightArm { animation: sipArm 3.8s ease-in-out infinite; }
+.character[data-activity="read"] .leftArm { transform: rotate(-50deg); }
+.character[data-activity="read"] .rightArm { transform: rotate(45deg); }
+.character[data-activity="read"] .characterHead { animation: thinkNod 5s ease-in-out infinite; }
+.character[data-activity="lounge"] .upperBody { transform: translate(3px, 8px) rotate(12deg); }
+.character[data-activity="lounge"] .remoteProp { display: block; }
+.character[data-activity="lounge"] .leftArm { transform: rotate(-45deg); }
+.character[data-activity="lounge"] .rightArm { transform: rotate(30deg); }
+.commandDesk { position: absolute; left: 47%; top: 70%; width: 16%; height: auto; z-index: 590; pointer-events: none; }
+.coffeeMachine { position: absolute; left: 76.5%; top: 36%; width: 3.8%; overflow: visible; pointer-events: none; z-index: 300; }
+.coffeeSteam, .coffeePour { opacity: 0; }
+.scene[data-brewing="true"] .coffeeSteam { animation: coffeeSteam 2s ease-out infinite; }
+.scene[data-brewing="true"] .coffeePour { opacity: .8; }
+.tvPicture { position: absolute; left: 8.2%; top: 40.9%; width: 10.2%; height: 10.5%; opacity: 0; pointer-events: none; }
+.scene[data-tv="true"] .tvPicture { opacity: .7; animation: screen 7s ease-in-out infinite; }
+.sceneTools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 20px 14px; }
+.sceneTools button, .guideTrigger { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 8px 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 9px; }
+.sceneTools > span { color: var(--muted-text); font-size: 11px; }
+.seatRoster { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 7px; padding: 16px; border-top: 1px solid var(--border); }
+.seatRoster button { min-height: 54px; min-width: 0; text-align: left; padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.seatRoster span { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.seatRoster small { display: block; color: var(--state-color); font-size: 11px; margin-top: 4px; }
+.flowGuide h2 { font-size: 21px; padding-right: 24px; }
+.flowGuide > p { font-size: 13px; line-height: 1.6; color: var(--muted-text); margin-top: 8px; }
+.guideSteps { list-style: none; padding: 0; display: grid; gap: 18px; margin: 24px 0; }
+.guideSteps strong { color: var(--lime); font-size: 14px; font-weight: 500; }
+.guideSteps p, .guideDetails p { font-size: 13px; line-height: 1.7; color: var(--muted-text); margin-top: 5px; }
+.guideDetails { border-top: 1px solid var(--border); padding-bottom: 12px; }
+.guideDetails summary { min-height: 44px; padding: 14px 0 8px; font-size: 13px; cursor: pointer; }
+.flowGuide button:focus-visible, .flowGuide summary:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
+@keyframes seatedBreathe { 50% { transform: translateY(1px); } }
+@keyframes takeSeat { from { transform: translateY(-6px); } to { transform: translateY(0); } }
+@keyframes leaveSeat { from { transform: translateY(6px); } to { transform: translateY(0); } }
+@keyframes keyboardLeft { from { transform: rotate(-58deg); } to { transform: rotate(-64deg) translateY(-1px); } }
+@keyframes keyboardRight { from { transform: rotate(51deg); } to { transform: rotate(59deg) translateY(-1px); } }
+@keyframes brewReach { 20%, 60% { transform: rotate(105deg); } }
+@keyframes sipArm { 30%, 55% { transform: rotate(95deg); } }
+@keyframes sipCup { 30%, 55% { transform: translate(-9px, -23px) rotate(-18deg); } }
+@keyframes coffeeSteam { from { opacity: .4; transform: translateY(2px); } to { opacity: 0; transform: translateY(-10px); } }

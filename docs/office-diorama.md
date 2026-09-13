@@ -1,6 +1,58 @@
 # AI Office diorama implementation
 
-## Current artwork revision: warm miniature studio
+## Current follow-up: purposeful routines and a usable mission guide
+
+- Removed overhead diamonds. Idle agents get up, walk along authored aisles, sit to watch TV, read, stretch, or make coffee before carrying and drinking it at a separate spot. Seated legs, typing arms, rear-facing poses, a remote, coffee steam and an active TV distinguish activities beyond positional movement.
+- Mission-level state now recalls **all seven agents**, including unassigned and already-completed specialists. They return to their own seats; only real assigned work receives working poses/status. Completed specialists remain seated until the mission ends. Travel is presentation-only and does not delay backend execution.
+- Added a Chief command desk so the lounge remains a break destination. Furniture and poses are lightweight SVG overlays on the existing room texture, not fully modeled 3D assets. Seat/prop alignment still needs visual validation.
+- Desk labels are optional and off by default. A stable, wrapping roster below the scene retains readable names, actual statuses and keyboard/touch access without covering characters.
+- The small **How it works** button opens a Radix dialog explaining brief → plan → dependencies → missing input → QA/synthesis → human review. It includes navigation to mission, actions and archive, plus a brief checklist appended to (not replacing) the existing draft.
+- Archive now opens the mission/history tab rather than client memory. The workboard explains the next useful action for interrupted streams, missing input and completed results. Saved missions warn that task revisions do not automatically regenerate Chief's final synthesis; a linked follow-up is the supported continuation path.
+- No dependency, database or API contract changes. Idle behavior remains local/cosmetic and never makes model calls. Motion-off/reduced-motion park characters, clear animated environment states and leave mission execution untouched.
+
+### Follow-up verification
+
+- Full suite: **549 passed, 0 failed**. Added coverage for brewing before drinking, seated arrival, recall of standby/completed agents from every break destination, and remaining seated during active missions.
+- TypeScript and production build passed. Build reports `/office` at approximately **27.3 kB route JS / 154 kB first load JS**; this is not measured device performance.
+- Preview access remains restricted. **390px/tablet/desktop visual QA, popup keyboard interactions, real-device motion performance and a live backend mission are not verified.** Do not treat unit tests or a production build as visual approval.
+- Routing has destination reservations, not full collision physics. Characters use authored SVG poses, not a realistic skeletal 3D rig. Chief desk, seated poses, TV and coffee-machine alignment require an approved browser preview before release.
+
+## Current revision: living office and task execution board (2026-09-13)
+
+This section supersedes the static-art implementation and verification notes below.
+
+### Technical approach and behavior
+
+- Keep the warm room as a cached environment texture, but remove all baked-in people. Seven independent, articulated SVG characters now move with a small presentation-only simulation. No Three.js, WebGL, physics engine or new dependency.
+- `OfficeCharacters.tsx` owns its animation state in refs. A single requestAnimationFrame scheduler paints transforms at up to 30 updates/second; it does not rerender the dashboard each frame. Character layering follows foot depth. CSS handles limb motion, breathing, typing, reading, coffee and stretching.
+- `lib/office-motion.ts` supplies authored aisle waypoints, shortest-path routing, staggered randomized idle choices and destination reservations. A new assignment interrupts idle behavior and returns the agent to its station, finishing the current aisle segment before rerouting rather than teleporting. Queued/blocked/failed agents wait instead of pretending to work. Completed work gets a short reaction, then idle activity resumes.
+- Idle movement is cosmetic: no model calls, mission creation, API requests, fabricated outputs or artificial progress. The backend's existing scheduler continues to control actual task execution; travel never delays it.
+- Offscreen/background state pauses the scheduler. Motion-off and OS reduced-motion park characters at their stations and disable animations. Focus/hover holds an individual character still for inspection. Permanent station buttons remain a stable alternative to moving targets.
+- The fixed camera, readable panorama, zone controls, 44px character targets and existing Radix agent dialog are retained. Extended specialists remain in the roster, not animated on the seven-person floor.
+
+### Mission workflow revision
+
+- The existing SSE protocol already sends `taskId`; the dashboard now retains it in an independent task ledger. Multiple tasks on one agent no longer overwrite each other's status/output, and one task completing cannot hide another active task. No database or API contract changes.
+- `MissionWorkboard.tsx` separates specialist task progress, dependency readiness, QA review, final delivery and user approval. Filters expose queued, working, blocked/failed and completed tasks. Instructions and task-specific output are expandable; final output uses the existing rich-text renderer and can be copied.
+- Connection paths use actual completed dependencies of active tasks when task-level state is present. Quality corrections return the flow to specialist work even when Chief retains a synthesis status.
+- Mission history has title/client search, status filters, wrapping titles and deliverable/quality metadata. Search covers the recent records supplied by the existing overview API, not all historical records.
+- `PersistedTaskList.tsx` shows saved task dependencies, instructions, outputs, stale warnings and revision feedback. Failed retry requests retain feedback; failed approvals/ratings surface an error rather than silently claiming success.
+- Interrupted streams are reported as needing attention, with active task/agent presentation marked blocked pending inspection of the saved mission. This does not change persisted status or claim the server was cancelled. Completion is never inferred simply because the stream closed or a mission ID exists.
+
+### Asset provenance
+
+`public/office/warm-office-empty-v3.webp`: 1448 × 1086, 182,944 bytes. Created using the built-in image tool from `warm-office-v2.webp`, then encoded as WebP (quality 88) without resizing. Prompt: “Remove ALL SEVEN PEOPLE completely (six at desks and one on sofa). Reconstruct the empty chairs and sofa naturally. Keep EXACT same room layout, camera, 4:3 framing, furniture positions, desks, lamps, plants, pantry, wood floor and lighting. No people, no silhouettes, no characters anywhere. No text, no logos, no watermark. Do not move or redesign any furniture.” Original artwork is retained; no uploaded source was overwritten.
+
+### Verification and limitations
+
+- Movement/task/scene regression checks cover graph connectivity, actual idle travel, continuous interruption/return, queued/blocked behavior, QA/Chief poses, completion reactions, occupied idle destinations, concurrent same-agent tasks, output preservation and dependency-based handoffs.
+- Full test suite: 544 passing. TypeScript checks and a clean production build pass. Build reports `/office` at approximately 23.6 kB route JS / 150 kB first load JS; this is not a device performance measurement.
+- Token lint remains a repository baseline failure (115 violations, down from 125); the new SVG palette lives in scoped CSS rather than hardcoded component literals.
+- Browser QA is blocked: the provided browser returns `net::ERR_BLOCKED_BY_CLIENT` for the local preview. The dev server also encountered this host's `uv_interface_addresses` restriction. No workaround to browser/network restrictions was attempted. Screenshots and interaction checks at 390px, tablet and desktop, real-device performance, Safari and a live paid mission are **not verified**.
+- This is a lightweight 2.5D character simulation, not The Sims engine or a fully modeled 3D world. Routes are authored for this exact backdrop; there is no full crowd collision physics, free camera, furniture interaction solver or per-pixel furniture occlusion. Visual route/seat alignment must be checked in an approved browser preview before release.
+- Work is isolated to `feature/ai-office-mvp`; do not merge into main.
+
+## Previous revision: static warm miniature studio
 
 The follow-up reference changes the art direction from procedural SVG meshes to a detailed, warm, pre-rendered office illustration. The original architecture notes below describe the first revision, not the current rendering.
 
