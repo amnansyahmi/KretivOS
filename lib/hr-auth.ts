@@ -6,6 +6,7 @@ import { getDatabase } from "@/lib/db";
 export const HR_SESSION_COOKIE = "kretivos_hr_session";
 export const HR_SESSION_DAYS = 7;
 export const HR_AUTH_ENABLED = process.env.HRMS_AUTH_ENABLED === "true";
+export const HR_DEV_BYPASS_ENABLED = process.env.NODE_ENV !== "production" && process.env.HRMS_DEV_BYPASS === "true";
 export type HRRole = "hr_admin" | "manager" | "employee" | "finance";
 
 export type HRSession = {
@@ -85,6 +86,12 @@ export const sessionCookieOptions = (expires: Date) => ({
 
 export async function getHRSession(tokenOverride?: string): Promise<HRSession | null> {
   if (!HR_AUTH_ENABLED) {
+    // Authentication must fail closed. The old behaviour silently elevated the
+    // first active user to hr_admin whenever HRMS_AUTH_ENABLED was false or
+    // missing. Keep a development-only escape hatch, but require an explicit
+    // opt-in and never allow it in production.
+    if (!HR_DEV_BYPASS_ENABLED) return null;
+
     const sql = getDatabase();
     let rows = await sql`
       select id, display_name, email from users
